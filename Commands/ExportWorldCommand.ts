@@ -23,7 +23,7 @@ export class ExportWorldCommand {
         new WorldKeySelectionModal(this.app, async (worldKey: string, worldFolder: string) => {
             if (worldKey.length === 10) {
                 const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
-                await validator.execute(worldFolder); // Pass the chosen world folder name
+                await validator.execute(worldFolder); 
         
                 const validationModal = new ValidateExportResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, worldFolder);
         

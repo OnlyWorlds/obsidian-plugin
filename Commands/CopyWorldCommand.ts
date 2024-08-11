@@ -2,6 +2,8 @@ import { App, Notice, FileSystemAdapter, normalizePath, PluginManifest, TFile } 
 import { WorldService } from 'Scripts/WorldService';
 import { WorldCopyModal } from 'Modals/WorldCopyModal';
 import { Category } from 'enums';
+import { ValidateCopyResultModal } from 'Modals/ValidateCopyResultModal';
+import { ValidateWorldCommand } from './ValidateWorldCommand';
 
 export class CopyWorldCommand {
     app: App;
@@ -20,28 +22,41 @@ export class CopyWorldCommand {
             new Notice('No active world selected.');
             return;
         }
-    
+     
+        const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
+        await validator.execute(activeWorldName); 
+
+        const validationModal = new ValidateCopyResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, activeWorldName);
+        validationModal.setExportCallback(async () => {
+            if (validator.errorCount === 0) {
+                await this.copyWorldData(activeWorldName); // Only copy data if there are no errors
+            }
+        });
+        validationModal.open();
+    }
+
+    async copyWorldData(activeWorldName: string) {
         const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${activeWorldName}`);
         const worldDataPath = `${worldFolderPath}/World Data File.md`;
         const worldFilePath = `${worldFolderPath}/World.md`;
         const fs = this.app.vault.adapter as FileSystemAdapter;
-    
+
         // Check if the World file exists before attempting to read
         if (!await fs.exists(worldFilePath)) {
             new Notice('World file does not exist.');
             return;
         }
-    
+
         try {
             const worldData = await this.collectWorldData(worldFolderPath);
             const worldDataJSON = JSON.stringify(worldData, null, 4);
-    
+
             // Write or overwrite the World Data File with JSON data
             await fs.write(worldDataPath, worldDataJSON);
-    
+
             // Copy to clipboard
             navigator.clipboard.writeText(worldDataJSON);
-    
+
             // Modal confirmation
             new WorldCopyModal(this.app, `${activeWorldName}`).open();
             new Notice(`World data file updated for ${activeWorldName}.`);
