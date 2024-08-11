@@ -1,0 +1,68 @@
+/* styles.css */
+
+ 
+
+.text-field::after, .number-field::after, .link-field::after, .multi-link-field::after  {
+    content: attr(data-tooltip);
+    visibility: hidden;
+    background-color: black;
+    color: white;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px 10px;
+    position: absolute;
+    z-index: 1;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: 300px;
+    font-size: 0.75em;
+}
+
+.text-field:hover::after, .number-field:hover::after, .link-field:hover::after, .multi-link-field:hover::after {
+    visibility: visible;
+}
+
+.text-field {
+    color: whitesmoke;
+    pointer-events: none; 
+}
+
+.number-field {
+    font-style: italic;
+    color: whitesmoke; 
+}
+
+.link-field {
+    color: whitesmoke; 
+    border-bottom: 1px dotted rgb(114, 180, 208);
+
+}
+.multi-link-field {
+    color: ghostwhite;
+    text-decoration: none;
+    border-bottom: 1px dotted rgb(27, 102, 232); 
+}
+
+.custom-link {
+    color: var(--text-link);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.custom-link:hover {
+    color: var(--text-link-hover);
+    text-decoration: underline;
+}
+.node-character {
+    fill: blue; /* SVG fill color for character nodes */
+}
+
+.node-location {
+    fill: green; /* SVG fill color for location nodes */
+}
+
+.node-event {
+    fill: red; /* SVG fill color for event nodes */
+}

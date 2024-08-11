@@ -1,0 +1,11 @@
+{
+	"id": "onlyworlds-obsidian-plugin",
+	"name": "OnlyWorlds Plugin",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Integrates OnlyWorlds structure for import/export support",
+	"author": "Titus Oosting",
+	"authorUrl": "https://www.onlyworlds.com",
+	"fundingUrl": "https://www.onlyworlds.com",
+	"isDesktopOnly": false
+}
