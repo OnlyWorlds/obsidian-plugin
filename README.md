@@ -1,17 +1,17 @@
 # OnlyWorlds Plugin for Obsidian
 
-This plugin provides complete workflows for world creation, building, and management, fully compatible with the OnlyWorlds framework
+This plugin provides complete workflows for world creation, building, and management, fully compatible with the [OnlyWorlds](https://www.onlyworlds.com) framework
 
 It functions as a standalone tool for organizing worlds and also facilitates the transfer of these worlds across various other tools and games
 
 More information about OnlyWorlds in this [technical documentation](https://onlyworlds.github.io)
 
  
-## Getting Started
+## Getting Started 
+
 Create a world and required structures with the Create World command (Ctrl + P)
 
-Use the Create Element command to fill your world with elements of  [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
-
+Use Create Element to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
 
 Integrate existing world content, or create new, by shaping elements through their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) on improving  field definitions
 
@@ -31,7 +31,6 @@ Convert your worlds into a shippable JSON data format for local copy and online 
     - **Settings**: A few plugin options
 
 ## Commands 
-
 - `Create World` Create a new world file and necessary files
 - `Paste World`  Create necessary files and world directly from a World Data string - `Import World` Create necessary files and world from online World Data using a world key
 - `Copy World` Create World Data string for a world in your vault
@@ -54,7 +53,7 @@ Convert your worlds into a shippable JSON data format for local copy and online 
 
 ## Settings 
 - Write the **active world** name for ongoing work 
-- Enable quick commands for creating elements for each of the 18 categories   
+- Enable 18 category-specific commands for creating elements 
    
 ## Contact and Contribution
 Feedback and contribution for this plugin or anything OnlyWorlds is always welcome, via  [discord](https://discord.gg/twCjqvVBwb) or [github](https://github.com/OnlyWorlds/OnlyWorlds) or [reddit](https://www.reddit.com/r/OnlyWorlds/) or [email](onlyworldsdev@gmail.com)
