@@ -1,11 +1,11 @@
 {
-	"id": "onlyworlds-obsidian-plugin",
-	"name": "OnlyWorlds Plugin",
+	"id": "onlyworlds-builder",
+	"name": "OnlyWorlds Builder",
 	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "World building structure with OnlyWorlds integration",
 	"author": "Titus",
-	"authorUrl": "https://www.onlyworlds.com",
+	"authorUrl": "https://onlyworlds.github.io",
 	"fundingUrl": "https://www.onlyworlds.com",
 	"isDesktopOnly": false
 }
