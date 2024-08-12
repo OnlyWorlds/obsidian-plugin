@@ -8,14 +8,12 @@ export class WorldService {
         this.app = app;
     }
 
-    async getWorldName(): Promise<string> {
-        console.log("Starting to fetch world name from settings...");
+    async getWorldName(): Promise<string> { 
         const settingsWorldName = await this.getWorldNameFromSettings();
-        if (settingsWorldName && await this.verifyWorldExists(settingsWorldName)) {
-            console.log(`World name from settings: ${settingsWorldName}`);
+        if (settingsWorldName && await this.verifyWorldExists(settingsWorldName)) { 
             return settingsWorldName;
         } else {
-            console.log("No valid world name in settings or no matching folder, using top folder logic...");
+         //   No valid world name in settings or no matching folder, use top folder 
             return this.getWorldNameFromTopFolder();
         }
     }
@@ -30,7 +28,7 @@ export class WorldService {
                 return match[1].trim();
             }
         } catch (error) {
-            console.log("Error reading settings file:", error);
+         
         }
         return null; // Return null if settings file is not found or no name is specified
     }
@@ -53,7 +51,6 @@ export class WorldService {
         const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);
         if (worldsFolder instanceof TFolder) {
             const exists = worldsFolder.children.some(child => child instanceof TFolder && child.name === worldName);
-            console.log(`Checking if world exists: ${worldName} - ${exists}`);
             return exists;
         }
         return false;

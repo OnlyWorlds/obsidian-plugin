@@ -42,9 +42,7 @@ export default class OnlyWorldsPlugin extends Plugin {
 
 
         Handlebars.registerHelper('linkify', (ids:string) => {
-          if (!ids) return '';
-          // Log the input IDs to verify they're being received correctly.
-          console.log(`Linkifying Ids: ${ids}`);
+          if (!ids) return ''; 
           return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
       });
 
@@ -60,7 +58,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       callDelayedFunctions(){
         this.analyzeSettingsFile() ; 
 
-        console.log("OW Plugin loaded"); 
+        console.log("OnlyWorlds Plugin loaded"); 
       }
 
       addStyles() {
@@ -205,11 +203,9 @@ export default class OnlyWorldsPlugin extends Plugin {
               return;
           }
           
-          if (settingsFile instanceof TFile) {
-             // console.log("Settings file confirmed as TFile, proceeding to read.");
+          if (settingsFile instanceof TFile) { 
               const content = await this.app.vault.read(settingsFile);
-              const individualCreationEnabled = this.parseSettingsForIndividualCreation(content);
-            //  console.log(`Individual Element Creation enabled: ${individualCreationEnabled}`);
+              const individualCreationEnabled = this.parseSettingsForIndividualCreation(content); 
   
               if (individualCreationEnabled) {
                   this.registerIndividualCreationCommands();
@@ -243,8 +239,7 @@ export default class OnlyWorldsPlugin extends Plugin {
                   });
                   nameModal.open();
               }
-          });
-         // console.log(`Registered command: ${commandName}`);
+          }); 
       });
   }
 }

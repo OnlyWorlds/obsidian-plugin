@@ -20,9 +20,7 @@ export class CreateWorldCommand {
     }
 
 
-    async execute() {
-        console.log("Starting world creation process...");
-
+    async execute() { 
         try {
             const worldName = await this.getWorldName();
             if (!worldName) {
@@ -76,7 +74,7 @@ export class CreateWorldCommand {
                 console.error(`Error creating folder: ${folderPath}`, error);
             }
         } else {
-            console.log(`Folder already exists: ${folderPath}`);
+  
         }
     }
 

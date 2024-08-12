@@ -75,51 +75,42 @@ export class NoteLinker extends Plugin {
     
     private async fetchElements(elementType: string, currentId: string): Promise<{ name: string; id: string }[]> {
         const topWorldName = await this.worldService.getWorldName();
-        const elementsPath = `OnlyWorlds/Worlds/${topWorldName}/Elements/${elementType}`;
-        console.log(`Looking for elements in: ${elementsPath}`); // Confirm the path
+        const elementsPath = `OnlyWorlds/Worlds/${topWorldName}/Elements/${elementType}`; 
     
-        const files = this.app.vault.getMarkdownFiles().filter(file => file.path.startsWith(elementsPath));
-        console.log(`Total files found in the path: ${files.length}`); // Log the number of files found
+        const files = this.app.vault.getMarkdownFiles().filter(file => file.path.startsWith(elementsPath)); 
     
         const elements = [];
         for (const file of files) {
             const content = await this.app.vault.read(file);
             const { name, id } = this.parseElement(content);
-            console.log(`Checking file: ${file.path}, Found Id: ${id}, Name: ${name}`); // Detailed log for each file
+        //    console.log(`Checking file: ${file.path}, Found Id: ${id}, Name: ${name}`); // Detailed log for each file
     
             if (id !== currentId) {
-                elements.push({ name, id });
-                console.log(`Added element: ${name} with Id: ${id}`); // Log each element added
+                elements.push({ name, id }); 
             }
         }
-    
-        console.log(`Total elements added: ${elements.length}`); // Final count of elements added
+     
         return elements;
     }
  
 
-    private extractWorldName(filePath: string): string {
-        // Assumes the path format is 'OnlyWorlds/Worlds/{WorldName}/...'
+    private extractWorldName(filePath: string): string { 
         const pathParts = filePath.split('/');
         const worldIndex = pathParts.indexOf('Worlds');
         if (worldIndex !== -1 && pathParts.length > worldIndex + 1) {
             return pathParts[worldIndex + 1];
         }
-        return "Unknown World";  // Default if the world name cannot be determined
+        return "Unknown World";  
     }
    
 
-  private parseElement(content: string): { name: string, id: string } {
-    console.log("Parsing element content...");
+  private parseElement(content: string): { name: string, id: string } { 
     // Adjust the regex to capture the full ID including dashes and potential special characters
     const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([\w-]+)/);
     const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*(.+)/);
 
     const id = idMatch ? idMatch[1].trim() : "Unknown Id";
-    const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element";
-
-    console.log(`Parsed Id: ${id}`);
-    console.log(`Parsed Name: ${name}`);
+    const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element"; 
 
     return { id, name };
 }
@@ -152,8 +143,7 @@ private handleElementSelection(editor: Editor, cursor: EditorPosition, lineText:
         let newValue = selectedElements.length > 0 ? `[[${selectedElements[0].name}]]` : '';
         editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + newValue);
     }
-
-    console.log(`Updated Line Content: ${lineContent}`);
+ 
 }
 
 

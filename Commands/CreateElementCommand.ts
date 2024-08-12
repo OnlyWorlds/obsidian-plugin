@@ -43,8 +43,7 @@ export class CreateElementCommand {
 
     insertIdInTemplate(content: string, id: string): string {
         const lines = content.split('\n');
-        const idLineIndex = lines.findIndex(line => line.includes('Id</span>:'));
-        console.log("id : " + id);
+        const idLineIndex = lines.findIndex(line => line.includes('Id</span>:')); 
         if (idLineIndex !== -1) {
             lines[idLineIndex] = lines[idLineIndex].replace('Id</span>:', `Id</span>: ${id}`);
         }

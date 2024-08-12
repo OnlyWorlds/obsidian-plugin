@@ -73,9 +73,7 @@ export class ImportWorldCommand {
         let existingFolder = this.app.vault.getAbstractFileByPath(normalizedPath);
         if (!existingFolder) {
             try {
-                await this.app.vault.createFolder(normalizedPath);
-             //   console.log(`Created folder: ${normalizedPath}`);
-           //     new Notice(`Created folder: ${normalizedPath}`);
+                await this.app.vault.createFolder(normalizedPath);  
             } catch (error) {
                 console.error(`Error creating folder: ${normalizedPath}`, error);
             }

@@ -33,9 +33,7 @@ export class ExportWorldCommand {
                         const payload = {
                             worldKey: worldKey,
                             worldData: worldData
-                        };
-        
-                        console.log(`Sending data to URL: ${this.apiUrl}`);
+                        }; 
         
                         const response = await requestUrl({
                             url: this.apiUrl,
@@ -72,8 +70,7 @@ export class ExportWorldCommand {
     
         // Read the 'World' file content and parse it
         try {
-            const worldFileContent = await fs.read(worldFilePath);
-        //    console.log(`Reading World file: ${worldFilePath}`);
+            const worldFileContent = await fs.read(worldFilePath); 
             const worldInfo = this.parseWorldFile(worldFileContent);
             worldData['World'] = worldInfo; // Directly assign the object, not in an array
         } catch (error) {
@@ -88,11 +85,9 @@ export class ExportWorldCommand {
             if (isNaN(Number(category))) {
                 const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements/${category}`);
                 const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
-    
-                console.log(`Collecting data for category: ${category}`);
+     
                 const categoryData = await Promise.all(files.map(async (file) => {
-                    const fileContent = await fs.read(file.path);
-                //    console.log(`Reading file: ${file.path}`);
+                    const fileContent = await fs.read(file.path); 
                     return await this.parseTemplate(fileContent);
                 }));
     
@@ -101,7 +96,7 @@ export class ExportWorldCommand {
             }
         }
     
-        console.log(`Final world data: ${JSON.stringify(worldData)}`);
+      //  console.log(`Final world data: ${JSON.stringify(worldData)}`);
         return worldData;
     }
     
@@ -140,16 +135,11 @@ export class ExportWorldCommand {
     
         // Extract world name from the active file path
         const currentFile = this.app.workspace.getActiveFile();
-        const worldName = currentFile ? this.extractWorldName(currentFile.path) : "Unknown World";
-      //  console.log(`Current file path: ${currentFile?.path}`);
-      //  console.log(`Extracted world name: ${worldName}`);
+        const worldName = currentFile ? this.extractWorldName(currentFile.path) : "Unknown World"; 
     
         // Extract the element type from the surrounding line context
         const elementTypeMatch = /data-tooltip="(Single|Multi) ([^"]+)"/.exec(lineText);
-        const elementType = elementTypeMatch ? elementTypeMatch[2] : null;
-      //  console.log(`Line text: ${lineText}`);
-     //   console.log(`Element type match: ${elementTypeMatch}`);
-       // console.log(`Extracted element type: ${elementType}`);
+        const elementType = elementTypeMatch ? elementTypeMatch[2] : null; 
     
         if (!elementType) {
             console.error("Element type not found in the linked text");
@@ -157,21 +147,17 @@ export class ExportWorldCommand {
         }
     
         while ((match = linkPattern.exec(linkedText)) !== null) {
-            const noteName = match[1];
-         //   console.log(`Processing link: ${noteName}`);
+            const noteName = match[1]; 
     
             // Build the correct file path based on the world name and element type
             const linkedFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${elementType}/${noteName}.md`);
-         //   console.log(`Resolved file path: ${linkedFilePath}`);
-    
+         
             const linkedFile = this.app.vault.getAbstractFileByPath(linkedFilePath);
     
-            if (linkedFile && linkedFile instanceof TFile) {
-                console.log(`Found linked file: ${linkedFilePath}`);
+            if (linkedFile && linkedFile instanceof TFile) { 
                 const fileContent = await this.app.vault.read(linkedFile);
                 const { id } = this.parseElement(fileContent); // Assumes parseElement can extract 'id' from note
-                ids.push(id);
-             //   console.log(`Extracted ID: ${id} from note: ${noteName}`);
+                ids.push(id); 
             } else {
                 console.error(`Linked file not found: ${noteName}`);
             }
@@ -190,31 +176,27 @@ export class ExportWorldCommand {
         for (const line of lines) {
             const sectionMatch = line.match(sectionPattern);
             if (sectionMatch) {
-                currentSection = this.toSnakeCase(sectionMatch[1]);
-             //   console.log(`Current section: ${currentSection}`);
+                currentSection = this.toSnakeCase(sectionMatch[1]); 
                 continue;
             }
     
             const match = line.match(keyValuePattern);
             if (match) {
                 let key = this.toSnakeCase(match[1].replace(/\*\*/g, ''));
-                const value = match[2].trim();
-             //   console.log(`Found key: ${key}, value: ${value}`);
+                const value = match[2].trim(); 
     
                 if (value.startsWith('[[')) {
                     // If value contains links, extract IDs
                     const ids = await this.extractLinkedIds(value, line);
-                    data[key] = ids.join(',');
-                  //  console.log(`Extracted IDs for key ${key}: ${data[key]}`);
+                    data[key] = ids.join(','); 
                 } else {
                     data[key] = value;
                 }
-            } else {
-               // console.log(`No match for line: ${line}`);
+            } else { 
             }
         }
     
-        console.log(`Parsed data: ${JSON.stringify(data)}`);
+     //   console.log(`Parsed data: ${JSON.stringify(data)}`);
         return data;
     }
     
@@ -235,10 +217,7 @@ export class ExportWorldCommand {
         const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\s<]+)/);
         
         const id = idMatch ? idMatch[1].trim() : "Unknown Id";
-        const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element";
-        
-        console.log(`Parsed Id: ${id}`);
-        console.log(`Parsed Name: ${name}`);
+        const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element"; 
         
         return { id, name };
     }

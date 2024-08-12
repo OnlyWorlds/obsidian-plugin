@@ -26,7 +26,7 @@ export class GraphViewExtensions {
                 const categoryClass = `color-fill-${this.getCategoryClass(node.data.category)}`;
                 node.domElement.classList.add(categoryClass);
             } else {
-                console.log("domElement is undefined for node", node);
+           
             }
         });
     }
@@ -69,7 +69,7 @@ export class GraphViewExtensions {
 
     private handleNodeClick(node: any) {
         // Example action on node click
-        console.log(`Node clicked: ${node.data.name}`);
+       //  console.log(`Node clicked: ${node.data.name}`);
         // You can expand this method to show a modal, details pane, or other interactive elements
     }
 

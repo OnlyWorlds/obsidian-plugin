@@ -31,7 +31,7 @@ export class CreateCategoryFoldersCommand {
                 console.error(`Error creating folder: ${folderPath}`, error);
             }
         } else {
-            console.log(`Folder already exists: ${folderPath}`);
+           
         }
     }
 }

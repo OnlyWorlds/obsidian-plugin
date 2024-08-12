@@ -48,8 +48,7 @@ export class WorldKeySelectionModal extends Modal {
             }
         });
 
-        input.focus();
-        console.log("World folders found:", worldFolders); // Log the world folders found
+        input.focus(); 
     }
 
     async getWorldFolders(): Promise<string[]> { 
@@ -69,8 +68,7 @@ export class WorldKeySelectionModal extends Modal {
                     folderNames.push(child.name);
                 }
             }
-        }
-        console.log("Processed folder names:", folderNames); // Log the processed folder names
+        } 
         return folderNames;
     }
 

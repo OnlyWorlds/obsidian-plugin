@@ -58,8 +58,7 @@ export class RenameWorldCommand {
         const settingsFilePath = normalizePath('OnlyWorlds/Settings.md');
 
         this.app.vault.adapter.read(settingsFilePath).then(content => {
-            const updatedContent = this.updateWorldNameInSettings(content, oldWorldName, newWorldName);
-            console.log("UPDATED: " + updatedContent);
+            const updatedContent = this.updateWorldNameInSettings(content, oldWorldName, newWorldName); 
             this.app.vault.adapter.write(settingsFilePath, updatedContent).then(() => {
                 new Notice('Settings file updated successfully.');
             }).catch(error => {

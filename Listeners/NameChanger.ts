@@ -9,13 +9,10 @@ export class NameChanger extends Plugin {
             this.app.vault.on('rename', async (file: TFile, oldPath: string) => { 
                 const oldName = oldPath.split('/').pop()?.replace(/\.md$/, '');
                 if (file instanceof TFile && file.extension === 'md' && oldName) {
-                    const newName = file.basename;
-                 //   console.log('CHECK 1  newname ' + newName);
-                //    console.log('CHECK 1  oldName ' + oldName);
+                    const newName = file.basename; 
                     const content = await this.app.vault.read(file);
                     const nameRegex = new RegExp(`<span class="text-field" data-tooltip="Text">Name</span>:\\s*${oldName}(\\n|$)`);
-                //    console.log('CHECK 1  nameRegex ' + nameRegex);
-                //    console.log('CHECK 1  content ' + content);
+      
                     
                     if (nameRegex.test(content)) { 
                     const newContent = content.replace(nameRegex, `<span class="text-field" data-tooltip="Text">Name</span>: ${newName}$1`);

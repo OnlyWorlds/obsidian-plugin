@@ -33,13 +33,12 @@ export class CreateTemplatesCommand {
                     content = content.replace("{{id}}", uuid);  // Assume {{id}} is where the UUID should go
 
                     // Create the file only if it does not already exist
-                    await this.app.vault.create(targetPath, content);
-                  //  console.log(`Created template: ${fileName} with ID: ${uuid}`);
+                    await this.app.vault.create(targetPath, content); 
                 } else {
                     console.error(`Template file not found: ${sourcePath}`);
                 }
             } else {
-              //  console.log(`Template file already exists, no action taken: ${targetPath}`);
+           
             }
         }
     }
@@ -48,10 +47,9 @@ export class CreateTemplatesCommand {
         try {
             const existingFolder = this.app.vault.getAbstractFileByPath(folderPath);
             if (!existingFolder) {
-                await this.app.vault.createFolder(folderPath);
-                console.log(`Created folder: ${folderPath}`);
+                await this.app.vault.createFolder(folderPath); 
             } else {
-                console.log(`Folder already exists: ${folderPath}`);
+          
             }
         } catch (error) {
             console.error(`Error creating folder: ${folderPath}`, error);
