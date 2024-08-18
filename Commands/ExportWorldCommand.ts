@@ -62,8 +62,12 @@ export class ExportWorldCommand {
     
 
     async collectWorldData(worldFolder: string) {
-        const fs: FileSystemAdapter = this.app.vault.adapter as FileSystemAdapter;
-        let worldData: Record<string, any> = {};  // Change from any[] to any for flexible indexing
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
+        let worldData: Record<string, any> = {};   
     
         // Path to the 'World' file inside the selected world folder
         const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/World.md`);

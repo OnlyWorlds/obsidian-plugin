@@ -226,13 +226,10 @@ export default class OnlyWorldsPlugin extends Plugin {
 }
 
   registerIndividualCreationCommands() {
-      Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {
-          const commandId = `create-new-${category.toLowerCase()}`;
-          const commandName = `Create new ${category}`;
-
+      Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {  
           this.addCommand({
-              id: commandId,
-              name: commandName,
+              id: `create-new-${category.toLowerCase()}`,
+              name: `Create new ${category}`,
               callback: () => {
                   let nameModal = new NameInputModal(this.app, category, (cat, name) => {
                       new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, name);

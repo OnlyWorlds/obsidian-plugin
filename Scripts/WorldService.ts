@@ -21,7 +21,12 @@ export class WorldService {
     private async getWorldNameFromSettings(): Promise<string | null> {
         const settingsPath = normalizePath('OnlyWorlds/Settings.md');
         try {
-            const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath) as TFile;
+            const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath);
+
+            if (!(settingsFile instanceof TFile)) {
+                console.error('Expected settings file not found.');
+                return "";  
+}
             const content = await this.app.vault.read(settingsFile);
             const match = content.match(/^- \*\*Primary World Name:\*\* (.+)$/m);
             if (match && match[1].trim()) {

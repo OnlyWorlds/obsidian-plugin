@@ -39,7 +39,11 @@ export class CopyWorldCommand {
         const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${activeWorldName}`);
         const worldDataPath = `${worldFolderPath}/World Data File.md`;
         const worldFilePath = `${worldFolderPath}/World.md`;
-        const fs = this.app.vault.adapter as FileSystemAdapter;
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
 
         // Check if the World file exists before attempting to read
         if (!await fs.exists(worldFilePath)) {
@@ -67,7 +71,11 @@ export class CopyWorldCommand {
     }
     
     async collectWorldData(worldFolder: string) {
-        const fs: FileSystemAdapter = this.app.vault.adapter as FileSystemAdapter;
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
         let worldData: Record<string, any> = {};  // Change from any[] to any for flexible indexing
     
         // Path to the 'World' file inside the selected world folder

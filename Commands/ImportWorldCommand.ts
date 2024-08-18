@@ -41,7 +41,11 @@ export class ImportWorldCommand {
                     // Corrected paths to include OnlyWorlds/Worlds/{worldName}/Elements
                     const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldName}`);
                     const elementsFolderPath = normalizePath(`${worldFolderPath}/Elements`);
-                    const fs = this.app.vault.adapter as FileSystemAdapter;
+                    if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+                        new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+                        return; 
+                    }             
+                    const fs: FileSystemAdapter = this.app.vault.adapter;
     
                     // Ensure the World and Elements folders exist
                     await this.createFolderIfNeeded(worldFolderPath);
@@ -83,7 +87,11 @@ export class ImportWorldCommand {
     
 
     async generateWorldFile(worldData: any, worldFolderPath: string) {
-        const fs = this.app.vault.adapter as FileSystemAdapter;
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
         const worldTemplatePath = normalizePath(`${this.app.vault.configDir}/plugins/obsidian-plugin/Handlebars/WorldHandlebar.md`);
         const worldTemplateText = await fs.read(worldTemplatePath);
         const worldTemplate = Handlebars.compile(worldTemplateText);
@@ -94,7 +102,11 @@ export class ImportWorldCommand {
         new Notice(`World file created: ${worldFilePath}`);
     }
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
-        const fs = this.app.vault.adapter as FileSystemAdapter;
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
         
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;

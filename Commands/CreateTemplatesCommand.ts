@@ -13,16 +13,30 @@ export class CreateTemplatesCommand {
         this.manifest = manifest;
     }
 
+    hasBasePath(adapter: any): adapter is { getBasePath: () => string } {
+        return typeof adapter.getBasePath === 'function';
+    }
+
+
     async execute(): Promise<void> {
         const templateFolder = normalizePath('OnlyWorlds/Templates');
         const categories = Object.keys(Category).filter(key => isNaN(Number(key)));
+        const configDir = this.app.vault.configDir;  // Retrieve the configured directory from user settings
 
         // Ensure the template folder exists
         await this.createFolderIfNeeded(templateFolder);
 
         for (const category of categories) {
             const fileName = `${category}.md`;
-            const sourcePath = resolve((this.app.vault.adapter as any).getBasePath(), '.obsidian', 'plugins', 'obsidian-plugin', 'Templates', fileName);
+            // Use the user-configured directory for source path
+            var sourcePath = "";
+            const adapter = this.app.vault.adapter;
+            if (this.hasBasePath(adapter)) {
+                sourcePath = resolve(adapter.getBasePath(), '.obsidian', 'plugins', 'obsidian-plugin', 'Templates', fileName);
+            } else {
+                console.error("Adapter does not support getBasePath");
+            }
+           
             const targetPath = normalizePath(`${templateFolder}/${fileName}`);
 
             // Check if the target file already exists to prevent unnecessary creation attempts
@@ -36,9 +50,10 @@ export class CreateTemplatesCommand {
                     await this.app.vault.create(targetPath, content); 
                 } else {
                     console.error(`Template file not found: ${sourcePath}`);
+                    new Notice('Template file not found.');
                 }
             } else {
-           
+                // Log or handle existing file scenario
             }
         }
     }
@@ -49,7 +64,7 @@ export class CreateTemplatesCommand {
             if (!existingFolder) {
                 await this.app.vault.createFolder(folderPath); 
             } else {
-          
+                // Handle case where folder already exists
             }
         } catch (error) {
             console.error(`Error creating folder: ${folderPath}`, error);

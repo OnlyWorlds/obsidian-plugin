@@ -38,22 +38,24 @@ export class ValidateWorldCommand {
         }
         
         const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldFolderName}/Elements`);
-        const elementsFolder = this.app.vault.getAbstractFileByPath(worldFolderPath) as TFolder;
+
+        const elementsFolder = this.app.vault.getAbstractFileByPath(worldFolderPath);
         
-        if (!elementsFolder || !(elementsFolder instanceof TFolder)) {
+        if (!(elementsFolder instanceof TFolder)) {
             console.error('Elements folder not found.');
-            return;
+            return;  
         }
+     
         
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (!isNaN(Number(category))) continue; // Skip if category is not a string
         
             const categoryPath = normalizePath(`${worldFolderPath}/${category}`);
-            const categoryFolder = this.app.vault.getAbstractFileByPath(categoryPath) as TFolder;
+            const categoryFolder = this.app.vault.getAbstractFileByPath(categoryPath);
         
-            if (!categoryFolder || !(categoryFolder instanceof TFolder)) { 
-                continue;
+            if (!(categoryFolder instanceof TFolder)) {
+                continue; // Skip to the next category if the folder is not found
             }
          
             for (const file of categoryFolder.children) {

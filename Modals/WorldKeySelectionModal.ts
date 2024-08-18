@@ -53,11 +53,13 @@ export class WorldKeySelectionModal extends Modal {
 
     async getWorldFolders(): Promise<string[]> { 
         const worldsPath = normalizePath('OnlyWorlds/Worlds/');
-        const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath) as TFolder;
-        if (!worldsFolder || !(worldsFolder instanceof TFolder)) {
-            console.error('No valid worlds folder found at path:', worldsPath);
-            return [];
-        } 
+        const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);
+
+        if (!(worldsFolder instanceof TFolder)) {
+            console.error('Expected worlds folder not found.');
+            return [];  
+        }
+        
 
         let folderNames = [];
         for (let child of worldsFolder.children) {

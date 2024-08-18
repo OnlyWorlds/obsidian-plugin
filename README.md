@@ -6,6 +6,16 @@ It functions as a standalone tool for organizing worlds and also facilitates the
 
 More information about OnlyWorlds in this [technical documentation](https://onlyworlds.github.io)
 
+## Configuring Hotkeys
+
+There is a single hotkey setup requirement for full plugin functionality
+For the action of assigning elements to attribute fields
+
+1. Open Obsidian
+2. Go to `Settings` -> `Hotkeys`
+3. Search for "Link Elements"
+4. Click on the + symbol, then input a combination
+5. (Suggestion: CTRL/CMD + SHIFT + L)
  
 ## Getting Started 
 
@@ -45,7 +55,7 @@ Convert your worlds into a shippable JSON data format for local copy and online 
 
 - **Italic fields**: Numeric only. Hover or click the field to see potential maximum value
 
-- **Link fields** (underlined): Place cursor behind, then Ctrl + Shift + L to view pickable elements. Light blue for single reference, dark multi
+- **Link fields** (underlined): Place cursor behind, then use {your-link-elements-hotkey} to view pickable elements. Light blue for single reference, dark multi
 
 ### Editing Guidelines
 - The **Name** field of an element must match the note name

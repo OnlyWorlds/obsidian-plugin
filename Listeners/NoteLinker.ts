@@ -14,12 +14,8 @@ export class NoteLinker extends Plugin {
     }
     setupLinkerListeners() {
         this.addCommand({ 
-            id: 'link-to-element',
-            name: 'Link an element',
-            hotkeys: [{
-                modifiers: ["Mod", "Shift"],
-                key: 'l'
-            }],
+            id: 'link-elements',
+            name: 'Link Elements', 
             checkCallback: (checking: boolean) => {
                 const editor = this.currentEditor;
                 if (editor) {

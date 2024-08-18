@@ -28,7 +28,11 @@ export class RenameWorldCommand {
 
      async renameWorldFile(oldWorldName: string, newWorldName: string) {
         const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${oldWorldName}/World.md`);
-        const fs: FileSystemAdapter = this.app.vault.adapter as FileSystemAdapter;
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
         const worldFileContent = await fs.read(worldFilePath);
         const updatedContent = this.updateWorldNameInContent(worldFileContent, newWorldName);
         await fs.write(worldFilePath, updatedContent);
@@ -46,7 +50,11 @@ export class RenameWorldCommand {
         return lines.join('\n');
     }
      async renameWorldFolder(oldWorldName: string, newWorldName: string) {
-        const fs: FileSystemAdapter = this.app.vault.adapter as FileSystemAdapter;
+        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
+            return; 
+        }             
+        const fs: FileSystemAdapter = this.app.vault.adapter;
         const oldPath = `OnlyWorlds/Worlds/${oldWorldName}`;
         const newPath = `OnlyWorlds/Worlds/${newWorldName}`;
         await fs.rename(oldPath, newPath);

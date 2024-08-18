@@ -47,7 +47,13 @@ export class WorldRenameModal extends Modal {
 
     async getWorldFolders(): Promise<string[]> {
         const worldsPath = normalizePath('OnlyWorlds/Worlds/');
-        const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath) as TFolder;
+        const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);
+
+        if (!(worldsFolder instanceof TFolder)) {
+            console.error('Expected worlds folder not found.');
+            return [];  
+        }
+        
         let folderNames = [];
         if (worldsFolder && worldsFolder instanceof TFolder) {
             for (let child of worldsFolder.children) {
