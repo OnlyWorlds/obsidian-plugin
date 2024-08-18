@@ -15,8 +15,7 @@ export  class WorldKeyModal extends Modal {
 
         const input = contentEl.createEl('input', {
             type: 'text',
-            placeholder: 'Please enter 10-digit world key',
-            value: '0075037444'
+            placeholder: 'Please enter 10-digit key', 
         });
 
         input.addEventListener('keydown', (e: KeyboardEvent) => {

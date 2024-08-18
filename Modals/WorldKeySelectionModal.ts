@@ -1,4 +1,4 @@
-import { App, Modal, Notice, DropdownComponent, normalizePath, TFolder, TFile } from 'obsidian';
+import { App, Modal, DropdownComponent, normalizePath, TFolder, TFile } from 'obsidian';
 
 export class WorldKeySelectionModal extends Modal {
     onChoose: (worldKey: string, worldFolder: string) => void;
@@ -13,30 +13,26 @@ export class WorldKeySelectionModal extends Modal {
     async onOpen() {
         let { contentEl } = this;
         contentEl.createEl('h3', { text: 'Select World and Enter Key' });
-
-        contentEl.style.display = 'flex';
-        contentEl.style.flexDirection = 'column';
-        contentEl.style.gap = '10px';
+        contentEl.addClass('key-selection-modal');
 
         const worldFolders = await this.getWorldFolders();
-
         const dropdown = new DropdownComponent(contentEl);
-        dropdown.selectEl.style.width = '100%'; 
+        dropdown.selectEl.addClass('key-selection-dropdown');
+
         worldFolders.forEach(folder => {
             dropdown.addOption(folder, folder);
         });
         if (worldFolders.length > 0) {
-            dropdown.setValue(this.activeWorldName || worldFolders[0]); // Pre-select the active world name
+            dropdown.setValue(this.activeWorldName || worldFolders[0]);
         }
 
         const input = contentEl.createEl('input', {
             type: 'text',
             placeholder: 'Please enter 10-digit world key',
-            value: '0075037444'
+            cls: 'key-selection-input'
         });
-        input.style.width = '100%'; 
 
-        const submitButton = contentEl.createEl('button', { text: 'Submit' });
+        const submitButton = contentEl.createEl('button', { text: 'Submit', cls: 'key-selection-submit-button' });
         submitButton.onclick = () => {
             this.close();
             this.onChoose(input.value, dropdown.getValue());
@@ -48,7 +44,7 @@ export class WorldKeySelectionModal extends Modal {
             }
         });
 
-        input.focus(); 
+        input.focus();
     }
 
     async getWorldFolders(): Promise<string[]> { 
@@ -59,19 +55,10 @@ export class WorldKeySelectionModal extends Modal {
             console.error('Expected worlds folder not found.');
             return [];  
         }
-        
 
-        let folderNames = [];
-        for (let child of worldsFolder.children) {
-            if (child instanceof TFolder) {
-                // Check if a specific file 'World.md' exists within this folder
-                let worldFile = child.children.find(file => file instanceof TFile && file.name === "World.md");
-                if (worldFile) {//
-                    folderNames.push(child.name);
-                }
-            }
-        } 
-        return folderNames;
+        return worldsFolder.children
+            .filter(child => child instanceof TFolder && child.children.some(file => file instanceof TFile && file.name === "World.md"))
+            .map(folder => folder.name);
     }
 
     onClose() {

@@ -66,3 +66,108 @@
 .node-event {
     fill: red; /* SVG fill color for event nodes */
 }
+/* Styles for WorldPasteModal textarea */
+.world-paste-textarea {
+    width: 100%;
+    min-height: 200px;
+    border: 1px solid grey;
+    padding: 10px;
+    margin-bottom: 10px; /* Spacing between textarea and button */
+}
+
+/* Specific styles for valid and invalid input */
+.world-paste-textarea.valid {
+    border-color: lightgreen;
+}
+
+.world-paste-textarea.invalid {
+    border-color: salmon;
+}
+
+/* Styles for the submit button in WorldPasteModal */
+.world-paste-submit-button {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--interactive-normal);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    transition: background-color 0.3s, opacity 0.3s;
+}
+
+.world-paste-submit-button.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.world-paste-submit-button:not(.disabled):hover {
+    background-color: var(--interactive-hover);
+    cursor: pointer;
+}
+/* Styles specific to the WorldRenameModal */
+.rename-modal-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.rename-dropdown {
+    width: 100%;
+}
+
+.rename-input {
+    width: 100%;
+    padding: 10px;
+    margin-top: 5px;
+}
+
+.rename-button {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--interactive-normal);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    opacity: 0.5; /* Start as disabled */
+    cursor: not-allowed;
+}
+
+.rename-button:not(.disabled) {
+    opacity: 1.0;
+    cursor: pointer;
+}
+
+.rename-button:not(.disabled):hover {
+    background-color: var(--interactive-hover);
+}
+.key-selection-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px;
+}
+
+.key-selection-dropdown {
+    width: 100%;
+}
+
+.key-selection-input {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+    border: 1px solid var(--background-modifier-border);
+}
+
+.key-selection-submit-button {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--interactive-normal);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.key-selection-submit-button:hover {
+    background-color: var(--interactive-hover);
+}
