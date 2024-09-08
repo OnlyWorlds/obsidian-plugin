@@ -35,10 +35,10 @@ export default class OnlyWorldsPlugin extends Plugin {
       //  this.graphViewExtensions = new GraphViewExtensions(this.app, this);
       //   this.graphViewExtensions.initializeGraphView();
       // this.addStyles(); 
-       this.nameChanger = new NameChanger(this.app, this.manifest); 
+       this.nameChanger = new NameChanger(this.app); 
        this.nameChanger.setupNameChangeListener();
-        this.noteLinker = new NoteLinker(this.app, this.manifest, this.worldService); 
-        this.noteLinker.setupLinkerListeners();
+        this.noteLinker = new NoteLinker(this.app,  this.worldService);  
+
  
 
       this.setupCommands();
@@ -182,7 +182,24 @@ export default class OnlyWorldsPlugin extends Plugin {
     });
    
 
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', leaf => this.noteLinker.handleLeafChange(leaf))
+  );
 
+  this.addCommand({
+      id: 'link-elements',
+      name: 'Link Elements',
+      callback: () => { 
+          let editor = this.noteLinker.currentEditor;
+          if (editor) {
+              const cursor = editor.getCursor();
+              const lineText = editor.getLine(cursor.line);
+              if (this.noteLinker.isLineLinkField(lineText)) {
+                  this.noteLinker.linkElement(editor, cursor, lineText);
+              }
+          }
+      }
+  });
 
     }
 

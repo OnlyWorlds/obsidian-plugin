@@ -3,37 +3,16 @@ import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 import { WorldService } from 'Scripts/WorldService';
 
 
-export class NoteLinker extends Plugin {
+export class NoteLinker {
     private worldService: WorldService;
-    private currentEditor: Editor | null = null;
+    public  currentEditor: Editor | null = null;
+    private app: App;
 
- 
-    constructor(app: App, manifest: any, worldService: WorldService) {
-        super(app, manifest);  
-        this.worldService = worldService;  
+    constructor(app: App, worldService: WorldService) {  // Specify the type here
+        this.app = app;
+        this.worldService = worldService;
     }
-    setupLinkerListeners() {
-        this.addCommand({ 
-            id: 'link-elements',
-            name: 'Link Elements', 
-            checkCallback: (checking: boolean) => {
-                const editor = this.currentEditor;
-                if (editor) {
-                    const cursor = editor.getCursor();
-                    const lineText = editor.getLine(cursor.line);
-                    if (this.isLineLinkField(lineText)) {
-                        if (checking) return true;
-                        this.linkElement(editor, cursor, lineText);
-                    }
-                }
-                return false;
-            }
-        });
-
-        this.registerEvent(
-            this.app.workspace.on('active-leaf-change', leaf => this.handleLeafChange(leaf))
-        );
-    }
+  
 
     handleLeafChange(leaf: WorkspaceLeaf | null) {
         if (leaf && leaf.view instanceof MarkdownView) {
@@ -43,11 +22,11 @@ export class NoteLinker extends Plugin {
         }
     }
 
-    private isLineLinkField(line: string): boolean {
+    public  isLineLinkField(line: string): boolean {
         return /<span class="(link-field|multi-link-field)"[^>]*>/.test(line);
     }
 
-    private async linkElement(editor: Editor, cursor: EditorPosition, lineText: string) {
+    public  async linkElement(editor: Editor, cursor: EditorPosition, lineText: string) {
         const currentFile = this.app.workspace.getActiveFile();
         if (currentFile) {
             const currentContent = await this.app.vault.read(currentFile);
