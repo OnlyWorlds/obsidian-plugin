@@ -70,7 +70,7 @@ export class PasteWorldCommand {
             return; 
         }             
         const fs: FileSystemAdapter = this.app.vault.adapter;
-        const worldTemplatePath = normalizePath(`${this.app.vault.configDir}/plugins/obsidian-plugin/Handlebars/WorldHandlebar.md`);
+        const worldTemplatePath = normalizePath(`${this.app.vault.configDir}/plugins/onlyworlds-builder/Handlebars/WorldHandlebar.md`);
         const worldTemplateText = await fs.read(worldTemplatePath);
         const worldTemplate = Handlebars.compile(worldTemplateText);
         const worldContent = worldTemplate(worldData);
@@ -98,7 +98,7 @@ export class PasteWorldCommand {
             for (const element of elements) {
                 const notePath = `${categoryDirectory}/${element.name}.md`;
                 if (overwrite || !await fs.exists(notePath)) {
-                    const templatePath = normalizePath(`${this.app.vault.configDir}/plugins/obsidian-plugin/Handlebars/${category}Handlebar.md`);
+                    const templatePath = normalizePath(`${this.app.vault.configDir}/plugins/onlyworlds-builder/Handlebars/${category}Handlebar.md`);
                     const templateText = await fs.read(templatePath);
                     const template = Handlebars.compile(templateText);
                     let noteContent = template(element);

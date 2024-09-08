@@ -39,12 +39,7 @@ export default class OnlyWorldsPlugin extends Plugin {
        this.nameChanger.setupNameChangeListener();
         this.noteLinker = new NoteLinker(this.app, this.manifest, this.worldService); 
         this.noteLinker.setupLinkerListeners();
-
-
-        Handlebars.registerHelper('linkify', (ids:string) => {
-          if (!ids) return ''; 
-          return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
-      });
+ 
 
       this.setupCommands();
       setTimeout(() => { 
@@ -73,18 +68,17 @@ export default class OnlyWorldsPlugin extends Plugin {
         document.head.appendChild(style);
     }
 
-      registerHandlebarsHelpers() {
-        if (typeof Handlebars === 'undefined') {
-          console.error("Handlebars is not available.");
-          return;
-        }
-        
-        Handlebars.registerHelper('linkify', (ids: string, options: Handlebars.HelperOptions) => {
-          if (!ids) return '';
-          // Transform CSV IDs into linked markdown format
-          return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
-        });
+    registerHandlebarsHelpers() {
+      if (typeof Handlebars === 'undefined') {
+        console.error("Handlebars is not available.");
+        return;
       }
+    
+      Handlebars.registerHelper('linkify', (ids: string) => {
+        if (!ids) return '';
+        return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
+      });
+    }
 
       setupCommands() {
        

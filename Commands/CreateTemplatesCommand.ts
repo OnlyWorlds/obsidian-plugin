@@ -32,7 +32,7 @@ export class CreateTemplatesCommand {
             var sourcePath = "";
             const adapter = this.app.vault.adapter;
             if (this.hasBasePath(adapter)) {
-                sourcePath = resolve(adapter.getBasePath(), '.obsidian', 'plugins', 'obsidian-plugin', 'Templates', fileName);
+                sourcePath = resolve(adapter.getBasePath(), '.obsidian', 'plugins', 'onlyworlds-builder', 'Templates', fileName);
             } else {
                 console.error("Adapter does not support getBasePath");
             }

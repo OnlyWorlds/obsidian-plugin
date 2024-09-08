@@ -26,7 +26,7 @@ export class CreateReadmeCommand {
 
         const adapter = this.app.vault.adapter;
         if (this.hasBasePath(adapter)) {
-            readmeTemplatePath = resolve(adapter.getBasePath(), configDir, 'plugins', 'obsidian-plugin', 'README.md');
+            readmeTemplatePath = resolve(adapter.getBasePath(), configDir, 'plugins', 'onlyworlds-builder', 'README.md');
         } else {
             console.error("Adapter does not support getBasePath");
         } 

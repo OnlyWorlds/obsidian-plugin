@@ -37,38 +37,42 @@ export class CopyWorldCommand {
 
     async copyWorldData(activeWorldName: string) {
         const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${activeWorldName}`);
-        const worldDataPath = `${worldFolderPath}/World Data File.md`;
         const worldFilePath = `${worldFolderPath}/World.md`;
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter;
-
-        // Check if the World file exists before attempting to read
-        if (!await fs.exists(worldFilePath)) {
+        const worldDataPath = `${worldFolderPath}/World Data File.md`;
+    
+        // Retrieve the 'World.md' file as a TFile instance
+        const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath) as TFile | null;
+    
+        if (worldFile instanceof TFile) {
+            try {
+                const worldData = await this.collectWorldData(worldFolderPath); // Assuming this collects data correctly
+                const worldDataJSON = JSON.stringify(worldData, null, 4);
+    
+                // Check if the World Data File exists, create new or modify existing
+                let worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
+                if (worldDataFile instanceof TFile) {
+                    // Modify existing World Data File
+                    await this.app.vault.modify(worldDataFile, worldDataJSON);
+                } else {
+                    // Create new World Data File if it does not exist
+                    worldDataFile = await this.app.vault.create(worldDataPath, worldDataJSON);
+                }
+    
+                // Copy to clipboard
+                navigator.clipboard.writeText(worldDataJSON);
+    
+                // Modal confirmation
+                new WorldCopyModal(this.app, `${activeWorldName}`).open();
+                new Notice(`World data file updated for ${activeWorldName}.`);
+            } catch (error) {
+                console.error('Error during world data processing:', error);
+                new Notice('Failed to process world data.');
+            }
+        } else {
             new Notice('World file does not exist.');
-            return;
-        }
-
-        try {
-            const worldData = await this.collectWorldData(worldFolderPath);
-            const worldDataJSON = JSON.stringify(worldData, null, 4);
-
-            // Write or overwrite the World Data File with JSON data
-            await fs.write(worldDataPath, worldDataJSON);
-
-            // Copy to clipboard
-            navigator.clipboard.writeText(worldDataJSON);
-
-            // Modal confirmation
-            new WorldCopyModal(this.app, `${activeWorldName}`).open();
-            new Notice(`World data file updated for ${activeWorldName}.`);
-        } catch (error) {
-            console.error('Error during world data processing:', error);
-            new Notice('Failed to process world data.');
         }
     }
+    
     
     async collectWorldData(worldFolder: string) {
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {

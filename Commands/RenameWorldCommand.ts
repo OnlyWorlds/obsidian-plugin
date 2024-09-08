@@ -1,5 +1,7 @@
-import { App, Notice, requestUrl, FileSystemAdapter, normalizePath } from 'obsidian';
+import { App, Notice, requestUrl, FileSystemAdapter, normalizePath, TFile, TFolder } from 'obsidian';
 import { WorldRenameModal } from 'Modals/WorldRenameModal';
+
+ 
 
 export class RenameWorldCommand {
     app: App;
@@ -26,17 +28,18 @@ export class RenameWorldCommand {
         modal.open();
     }
 
-     async renameWorldFile(oldWorldName: string, newWorldName: string) {
+    async renameWorldFile(oldWorldName: string, newWorldName: string) {
         const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${oldWorldName}/World.md`);
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter;
-        const worldFileContent = await fs.read(worldFilePath);
-        const updatedContent = this.updateWorldNameInContent(worldFileContent, newWorldName);
-        await fs.write(worldFilePath, updatedContent);
-        new Notice('World file name updated successfully.');
+        const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
+
+        if (worldFile instanceof TFile) {
+            const worldFileContent = await this.app.vault.read(worldFile);
+            const updatedContent = this.updateWorldNameInContent(worldFileContent, newWorldName);
+            await this.app.vault.modify(worldFile, updatedContent);
+            new Notice('World file name updated successfully.');
+        } else {
+            new Notice('World file does not exist.');
+        }
     }
 
     private updateWorldNameInContent(content: string, newName: string): string {
@@ -49,38 +52,36 @@ export class RenameWorldCommand {
         }
         return lines.join('\n');
     }
-     async renameWorldFolder(oldWorldName: string, newWorldName: string) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter;
-        const oldPath = `OnlyWorlds/Worlds/${oldWorldName}`;
-        const newPath = `OnlyWorlds/Worlds/${newWorldName}`;
-        await fs.rename(oldPath, newPath);
-        new Notice(`World folder renamed successfully from '${oldWorldName}' to '${newWorldName}'.`);
+
+    async renameWorldFolder(oldWorldName: string, newWorldName: string) {
+        const oldPath = normalizePath(`OnlyWorlds/Worlds/${oldWorldName}`);
+        const newPath = normalizePath(`OnlyWorlds/Worlds/${newWorldName}`);
+        const oldFolder = this.app.vault.getAbstractFileByPath(oldPath) as TFolder | null;
+    
+        if (oldFolder instanceof TFolder) {
+            // Correctly using renameFolder through the FileManager
+            await this.app.fileManager.renameFile(oldFolder, newPath);
+            new Notice(`World folder renamed successfully from '${oldWorldName}' to '${newWorldName}'.`);
+        } else {
+            new Notice('World folder does not exist.');
+        }
     }
 
-  
-    checkSettingsFile(oldWorldName: string, newWorldName: string) {
+    async checkSettingsFile(oldWorldName: string, newWorldName: string) {
         const settingsFilePath = normalizePath('OnlyWorlds/Settings.md');
+        const settingsFile = this.app.vault.getAbstractFileByPath(settingsFilePath);
 
-        this.app.vault.adapter.read(settingsFilePath).then(content => {
-            const updatedContent = this.updateWorldNameInSettings(content, oldWorldName, newWorldName); 
-            this.app.vault.adapter.write(settingsFilePath, updatedContent).then(() => {
-                new Notice('Settings file updated successfully.');
-            }).catch(error => {
-                console.error('Failed to update settings file:', error);
-                new Notice('Failed to update settings file.');
-            });
-        }).catch(error => {
-            console.error('Failed to read settings file:', error);
-            new Notice('Failed to read settings file.');
-        });
+        if (settingsFile instanceof TFile) {
+            const content = await this.app.vault.read(settingsFile);
+            const updatedContent = this.updateWorldNameInSettings(content, oldWorldName, newWorldName);
+            await this.app.vault.modify(settingsFile, updatedContent);
+            new Notice('Settings file updated successfully.');
+        } else {
+            new Notice('Settings file does not exist.');
+        }
     }
 
     updateWorldNameInSettings(content: string, oldWorldName: string, newWorldName: string): string {
-        // Regex to match the line with the world name, accounting for potential variations in whitespace
         const regex = new RegExp(`^- \\*\\*Primary World Name:\\*\\*\\s+${oldWorldName.trim()}$`, 'm');
         return content.replace(regex, `- **Primary World Name:** ${newWorldName}`);
     }
