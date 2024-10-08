@@ -22,28 +22,27 @@ To register, please request a keycode by:
 
 ## Configuring Hotkeys
 
-This plugin requires a custom hotkey to link element fields. 
+This plugin requires a custom hotkey to link element fields
 
-(Suggestion: CTRL/CMD + SHIFT + L)
+Suggestion: CTRL/CMD + SHIFT + L
 
 To set up:
 1. Open Obsidian
 2. Go to `Settings` -> `Hotkeys`
 3. Search for "Link Elements"
 4. Click on the + symbol, then input a combination
-
  
 ## Getting Started 
 
 Use the Create World command (Ctrl + P).
 
-If necessary folders and/or files are missing, this command will automatically import and create them. 
+If necessary folders and/or files are missing, this command will automatically import and create them
 
 Use Create Element to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
 
 Integrate existing world content, or create new content, by shaping elements through their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) on improving field definitions
 
-Convert your worlds into a JSON data file by using the 'Copy World' command, or export it to OnlyWorlds.com using the 'Export World' command.
+Convert your worlds into a JSON data file by using the 'Copy World' command, or export it to OnlyWorlds.com using the 'Export World' command
 
 ## Folder Structure
 - **OnlyWorlds/**: Parent folder at top of vault
