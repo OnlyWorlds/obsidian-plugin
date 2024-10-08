@@ -1,10 +1,16 @@
 # OnlyWorlds Plugin for Obsidian
 
-This plugin provides complete workflows for world creation, building, and management, fully compatible with the [OnlyWorlds](https://www.onlyworlds.com) framework
+October 8th, 2024: There is a file bundling bug with this plugin that I am addressing this week. It won't work at all yet, apologies for any confusion.
 
-It functions as a standalone tool for organizing worlds and also facilitates the transfer of these worlds across various other tools and games
+This plugin provides complete workflows for world creation, building, and management, fully compatible with the [OnlyWorlds](https://www.onlyworlds.com) framework.
 
-More information about OnlyWorlds in this [technical documentation](https://onlyworlds.github.io)
+It functions as a standalone tool for organizing worlds and also facilitates the transfer of these worlds across various other tools and games.
+
+**OnlyWorlds is currently in a closed alpha release, so information is limited to invite-only members. **
+
+Please use [this form](https://www.onlyworlds.com/about/), or message me on [discord](https://discord.gg/twCjqvVBwb) or at onlyworldsdev@gmail.com, to request a keycode.
+
+This [technical documentation](https://onlyworlds.github.io) will be a primary source of information in the future but is currently a WIP
 
 ## Configuring Hotkeys
 
