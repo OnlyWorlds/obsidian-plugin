@@ -11,7 +11,7 @@ export class CreateHandlebarsCommand {
     }
 
     async execute(): Promise<void> {
-        const handlebarsFolder = normalizePath('OnlyWorlds/Handlebars');
+        const handlebarsFolder = normalizePath('OnlyWorlds/PluginFiles/Handlebars');
         const categories = Object.keys(Category).filter(key => isNaN(Number(key)));
 
         // Ensure the Handlebars folder exists

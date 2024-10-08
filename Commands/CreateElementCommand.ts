@@ -25,7 +25,7 @@ export class CreateElementCommand {
     
 
     async getTemplateContent(category: string): Promise<string | null> {
-        const templatePath = normalizePath(`OnlyWorlds/Templates/${category}.md`);
+        const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Templates/${category}.md`);
         const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
         if (templateFile instanceof TFile) {
             return this.app.vault.read(templateFile);
@@ -65,7 +65,7 @@ export class CreateElementCommand {
     
         try {
             const createdFile = await this.app.vault.create(newNotePath, content);
-            new Notice(`New ${category} created with Name: ${name}`);
+            new Notice(`New ${category.toLowerCase()} created: ${name}`);
             this.openNoteInNewPane(createdFile);
         } catch (error) {
             console.error(`Failed to create note: ${newNotePath}`, error);

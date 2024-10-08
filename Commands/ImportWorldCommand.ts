@@ -124,15 +124,15 @@ export class ImportWorldCommand {
     
                 if (overwrite || !await fs.exists(notePath)) {
                     // Fetch the template from the user's vault
-                    const templatePath = normalizePath(`OnlyWorlds/Handlebars/${category}Handlebar.md`);
+                    const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Handlebars/${category}Handlebar.md`);
                     let templateText: string;
     
                     if (await fs.exists(templatePath)) {
                         templateText = await fs.read(templatePath);
                     } else {
                         // If the template doesn't exist, log an error and skip the note creation
-                        console.error(`Template not found: ${templatePath}`);
-                        new Notice(`Template not found for ${category}, skipping note creation.`);
+                        console.error(`Handlebars not found: ${templatePath}`);
+                        new Notice(`Handlebars not found for ${category}, skipping note creation.`);
                         continue;
                     }
     

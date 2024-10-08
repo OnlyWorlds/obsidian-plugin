@@ -12,7 +12,7 @@ export class CreateTemplatesCommand {
     }
 
     async execute(): Promise<void> {
-        const templateFolder = normalizePath('OnlyWorlds/Templates');
+        const templateFolder = normalizePath('OnlyWorlds/PluginFiles/Templates');
         const categories = Object.keys(Category).filter(key => isNaN(Number(key)));
 
         // Ensure the template folder exists
