@@ -19,15 +19,15 @@ export class CreateReadmeCommand {
             if (!response.ok) {
                 throw new Error(`Failed to fetch README from GitHub: ${response.statusText}`);
             }
-
+            new Notice('Fetching necessary files..');
+            
             const content = await response.text();
 
             // Check if the README already exists in the user's vault
             const existingFile = this.app.vault.getAbstractFileByPath(readmePath);
             if (!existingFile) {
                 // Create the README if it doesn't exist
-                await this.app.vault.create(readmePath, content);
-                new Notice('README file created successfully.');
+                await this.app.vault.create(readmePath, content); 
             } else if (existingFile instanceof TFile) {
                 // Update the existing README if it already exists
                 await this.app.vault.modify(existingFile, content); 

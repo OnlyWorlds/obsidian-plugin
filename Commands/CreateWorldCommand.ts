@@ -9,6 +9,7 @@ import { WorldNameModal } from 'Modals/WorldNameModal';
 import { CreateSettingsCommand } from './CreateSettingsCommand';
 import { CreateReadmeCommand } from './CreateReadmeCommand';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
+import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 
 export class CreateWorldCommand {
     app: App;
@@ -33,7 +34,6 @@ export class CreateWorldCommand {
             await this.createFolderIfNeeded(worldBasePath);
             const elementsPath = `${worldBasePath}/Elements`;
             await this.createFolderIfNeeded(elementsPath);
-
             // Create folders for each category
             for (const category in Category) {
                 if (isNaN(Number(category))) {  // Skip numeric keys of the enum
@@ -46,13 +46,12 @@ export class CreateWorldCommand {
             const worldNoteContent = this.compileWorldNote(worldData);
             await this.app.vault.create(`${worldBasePath}/World.md`, worldNoteContent);
 
-
             const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest );
             await createCoreFilesCommand.execute(); 
 
             new Notice('Successfully created world: ' + worldName);
         } catch (error) {
-            console.error("Errorrrrr during world creation:", error);
+            console.error("Error during world creation:", error);
             new Notice('Failed to create world.');
         }
     }
@@ -101,26 +100,7 @@ export class CreateWorldCommand {
     }
 
     compileWorldNote(data: any): string {
-        const templateString = `# World Overview: {{name}}
-
-## Core
-- **Id:** {{id}}
-- **API Key:** {{api_key}}
-- **Name:** {{name}}
-- **Description:** {{description}}
-- **User Id:** {{user_id}}
-- **Version:** {{ow_version}}
-- **Image URL:** ![World Image]({{image_url}})
-
-## Time Settings
-- **Focus Text:** {{focus_text}}
-- **Time Formats:** {{time_format_names}}
-- **Time Format Equivalents:** {{time_format_equivalents}}
-- **Basic Time Unit:** {{time_basic_unit}}
-- **Current Time:** {{time_current}}
-- **Time Range:** From {{time_range_min}} to {{time_range_max}}`;
-
-        const template = Handlebars.compile(templateString);
+        const template = Handlebars.compile(worldTemplateString);
         return template(data);
     }
 }
