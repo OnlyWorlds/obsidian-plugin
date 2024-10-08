@@ -1,21 +1,28 @@
 # OnlyWorlds Plugin for Obsidian
 
-October 8th, 2024: There is a file bundling bug with this plugin that I am addressing this week. It won't work at all yet, apologies for any confusion.
-
 This plugin provides complete workflows for world creation, building, and management, fully compatible with the [OnlyWorlds](https://www.onlyworlds.com) framework.
 
-It functions as a standalone tool for organizing worlds and also facilitates the transfer of these worlds across various other tools and games.
+It functions as a standalone tool for organizing worlds, and facilitates the transfer of these worlds across various other tools and games.
 
-**OnlyWorlds is currently in a closed alpha release, so information is limited to invite-only members. **
+## OnlyWorlds
 
-Please use [this form](https://www.onlyworlds.com/about/), or message me on [discord](https://discord.gg/twCjqvVBwb) or at onlyworldsdev@gmail.com, to request a keycode.
+OnlyWorlds is a framework for creating, building, sharing, and simulating worlds.
 
-This [technical documentation](https://onlyworlds.github.io) will be a primary source of information in the future but is currently a WIP
+It is currently in a closed release. A public release is planned for December 2024. 
+
+More information and apps are available at http://www.onlyworlds.com.
+
+To register, please request a keycode by:
+
+- Using [this form](https://www.onlyworlds.com/about/), or
+- Joining [discord](https://discord.gg/twCjqvVBwb), or
+- Emailing onlyworldsdev@gmail.com
+
+
 
 ## Configuring Hotkeys
 
-There is a single hotkey setup requirement for full plugin functionality
-For the action of assigning elements to attribute fields
+This plugin requires a custom hotkey to link element fields. 
 
 1. Open Obsidian
 2. Go to `Settings` -> `Hotkeys`
@@ -29,18 +36,20 @@ Create a world and required structures with the Create World command (Ctrl + P)
 
 Use Create Element to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
 
-Integrate existing world content, or create new, by shaping elements through their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) on improving  field definitions
+Integrate existing world content, or create new content, by shaping elements through their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) on improving field definitions
 
-Convert your worlds into a shippable JSON data format for local copy and online use, with various [tools](https://onlyworlds.github.io/docs/tools/) currently available
+Convert your worlds into a JSON data file by using the 'Copy World' command, or export it to OnlyWorlds.com using the 'Export World' command.
 
 ## Folder Structure
 - **OnlyWorlds/**: Parent folder at top of vault
-    - **Templates/**: Should not be modified
-    - **Worlds/**: Directory for user worlds 
+	- **PluginFiles**:
+		- **Handlebars/**: Should not be modified
+    	- **Templates/**: Should not be modified
+    - **Worlds/**: User worlds directory
         - **WorldOne/**:  
-            - **Elements/**: Elements for the user to edit
+            - **Elements/**: World elements, represented as notes
             - **World**: World configuration file 
-            - **World Data**: Output file for Copy World command (in JSON)
+            - **World Data**: Output file for Copy World command
         - **WorldTwo/**:  
             - ..
     - **README**: ..
@@ -69,7 +78,8 @@ Convert your worlds into a shippable JSON data format for local copy and online 
 
 ## Settings 
 - Write the **active world** name for ongoing work 
-- Enable 18 category-specific commands for creating elements 
+- Enable 18 category-specific commands for creating elements
+- Set the default category for creating new elements
    
 ## Contact and Contribution
 Feedback and contribution for this plugin or anything OnlyWorlds is always welcome, via  [discord](https://discord.gg/twCjqvVBwb) or [github](https://github.com/OnlyWorlds/OnlyWorlds) or [reddit](https://www.reddit.com/r/OnlyWorlds/) or [email](onlyworldsdev@gmail.com)
