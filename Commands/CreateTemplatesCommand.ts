@@ -59,7 +59,7 @@ export class CreateTemplatesCommand {
             const existingFolder = this.app.vault.getAbstractFileByPath(folderPath);
             if (!existingFolder) {
                 await this.app.vault.createFolder(folderPath);
-                new Notice('Fetching necessary files..');
+                new Notice('Fetching Plugin Files..');
             }
         } catch (error) {
             console.error(`Error creating folder: ${folderPath}`, error);
