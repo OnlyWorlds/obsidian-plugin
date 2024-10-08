@@ -1,9 +1,7 @@
 import { App, Notice, Modal, FileSystemAdapter, normalizePath } from 'obsidian';
 import Handlebars from 'handlebars';
 import { Category } from '../enums';
-import { WorldPasteModal } from 'Modals/WorldPasteModal'; 
-import { CreateTemplatesCommand } from './CreateTemplatesCommand';
-import { CreateSettingsCommand } from './CreateSettingsCommand';
+import { WorldPasteModal } from 'Modals/WorldPasteModal';  
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 
@@ -82,33 +80,52 @@ export class PasteWorldCommand {
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
             new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
             return; 
-        }             
+        }
+    
         const fs: FileSystemAdapter = this.app.vault.adapter;
-
+    
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;
-
+    
             const elements = data[category];
             const categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
+    
+            // Check if category folder exists, create if not
             if (!this.app.vault.getAbstractFileByPath(categoryDirectory)) {
                 await this.app.vault.createFolder(categoryDirectory);
             }
-
+    
             for (const element of elements) {
                 const notePath = `${categoryDirectory}/${element.name}.md`;
+    
                 if (overwrite || !await fs.exists(notePath)) {
-                    const templatePath = normalizePath(`${this.app.vault.configDir}/plugins/onlyworlds-builder/Handlebars/${category}Handlebar.md`);
-                    const templateText = await fs.read(templatePath);
+                    // Use the Handlebars templates from the user's vault
+                    const templatePath = normalizePath(`OnlyWorlds/Handlebars/${category}Handlebar.md`);
+                    let templateText: string;
+    
+                    if (await fs.exists(templatePath)) {
+                        templateText = await fs.read(templatePath);
+                    } else {
+                        // Log an error if the template doesn't exist and skip note creation for this category
+                        console.error(`Template not found: ${templatePath}`);
+                        new Notice(`Template not found for ${category}, skipping note creation.`);
+                        continue;
+                    }
+    
                     const template = Handlebars.compile(templateText);
                     let noteContent = template(element);
-                    
+    
+                    // Replace links with proper IDs
                     noteContent = await this.linkifyContent(noteContent, data);
-                    
+    
+                    // Write the note content to the appropriate file path
                     await fs.write(notePath, noteContent);
+                    console.log(`Note created for: ${element.name}`);
                 }
             }
         }
     }
+    
 
     async linkifyContent(noteContent: string, data: any): Promise<string> {
         noteContent = noteContent.replace(/\[\[(.*?)\]\]/g, (match, id) => {

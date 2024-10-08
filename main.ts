@@ -19,6 +19,7 @@ import { CreateReadmeCommand } from 'Commands/CreateReadmeCommand';
 import { CopyWorldCommand } from 'Commands/CopyWorldCommand';
 import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
+import { CreateHandlebarsCommand } from 'Commands/CreateHandlebarsCommand';
 
 export default class OnlyWorldsPlugin extends Plugin {
   graphViewExtensions: GraphViewExtensions;
@@ -84,6 +85,7 @@ export default class OnlyWorldsPlugin extends Plugin {
        
         const createReadmeCommand = new CreateReadmeCommand(this.app, this.manifest);
         const createTemplatesCommand = new CreateTemplatesCommand(this.app, this.manifest);
+        const createHandlebarsCommand = new CreateHandlebarsCommand(this.app, this.manifest);
         const createSettingsCommand = new CreateSettingsCommand(this.app, this.manifest);
      //   const createCategoryFoldersCommand = new CreateCategoryFoldersCommand(this.app, this.manifest);
         const retrieveWorldCommand = new ImportWorldCommand(this.app, this.manifest);

@@ -104,38 +104,52 @@ export class ImportWorldCommand {
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
             new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
             return; 
-        }             
+        }
+    
         const fs: FileSystemAdapter = this.app.vault.adapter;
-        
+    
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;
-
+    
             const elements = data[category];
             const categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
-
+    
             // Check if category folder exists, create if not
             if (!this.app.vault.getAbstractFileByPath(categoryDirectory)) {
                 await this.app.vault.createFolder(categoryDirectory);
             }
-
+    
             for (const element of elements) {
                 const notePath = `${categoryDirectory}/${element.name}.md`;
-                
+    
                 if (overwrite || !await fs.exists(notePath)) {
-                    const templatePath = normalizePath(`${this.app.vault.configDir}/plugins/onlyworlds-builder/Handlebars/${category}Handlebar.md`);
-                    const templateText = await fs.read(templatePath);
+                    // Fetch the template from the user's vault
+                    const templatePath = normalizePath(`OnlyWorlds/Handlebars/${category}Handlebar.md`);
+                    let templateText: string;
+    
+                    if (await fs.exists(templatePath)) {
+                        templateText = await fs.read(templatePath);
+                    } else {
+                        // If the template doesn't exist, log an error and skip the note creation
+                        console.error(`Template not found: ${templatePath}`);
+                        new Notice(`Template not found for ${category}, skipping note creation.`);
+                        continue;
+                    }
+    
                     const template = Handlebars.compile(templateText);
                     let noteContent = template(element);
-                    
+    
+                    // Process the content to replace links with proper IDs
                     noteContent = await this.linkifyContent(noteContent, data);
-                    
+    
+                    // Write the note content to the appropriate file path
                     await fs.write(notePath, noteContent);
-                   // new Notice(`Note created for: ${element.name}`);
+                    console.log(`Note created for: ${element.name}`);
                 }
-          
             }
         }
     }
+    
     
     async linkifyContent(noteContent: string, data: any): Promise<string> { 
     

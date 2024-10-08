@@ -1,4 +1,5 @@
 // Assuming that each command class has a similar interface that includes an execute method.
+import { CreateHandlebarsCommand } from './CreateHandlebarsCommand';
 import { CreateReadmeCommand } from './CreateReadmeCommand';
 import { CreateSettingsCommand } from './CreateSettingsCommand';
 import { CreateTemplatesCommand } from './CreateTemplatesCommand';
@@ -16,6 +17,7 @@ export class CreateCoreFilesCommand {
             new CreateReadmeCommand(app, manifest),
             new CreateSettingsCommand(app, manifest),
             new CreateTemplatesCommand(app, manifest), 
+            new CreateHandlebarsCommand(app, manifest), 
         ];
     }
 

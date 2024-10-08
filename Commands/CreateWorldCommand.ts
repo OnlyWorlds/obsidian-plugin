@@ -3,8 +3,7 @@ import { App, Notice, FileSystemAdapter, TFile, PluginManifest } from 'obsidian'
 
 import Handlebars from 'handlebars';
 import { resolve } from 'path';
-import { Category } from '../enums';
-import { CreateTemplatesCommand } from './CreateTemplatesCommand'; // Ensure correct path
+import { Category } from '../enums'; 
 import { WorldNameModal } from 'Modals/WorldNameModal';
 import { CreateSettingsCommand } from './CreateSettingsCommand';
 import { CreateReadmeCommand } from './CreateReadmeCommand';
