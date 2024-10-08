@@ -32,7 +32,9 @@ This plugin requires a custom hotkey to link element fields.
  
 ## Getting Started 
 
-Create a world and required structures with the Create World command (Ctrl + P)
+Use the Create World command (Ctrl + P).
+
+If necessary folders and/or files are missing, this command will automatically import and create them. 
 
 Use Create Element to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
 
