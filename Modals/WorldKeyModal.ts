@@ -18,6 +18,14 @@ export  class WorldKeyModal extends Modal {
             placeholder: 'Please enter 10-digit key', 
         });
 
+        const button = contentEl.createEl('button', { text: 'IMPORT' });
+        button.style.marginLeft = '8px';
+        button.addEventListener('click', () => {
+            if (input.value.trim() !== '') {
+                this.submit(input.value);
+            }
+        });
+
         input.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 this.close();
@@ -27,7 +35,10 @@ export  class WorldKeyModal extends Modal {
 
         input.focus();
     }
-
+    submit(value: string) {
+        this.close();
+        this.onEnter(value.trim());
+    }
     onClose() {
         let { contentEl } = this;
         contentEl.empty();
