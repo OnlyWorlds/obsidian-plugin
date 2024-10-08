@@ -34,9 +34,11 @@ To set up:
  
 ## Getting Started 
 
-Use the Create World command (Ctrl + P).
+Use the Create World command (Ctrl + P)
 
 If necessary folders and/or files are missing, this command will automatically import and create them
+
+A folder 'OnlyWorlds' will be created at the top of your vault. As of release 1.0.2, this folder must remain at the top of your vault for the plugin to function
 
 Use Create Element to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
 
