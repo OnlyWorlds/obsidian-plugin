@@ -5,6 +5,7 @@ import { WorldKeyModal } from 'Modals/WorldKeyModal';
 import { CreateTemplatesCommand } from './CreateTemplatesCommand';
 import { CreateSettingsCommand } from './CreateSettingsCommand';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
+import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 
 export class ImportWorldCommand {
     app: App;
@@ -91,9 +92,8 @@ export class ImportWorldCommand {
             new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
             return; 
         }             
-        const fs: FileSystemAdapter = this.app.vault.adapter;
-        const worldTemplatePath = normalizePath(`${this.app.vault.configDir}/plugins/onlyworlds-builder/Handlebars/WorldHandlebar.md`);        const worldTemplateText = await fs.read(worldTemplatePath);
-        const worldTemplate = Handlebars.compile(worldTemplateText);
+        const fs: FileSystemAdapter = this.app.vault.adapter; 
+        const worldTemplate = Handlebars.compile(worldTemplateString);
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;
         await fs.write(worldFilePath, worldContent);
