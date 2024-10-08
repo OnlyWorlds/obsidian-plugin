@@ -26,7 +26,7 @@ export default class OnlyWorldsPlugin extends Plugin {
     noteLinker: NoteLinker;
     nameChanger: NameChanger;
     worldService: WorldService;
-
+    private defaultCategory: string | null = null;
       onload(): void {
 
         this.worldService = new WorldService(this.app);
@@ -152,12 +152,11 @@ export default class OnlyWorldsPlugin extends Plugin {
           name: 'Create Element',
           callback: () => {
               let templateModal = new TemplateSelectionModal(this.app, (category) => {
-                  // Open the NameInputModal after selecting a category
                   let nameModal = new NameInputModal(this.app, category, (cat, name) => {
                       new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, name);
                   });
                   nameModal.open();
-              });
+              }, this.defaultCategory); // Pass default category
               templateModal.open();
           }
       });
@@ -215,9 +214,11 @@ export default class OnlyWorldsPlugin extends Plugin {
               console.log("Settings file not found, skipping check for creation of individual element commands.");
               return;
           }
-          
           if (settingsFile instanceof TFile) { 
               const content = await this.app.vault.read(settingsFile);
+
+              this.defaultCategory = this.parseSettingsForDefaultCategory(content);
+
               const individualCreationEnabled = this.parseSettingsForIndividualCreation(content); 
   
               if (individualCreationEnabled) {
@@ -231,8 +232,29 @@ export default class OnlyWorldsPlugin extends Plugin {
       }
   }
   
-  
-
+  async loadDefaultCategory() {
+    const settingsPath = normalizePath('OnlyWorlds/Settings.md');
+    try {
+        const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath);
+        if (settingsFile instanceof TFile) {
+            const content = await this.app.vault.read(settingsFile);
+            this.defaultCategory = this.parseSettingsForDefaultCategory(content);
+        }
+    } catch (error) {
+        console.error("Error loading settings file:", error);
+    }
+}
+parseSettingsForDefaultCategory(content: string): string | null {
+  const match = content.match(/^- \*\*Default New Element Category:\*\* ([^\n]+)/m);
+  if (match) {
+      const category = match[1].trim();
+      // Validate if the category exists in the enum
+      if (Object.keys(Category).includes(category)) {
+          return category;
+      }
+  }
+  return null;
+}
   parseSettingsForIndividualCreation(content: string): boolean {
     const match = content.match(/^- \*\*Individual Element Creation Commands:\*\* (\w+)/m);
     return match ? match[1].toLowerCase() === 'yes' : false;

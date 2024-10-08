@@ -16,15 +16,20 @@ export class CreateSettingsCommand {
         if (!fileExists) {
             const content = `# OnlyWorlds Plugin Settings
 
-
-*Specify the name of the world you are working on here. Affects element creation commands, copy world command, and manual validation command.  
-When empty, defaults to first in the hierarchy under OnlyWorlds/Worlds/*
 - **Primary World Name:** 
+*Specify the name of the world you are actively working on.
+Affects: 1. element creation commands, 2. copy world command, 3. manual validation command.
+When empty, defaults to top-in-hierarchy under OnlyWorlds/Worlds/*
 
-*Change to 'Yes', then reload Obsidian, to include a separate creation command for each element category. 
-('Create new Character', 'Create new Location', etc)*
 - **Individual Element Creation Commands:** No
+*Change to 'Yes' to allow a separate creation command for each element category.
+('Create new Character', 'Create new Location', etc)
+Reload Obsidian to register change.*
 
+
+- **Default New Element Category:** Character
+*Determines which category is pre-filled when the Create Element command is executed.
+Reload Obsidian to register change.*
 `;
 
             await this.app.vault.create(settingsPath, content);
