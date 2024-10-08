@@ -24,11 +24,14 @@ To register, please request a keycode by:
 
 This plugin requires a custom hotkey to link element fields. 
 
+(Suggestion: CTRL/CMD + SHIFT + L)
+
+To set up:
 1. Open Obsidian
 2. Go to `Settings` -> `Hotkeys`
 3. Search for "Link Elements"
 4. Click on the + symbol, then input a combination
-5. (Suggestion: CTRL/CMD + SHIFT + L)
+
  
 ## Getting Started 
 
