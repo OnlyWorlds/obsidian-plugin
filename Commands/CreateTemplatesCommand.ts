@@ -25,7 +25,7 @@ export class CreateTemplatesCommand {
 
         // Ensure the template folder exists
         await this.createFolderIfNeeded(templateFolder);
-
+        console.log('CREATE TEMPLATE');
         for (const category of categories) {
             const fileName = `${category}.md`;
             // Use the user-configured directory for source path
