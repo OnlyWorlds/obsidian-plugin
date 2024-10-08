@@ -22,6 +22,7 @@ export class NameInputModal extends Modal {
                 this.inputValue = target.value.trim();
             }
         });
+        
 
         // Keydown event to handle submission on pressing 'Enter'
         inputEl.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -30,6 +31,23 @@ export class NameInputModal extends Modal {
                 this.close();
             }
         });
+
+        // Create the OK button
+        const button = this.contentEl.createEl('button', { text: 'CREATE' });
+        button.style.marginLeft = '10px';  // Add margin for spacing
+
+        button.addEventListener('click', () => {
+            if (this.isValidName(this.inputValue)) {
+                this.submitForm();  // Submit form
+            }
+        });
+        inputEl.focus();  // Focus the input element initially
+        
+    }
+
+    submitForm() {
+        this.executeCreation(this.category, this.inputValue);  // Execute the creation action
+        this.close();  // Close the modal
     }
 
     isValidName(name: string): boolean {
