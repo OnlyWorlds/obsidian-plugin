@@ -63,6 +63,8 @@ export class ImportWorldCommand {
 
                     // Generate element notes in the correct category folders under Elements
                     await this.generateElementNotes(elementsFolderPath, data, overwrite);
+
+                    new Notice(`Succesfully imported world: ${worldName}`);
                 } catch (error) {
                     console.error('Error during world import:', error);
                     new Notice('Error fetching world data: ' + error.message);
@@ -96,9 +98,7 @@ export class ImportWorldCommand {
         const worldTemplate = Handlebars.compile(worldTemplateString);
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;
-        await fs.write(worldFilePath, worldContent);
-        console.log(`World file created at: ${worldFilePath}`);
-        new Notice(`World file created: ${worldFilePath}`);
+        await fs.write(worldFilePath, worldContent); 
     }
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
@@ -147,7 +147,8 @@ export class ImportWorldCommand {
                     console.log(`Note created for: ${element.name}`);
                 }
             }
-        }
+        } 
+
     }
     
     

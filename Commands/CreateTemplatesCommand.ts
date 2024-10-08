@@ -20,8 +20,8 @@ export class CreateTemplatesCommand {
 
         // Base URL for fetching the templates from GitHub
         const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/languages/obsidian_templates/';
+     
 
-        console.log('Fetching templates from GitHub');
         for (const category of categories) {
             const fileName = `${category}.md`;
             const targetPath = normalizePath(`${templateFolder}/${fileName}`);
@@ -59,6 +59,7 @@ export class CreateTemplatesCommand {
             const existingFolder = this.app.vault.getAbstractFileByPath(folderPath);
             if (!existingFolder) {
                 await this.app.vault.createFolder(folderPath);
+                new Notice('Fetching necessary files..');
             }
         } catch (error) {
             console.error(`Error creating folder: ${folderPath}`, error);

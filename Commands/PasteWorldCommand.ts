@@ -47,6 +47,8 @@ export class PasteWorldCommand {
 
             // Generate element notes in the correct category folders under Elements
             await this.generateElementNotes(elementsFolderPath, worldDataJson, false);
+
+            new Notice(`Succesfully pasted world: ${worldName}`);
         });
         modal.open();
     }
@@ -72,8 +74,7 @@ export class PasteWorldCommand {
         const worldTemplate = Handlebars.compile(worldTemplateString);
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;
-        await fs.write(worldFilePath, worldContent);
-        new Notice(`World file created: ${worldFilePath}`);
+        await fs.write(worldFilePath, worldContent); 
     }
 
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {

@@ -19,7 +19,6 @@ export class CreateReadmeCommand {
             if (!response.ok) {
                 throw new Error(`Failed to fetch README from GitHub: ${response.statusText}`);
             }
-            new Notice('Fetching necessary files..');
             
             const content = await response.text();
 
