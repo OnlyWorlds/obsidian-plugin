@@ -8,11 +8,13 @@ It functions as a standalone tool for organizing worlds, and facilitates the tra
 
 OnlyWorlds is a framework for creating, building, sharing, and simulating worlds.
 
-It is currently in a closed release. A public release is planned for December 2024. 
+It is currently in a closed release with several prototype tools available. A first public release is planned for first half of 2025. 
 
 More information in this [technical documentation](https://onlyworlds.github.io/), although this site is still under construction and revision.
 
-To register, please request a keycode by:
+You can register at https://www.onlyworlds.com for some more information and access to the mobile app.
+
+To do so, please request a keycode by:
 
 - Using [this form](https://www.onlyworlds.com/about/), or
 - Joining [discord](https://discord.gg/twCjqvVBwb), or
