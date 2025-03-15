@@ -192,9 +192,9 @@ export class ExportWorldCommand {
         return ids;
     }
     
-    async parseTemplate(content: string): Promise<Record<string, string>> {
+    async parseTemplate(content: string): Promise<Record<string, any>> {
         let currentSection: string | null = null;
-        const data: Record<string, string> = {};
+        const data: Record<string, any> = {};
     
         const sectionPattern = /^##\s*(.+)$/; // Pattern to identify sections
         const keyValuePattern = /- <span class="[^"]+" data-tooltip="[^"]+">(.+?)<\/span>:\s*(.*)/; // Pattern for key-value pairs
@@ -213,9 +213,11 @@ export class ExportWorldCommand {
                 const value = match[2].trim(); 
     
                 if (value.startsWith('[[')) {
-                    // If value contains links, extract IDs
+                    // If value contains links, extract IDs as an array
                     const ids = await this.extractLinkedIds(value, line);
-                    data[key] = ids.join(','); 
+                    
+                    // Store as actual array instead of comma-separated string
+                    data[key] = ids;
                 } else {
                     data[key] = value;
                 }
@@ -223,7 +225,6 @@ export class ExportWorldCommand {
             }
         }
     
-     //   console.log(`Parsed data: ${JSON.stringify(data)}`);
         return data;
     }
     

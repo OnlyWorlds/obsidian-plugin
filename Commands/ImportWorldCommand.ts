@@ -1,5 +1,5 @@
 import Handlebars from 'handlebars';
-import { WorldKeyModal } from 'Modals/WorldKeyModal';
+import { WorldImportData, WorldImportModal } from 'Modals/WorldImportModal';
 import { App, FileSystemAdapter, normalizePath, Notice, requestUrl } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { Category } from '../enums';
@@ -9,31 +9,49 @@ export class ImportWorldCommand {
     app: App;
     manifest: any;
     // DEVELOPMENT: Point to local server instead of production
-    private apiUrl = 'http://127.0.0.1:8000/api/worlddata/';
+    private apiUrl = 'http://127.0.0.1:8000/api/worldsync/send/';
     // PRODUCTION: Uncomment this line when deploying to production
-    // private apiUrl = 'https://www.onlyworlds.com/api/worlddata/';
+    // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/';
 
     constructor(app: App, manifest: any) {
         this.app = app;
         this.manifest = manifest;
     }
+    
     async execute(overwrite: boolean = false) {
-        new WorldKeyModal(this.app, async (worldKey: string) => {
-            if (worldKey.length === 10) {
+        new WorldImportModal(this.app, async (data: WorldImportData | null) => {
+            if (!data) {
+                // User cancelled the operation
+                return;
+            }
+            
+            if (data.apiKey.length === 10) {
                 try {
                     const response = await requestUrl({
-                        url: this.apiUrl + worldKey,
-                        method: 'GET'
+                        url: this.apiUrl,
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            api_key: data.apiKey,
+                            pin: data.pin
+                        })
                     });
     
                     if (response.status !== 200) {
-                        new Notice('Failed to fetch world data: ' + response.status);
+                        if (response.status === 403) {
+                            new Notice('Import failed: Invalid PIN or API key.');
+                        } else if (response.status === 429) {
+                            new Notice('Import failed: Rate limit exceeded. Please try again later.');
+                        } else {
+                            new Notice(`Failed to fetch world data: ${response.status}`);
+                        }
                         return;
                     }
     
-                    const data = JSON.parse(response.text);
-                    const worldData = data['World'];
-                    const worldName = worldData ? worldData.name : null;
+                    const worldData = JSON.parse(response.text);
+                    const worldName = worldData.World ? worldData.World.name : null;
     
                     if (!worldName) {
                         new Notice('No valid world data found.');
@@ -56,19 +74,29 @@ export class ImportWorldCommand {
                     // Generate world file
                     const worldFilePath = `${worldFolderPath}/World.md`;
                     if (overwrite || !await fs.exists(worldFilePath)) {
-                        await this.generateWorldFile(worldData, worldFolderPath);
+                        await this.generateWorldFile(worldData.World, worldFolderPath);
                     }
 
                     const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest );
                     await createCoreFilesCommand.execute(); 
 
                     // Generate element notes in the correct category folders under Elements
-                    await this.generateElementNotes(elementsFolderPath, data, overwrite);
+                    await this.generateElementNotes(elementsFolderPath, worldData, overwrite);
 
-                    new Notice(`Succesfully imported world: ${worldName}`);
+                    new Notice(`Successfully imported world: ${worldName}`);
                 } catch (error) {
                     console.error('Error during world import:', error);
-                    new Notice('Error fetching world data: ' + error.message);
+                    if (error instanceof Error) {
+                        if (error.message.includes('status 403')) {
+                            new Notice('Import failed: Invalid PIN or API key.');
+                        } else if (error.message.includes('status 429')) {
+                            new Notice('Import failed: Rate limit exceeded. Please try again later.');
+                        } else {
+                            new Notice(`Error fetching world data: ${error.message}`);
+                        }
+                    } else {
+                        new Notice('An unknown error occurred during import.');
+                    }
                 }
             } else {
                 new Notice('Invalid world key. Please ensure it is a 10-digit number.');
@@ -88,8 +116,6 @@ export class ImportWorldCommand {
         }
     }
     
-    
-
     async generateWorldFile(worldData: any, worldFolderPath: string) {
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
             new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
@@ -149,12 +175,9 @@ export class ImportWorldCommand {
                 }
             }
         } 
-
     }
     
-    
     async linkifyContent(noteContent: string, data: any): Promise<string> { 
-    
         // Adjusted to match [[ID]] format as well
         noteContent = noteContent.replace(/\[\[(.*?)\]\]/g, (match, id) => {
             const name = this.findNameById(id, data); 
@@ -163,7 +186,6 @@ export class ImportWorldCommand {
      
         return noteContent;
     }
-    
     
     findNameById(id: string, data: any): string | undefined { 
         for (const category in Category) {

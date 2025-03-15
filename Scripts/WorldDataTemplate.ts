@@ -4,11 +4,9 @@ export const worldTemplateString = `
 # World Overview: {{name}}
 
 ## Core
-- **Id:** {{id}}
 - **API Key:** {{api_key}}
 - **Name:** {{name}}
 - **Description:** {{description}}
-- **User Id:** {{user_id}}
 - **Version:** {{ow_version}}
 - **Image URL:** ![World Image]({{image_url}})
 

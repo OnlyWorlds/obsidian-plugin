@@ -1,6 +1,6 @@
-import { App, Plugin, MarkdownView, Editor, Notice, WorkspaceLeaf, EditorPosition, normalizePath, TFolder } from 'obsidian';
-import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
+import { App, Editor, EditorPosition, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
+import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 
 
 export class NoteLinker {
@@ -100,16 +100,25 @@ private handleElementSelection(editor: Editor, cursor: EditorPosition, lineText:
     let currentValues = lineContent.substring(insertionPoint).trim();
 
     if (isMultiLink) {
-        // Existing values are preserved as links
-        let existingValues = currentValues ? currentValues.split(',').map(v => v.trim()) : [];
+        // Parse existing values as links
+        let existingValues: string[] = [];
+        if (currentValues) {
+            // Handle both comma-separated format and existing array format
+            existingValues = currentValues.includes(',') 
+                ? currentValues.split(',').map(v => v.trim()) 
+                : [currentValues.trim()];
+        }
 
         // Check and filter out already existing elements to prevent duplicates
         let newValues = selectedElements
             .filter(el => !existingValues.includes(`[[${el.name}]]`))
             .map(el => `[[${el.name}]]`);
 
-        // Conditionally add a comma only if there are pre-existing elements, with no space after the comma
-        let updatedValues = existingValues.concat(newValues).join(',');
+        // Combine existing and new values
+        let allValues = existingValues.concat(newValues);
+        
+        // Join with commas for display in the note
+        let updatedValues = allValues.join(',');
 
         // Update the editor content with the new values
         editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + updatedValues);
@@ -118,7 +127,6 @@ private handleElementSelection(editor: Editor, cursor: EditorPosition, lineText:
         let newValue = selectedElements.length > 0 ? `[[${selectedElements[0].name}]]` : '';
         editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + newValue);
     }
- 
 }
 
 

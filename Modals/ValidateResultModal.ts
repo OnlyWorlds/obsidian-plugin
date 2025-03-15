@@ -1,4 +1,4 @@
-import { Modal, App } from 'obsidian';
+import { App, Modal } from 'obsidian';
 
 export class ValidateResultModal extends Modal {
     private errors: {
@@ -44,7 +44,7 @@ export class ValidateResultModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
 
-        contentEl.createEl('h1', { text: `Validating ${this.worldName}` });
+        contentEl.createEl('h1', { text: `Validated ${this.worldName}` });
 
         contentEl.createEl('p', { text: `Total elements scanned: ${this.elementCount}` });
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });

@@ -57,12 +57,6 @@ export class ApiResponseModal extends Modal {
             detailsContainer.style.borderRadius = '5px';
             detailsContainer.style.marginBottom = '15px';
             
-            if (this.details.world_id) {
-                const worldIdRow = detailsContainer.createEl('div');
-                worldIdRow.createEl('strong', { text: 'World ID: ' });
-                worldIdRow.createSpan({ text: this.details.world_id });
-            }
-            
             if (this.details.api_key) {
                 const apiKeyRow = detailsContainer.createEl('div');
                 apiKeyRow.createEl('strong', { text: 'API Key: ' });

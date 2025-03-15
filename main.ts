@@ -74,9 +74,17 @@ export default class OnlyWorldsPlugin extends Plugin {
         return;
       }
     
-      Handlebars.registerHelper('linkify', (ids: string) => {
+      Handlebars.registerHelper('linkify', (ids: string | string[]) => {
         if (!ids) return '';
-        return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
+        
+        // Handle both string and array formats
+        if (Array.isArray(ids)) {
+          // If ids is already an array
+          return ids.map(id => `[[${id.trim()}]]`).join(', ');
+        } else {
+          // If ids is a comma-separated string (legacy format)
+          return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
+        }
       });
     }
 

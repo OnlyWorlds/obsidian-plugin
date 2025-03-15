@@ -81,7 +81,6 @@ export class CreateWorldCommand {
                             true,
                             `World "${worldData.name}" created successfully!`,
                             {
-                                world_id: data.world_id,
                                 api_key: data.api_key,
                             },
                             () => resolve(data),
@@ -265,11 +264,9 @@ export class CreateWorldCommand {
 
         // Create world overview note with data from the API
         const worldNoteData = {
-            id: worldData.world_id,
             api_key: worldData.api_key,
             name: worldName,
             description: ``,
-            user_id: "",
             ow_version: "16.10",
             image_url: "",
             focus_text: "",

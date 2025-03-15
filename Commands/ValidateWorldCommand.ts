@@ -1,7 +1,7 @@
-import { App, Notice, FileSystemAdapter, TFile, normalizePath, TFolder, PluginManifest } from 'obsidian';
-import { Category } from '../enums'; // Ensure this import is correct
 import { ValidateResultModal } from 'Modals/ValidateResultModal'; // Ensure path is correct
+import { App, normalizePath, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
+import { Category } from '../enums'; // Ensure this import is correct
 
 export class ValidateWorldCommand {
     app: App;
@@ -140,9 +140,13 @@ export class ValidateWorldCommand {
                 const contentAfterColon = parts.length > 1 ? parts[1].trim() : '';
                 const fieldName = line.match(/data-tooltip="[^"]*">([^<]+)<\/span>/)?.[1]?.trim() || 'Unknown field';
                 if (contentAfterColon) {
-                    // Check if content matches one or more link formats separated by commas
-                    const validMultiLinkFormat = /^\s*(\[\[[^\]]+\]\]\s*,\s*)*\[\[[^\]]+\]\]\s*$/;
-                    if (validMultiLinkFormat.test(contentAfterColon)) {
+                    // Check if content follows one of these valid formats:
+                    // 1. Comma-separated links: [[Link1]],[[Link2]],[[Link3]]
+                    // 2. Single link: [[Link1]]
+                    const validMultiLinkFormatCSV = /^\s*(\[\[[^\]]+\]\]\s*,\s*)*\[\[[^\]]+\]\]\s*$/;
+                    const validSingleLinkFormat = /^\s*\[\[[^\]]+\]\]\s*$/;
+                    
+                    if (validMultiLinkFormatCSV.test(contentAfterColon) || validSingleLinkFormat.test(contentAfterColon)) {
                         // Valid multi-link field
                     } else {
                         this.errorCount++;
