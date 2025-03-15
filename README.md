@@ -42,9 +42,9 @@ If necessary folders and/or files are missing, this command will automatically i
 
 A folder 'OnlyWorlds' will be created at the top of your vault. As of release 1.0.2, this folder must remain at the top of your vault for the plugin to function
 
-Use Create Element to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
+Use the Create Element command to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
 
-Integrate existing world content, or create new content, by shaping elements through their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) on improving field definitions
+OnlyWorlds are shaped primarily through elements and their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) to discuss how to impove these field definitions.
 
 Convert your worlds into a JSON data file by using the 'Copy World' command, or export it to OnlyWorlds.com using the 'Export World' command
 

@@ -64,8 +64,7 @@ export class CreateWorldModal extends Modal {
         
         // Description
         const description = contentEl.createEl('p');
-        description.innerHTML = `This information will be sent to OnlyWorlds.com to register your world. 
-        Your email and PIN will be used to assign ownership of the world.`;
+        description.innerHTML = `Your email and PIN must match an OnlyWorlds account to assign ownership of the world.`;
         description.style.fontSize = '0.85em';
         description.style.fontStyle = 'italic';
         description.style.marginBottom = '20px';
