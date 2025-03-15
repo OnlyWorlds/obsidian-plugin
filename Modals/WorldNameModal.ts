@@ -1,4 +1,4 @@
-import { App, Modal, Notice } from 'obsidian';
+import { App, Modal } from 'obsidian';
 
 export class WorldNameModal extends Modal {
     onEnter: (value: string) => void;
@@ -14,7 +14,7 @@ export class WorldNameModal extends Modal {
 
         const input = contentEl.createEl('input', {
             type: 'text',
-            placeholder: 'Type the world name here...',
+            placeholder: '...',
         });
 
         input.addEventListener('keydown', (e: KeyboardEvent) => {

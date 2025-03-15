@@ -1,16 +1,17 @@
-import { App, Notice, requestUrl, FileSystemAdapter, normalizePath } from 'obsidian';
 import Handlebars from 'handlebars';
-import { Category } from '../enums';
-import { WorldKeyModal } from 'Modals/WorldKeyModal'; 
-import { CreateTemplatesCommand } from './CreateTemplatesCommand';
-import { CreateSettingsCommand } from './CreateSettingsCommand';
-import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
+import { WorldKeyModal } from 'Modals/WorldKeyModal';
+import { App, FileSystemAdapter, normalizePath, Notice, requestUrl } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
+import { Category } from '../enums';
+import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 
 export class ImportWorldCommand {
     app: App;
     manifest: any;
-    private apiUrl = 'https://www.onlyworlds.com/api/worlddata/';
+    // DEVELOPMENT: Point to local server instead of production
+    private apiUrl = 'http://127.0.0.1:8000/api/worlddata/';
+    // PRODUCTION: Uncomment this line when deploying to production
+    // private apiUrl = 'https://www.onlyworlds.com/api/worlddata/';
 
     constructor(app: App, manifest: any) {
         this.app = app;

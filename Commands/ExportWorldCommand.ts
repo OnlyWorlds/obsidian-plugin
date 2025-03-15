@@ -1,16 +1,19 @@
-import { App, Notice, requestUrl, FileSystemAdapter, normalizePath, TFile } from 'obsidian';
-import { Category } from '../enums';
-import { WorldKeySelectionModal } from 'Modals/WorldKeySelectionModal';
-import { ValidateWorldCommand } from './ValidateWorldCommand';
-import { WorldService } from 'Scripts/WorldService';
 import { ValidateExportResultModal } from 'Modals/ValidateExportResultModal';
+import { WorldKeySelectionModal } from 'Modals/WorldKeySelectionModal';
+import { App, FileSystemAdapter, normalizePath, Notice, requestUrl, TFile } from 'obsidian';
+import { WorldService } from 'Scripts/WorldService';
+import { Category } from '../enums';
+import { ValidateWorldCommand } from './ValidateWorldCommand';
 
 export class ExportWorldCommand {
     app: App;
     manifest: any;
     worldService: WorldService;
 
-    private apiUrl = 'https://www.onlyworlds.com/api/worlddata/';
+    // DEVELOPMENT: Point to local server instead of production
+    private apiUrl = 'http://127.0.0.1:8000/api/worlddata/';
+    // PRODUCTION: Uncomment this line when deploying to production
+    // private apiUrl = 'https://www.onlyworlds.com/api/worlddata/';
 
     constructor(app: App, manifest: any,  worldService: WorldService,) {
         this.app = app;
