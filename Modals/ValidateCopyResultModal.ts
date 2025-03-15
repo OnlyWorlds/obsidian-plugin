@@ -52,7 +52,7 @@ export class ValidateCopyResultModal extends Modal {
         if (this.errorCount > 0) {
             contentEl.createEl('p', { text: `Please correct these issues to allow copy of ${this.worldName}.` });
          } else {
-            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for copy!` });
+            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} can be copied to clipboard!` });
         }
     
         const errorKeys = Object.keys(this.errors) as (keyof typeof this.errors)[];
