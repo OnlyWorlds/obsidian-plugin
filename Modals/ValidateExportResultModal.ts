@@ -1,4 +1,4 @@
-import { Modal, App } from 'obsidian';
+import { App, Modal } from 'obsidian';
 
 export class ValidateExportResultModal extends Modal {
     private errors: {
@@ -44,7 +44,7 @@ export class ValidateExportResultModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
     
-        contentEl.createEl('h1', { text: `Validating ${this.worldName}` });
+        contentEl.createEl('h1', { text: `Validated ${this.worldName}` });
     
         contentEl.createEl('p', { text: `Total elements scanned: ${this.elementCount}` });
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });
@@ -52,7 +52,8 @@ export class ValidateExportResultModal extends Modal {
         if (this.errorCount > 0) {
             contentEl.createEl('p', { text: `Please correct these issues to allow export of ${this.worldName}.` });
          } else {
-            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for export!` });
+            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for export.` });
+            contentEl.createEl('p', { text: `This will overwrite the world version stored on OnlyWorlds.com!` });
         }
     
         const errorKeys = Object.keys(this.errors) as (keyof typeof this.errors)[];
@@ -69,18 +70,28 @@ export class ValidateExportResultModal extends Modal {
                 });
             }
         });
-    
-        const actionButton = contentEl.createEl('button', {
-            text: this.errorCount > 0 ? 'Close' : 'Export',
-            cls: 'mod-cta'
-        });
-    
-        actionButton.addEventListener('click', () => {
-            if (this.errorCount === 0) {
-                this.exportCallback?.();
-            }
+        
+        // Create button container for consistent layout
+        const buttonContainer = contentEl.createEl('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.justifyContent = 'space-between';
+        buttonContainer.style.marginTop = '20px';
+        
+        // Cancel Button (always shown)
+        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        cancelButton.addEventListener('click', () => {
             this.close();
         });
+        
+        // Export Button (only shown if validation passed)
+        if (this.errorCount === 0) {
+            const exportButton = buttonContainer.createEl('button', { text: 'EXPORT' });
+            exportButton.style.marginLeft = '8px';
+            exportButton.addEventListener('click', () => {
+                this.exportCallback?.();
+                this.close();
+            });
+        }
     }
     
     // Add a property to hold the export callback function

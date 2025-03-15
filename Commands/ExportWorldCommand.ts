@@ -1,5 +1,5 @@
 import { ValidateExportResultModal } from 'Modals/ValidateExportResultModal';
-import { WorldKeySelectionModal } from 'Modals/WorldKeySelectionModal';
+import { WorldPinSelectionModal } from 'Modals/WorldPinSelectionModal';
 import { App, FileSystemAdapter, normalizePath, Notice, requestUrl, TFile } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { Category } from '../enums';
@@ -11,9 +11,9 @@ export class ExportWorldCommand {
     worldService: WorldService;
 
     // DEVELOPMENT: Point to local server instead of production
-    private apiUrl = 'http://127.0.0.1:8000/api/worlddata/';
+    private apiUrl = 'http://127.0.0.1:8000/api/worldsync/store/';
     // PRODUCTION: Uncomment this line when deploying to production
-    // private apiUrl = 'https://www.onlyworlds.com/api/worlddata/';
+    // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/store/';
 
     constructor(app: App, manifest: any,  worldService: WorldService,) {
         this.app = app;
@@ -23,41 +23,61 @@ export class ExportWorldCommand {
 
     async execute() {
         const activeWorldName = await this.worldService.getWorldName(); // Fetch the active world name
-        new WorldKeySelectionModal(this.app, async (worldKey: string, worldFolder: string) => {
-            if (worldKey.length === 10) {
-                const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
-                await validator.execute(worldFolder); 
-        
-                const validationModal = new ValidateExportResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, worldFolder);
-        
-                validationModal.setExportCallback(async () => {
-                    if (validator.errorCount === 0) {
-                        const worldData = await this.collectWorldData(worldFolder);  // Pass the selected world folder
-                        const payload = {
-                            worldKey: worldKey,
-                            worldData: worldData
-                        }; 
-        
+        new WorldPinSelectionModal(this.app, async (pin: number, worldFolder: string) => {
+            const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
+            await validator.execute(worldFolder); 
+    
+            const validationModal = new ValidateExportResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, worldFolder);
+    
+            validationModal.setExportCallback(async () => {
+                if (validator.errorCount === 0) {
+                    const worldData = await this.collectWorldData(worldFolder);  // Pass the selected world folder
+
+                    if (!worldData || !worldData.World || !worldData.World.api_key) {
+                        new Notice('Error: Could not find API key in the World file.');
+                        return;
+                    }
+                    
+                    // Construct payload with PIN and world data
+                    const payload = {
+                        pin: pin,
+                        world_data: worldData
+                    };
+    
+                    try {
                         const response = await requestUrl({
                             url: this.apiUrl,
                             method: 'POST',
-                            contentType: 'application/json',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
                             body: JSON.stringify(payload)
                         });
-        
+    
                         if (response.status === 200 || response.status === 201) {
-                            new Notice('World data successfully sent. Status: ' + response.status);
+                            new Notice('Successfully exported world to OnlyWorlds.com.');
+                        } else if (response.status === 403) {
+                            new Notice('Export failed: Invalid PIN or insufficient access rights.');
+                        } else if (response.status === 429) {
+                            new Notice('Export failed: Rate limit exceeded. Please try again later.');
                         } else {
                             console.error(`Failed to send world data, status code: ${response.status}`);
                             new Notice(`Failed to send world data: ${response.status}`);
                         }
+                    } catch (error) {
+                        console.error('Export error:', error);
+                        if (error instanceof Error && error.message.includes('status 403')) {
+                            new Notice('Export failed: Invalid PIN or insufficient access rights.');
+                        } else if (error instanceof Error && error.message.includes('status 429')) {
+                            new Notice('Export failed: Rate limit exceeded. Please try again later.');
+                        } else {
+                            new Notice(`Error during export: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                        }
                     }
-                });
-        
-                validationModal.open();
-            } else {
-                new Notice('Invalid world key. Please ensure it is a 10-digit number.');
-            }
+                }
+            });
+    
+            validationModal.open();
         }, activeWorldName).open(); // Pass the active world name to the modal
     }
     
