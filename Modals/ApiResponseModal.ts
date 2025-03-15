@@ -5,13 +5,25 @@ export class ApiResponseModal extends Modal {
     message: string;
     details: Record<string, any> | null;
     onCloseCallback: () => void;
+    customTitle: string | null;
+    showDetails: boolean;
 
-    constructor(app: App, success: boolean, message: string, details: Record<string, any> | null = null, onCloseCallback: () => void = () => {}) {
+    constructor(
+        app: App, 
+        success: boolean, 
+        message: string, 
+        details: Record<string, any> | null = null, 
+        onCloseCallback: () => void = () => {},
+        customTitle: string | null = null,
+        showDetails: boolean = true
+    ) {
         super(app);
         this.success = success;
         this.message = message;
         this.details = details;
         this.onCloseCallback = onCloseCallback;
+        this.customTitle = customTitle;
+        this.showDetails = showDetails;
     }
 
     onOpen() {
@@ -19,7 +31,8 @@ export class ApiResponseModal extends Modal {
         
         // Create header
         const icon = this.success ? '✅' : '❌';
-        const title = this.success ? 'Success' : 'Error';
+        // Use custom title if provided, otherwise use default
+        const title = this.success ? 'Success' : (this.customTitle || 'Error');
         
         const header = contentEl.createEl('div');
         header.style.display = 'flex';
@@ -36,8 +49,8 @@ export class ApiResponseModal extends Modal {
         const messageEl = contentEl.createEl('p', { text: this.message });
         messageEl.style.marginBottom = '15px';
         
-        // Create details section if available
-        if (this.success && this.details) {
+        // Create details section if available and showDetails is true
+        if (this.success && this.details && this.showDetails) {
             const detailsContainer = contentEl.createEl('div');
             detailsContainer.style.backgroundColor = '#f5f5f5';
             detailsContainer.style.padding = '10px';
@@ -62,6 +75,8 @@ export class ApiResponseModal extends Modal {
                 note.style.marginTop = '5px';
                 note.textContent = 'This API key is required for accessing your world. Please save it somewhere safe.';
             }
+        } else if (this.success && this.details && !this.showDetails && this.details.api_key) {
+            // If details are hidden for a success message, don't show any additional notes
         }
         
         // Create close button

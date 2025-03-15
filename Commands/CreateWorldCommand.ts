@@ -2,8 +2,7 @@ import { App, Notice, PluginManifest, requestUrl } from 'obsidian';
 
 import Handlebars from 'handlebars';
 import { ApiResponseModal } from 'Modals/ApiResponseModal';
-import { EmailInputModal } from 'Modals/EmailInputModal';
-import { WorldNameModal } from 'Modals/WorldNameModal';
+import { CreateWorldModal, WorldCreationData } from 'Modals/CreateWorldModal';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
@@ -15,8 +14,7 @@ export class CreateWorldCommand {
     private apiUrl = 'http://127.0.0.1:8000/api/worldsync/create-world-external/';
     // PRODUCTION: Uncomment this line when deploying to production
     // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
-    
-    private testMode = false; // Set this to true to use the test API
+     
 
     constructor(app: App, manifest: PluginManifest) {
         this.app = app;
@@ -25,72 +23,39 @@ export class CreateWorldCommand {
 
     async execute() { 
         try {
-            // Step 1: Get world name
-            const worldName = await this.getWorldName();
-            if (!worldName) {
-                console.log("World creation cancelled: no world name provided.");
-                return;  // User cancelled the input
-            }
-
-            // Step 2: Get user email
-            const email = await this.getUserEmail(worldName);
-            if (!email) {
-                console.log("World creation cancelled: no email provided.");
-                return;  // User cancelled the input
-            }
-
-            // Step 3: Call the API to create the world
-            const worldData = await this.createWorldOnServer(worldName, email);
+            // Get world creation data using the new unified modal
+            const worldData = await this.getWorldCreationData();
             if (!worldData) {
+                console.log("World creation cancelled: no data provided.");
+                return;  // User cancelled the input
+            }
+
+            // Call the API to create the world with the provided data
+            const apiResponse = await this.createWorldOnServer(worldData);
+            if (!apiResponse) {
                 console.log("World creation failed: API call unsuccessful.");
                 return;  // API call failed
             }
 
-            // Step 4: Create local directories and files with the returned data
-            await this.createLocalWorldFiles(worldName, worldData);
+            // Create local directories and files with the returned data
+            await this.createLocalWorldFiles(worldData.name, apiResponse);
 
-            new Notice('Successfully created world: ' + worldName);
+            new Notice('Successfully created world: ' + worldData.name);
         } catch (error) {
             console.error("Error during world creation:", error);
             new Notice('Failed to create world: ' + (error instanceof Error ? error.message : 'Unknown error'));
         }
     }
 
-    async getWorldName(): Promise<string | null> {
+    async getWorldCreationData(): Promise<WorldCreationData | null> {
         return new Promise((resolve) => {
-            const modal = new WorldNameModal(this.app, resolve);
+            const modal = new CreateWorldModal(this.app, resolve);
             modal.open();
         });
     }
 
-    async getUserEmail(worldName: string): Promise<string | null> {
-        return new Promise((resolve) => {
-            const modal = new EmailInputModal(this.app, worldName, resolve);
-            modal.open();
-        });
-    }
-
-    async createWorldOnServer(name: string, email: string): Promise<any | null> {
-        try {
-            // If in test mode, return a mocked successful response
-            if (this.testMode) {
-                console.log("TEST MODE: Simulating successful API response");
-                return new Promise((resolve) => {
-                    new ApiResponseModal(
-                        this.app,
-                        true,
-                        `TEST MODE: World "${name}" created successfully!`,
-                        {
-                            world_id: "test-uuid-" + Date.now(),
-                            api_key: "1234567890",
-                        },
-                        () => resolve({
-                            world_id: "test-uuid-" + Date.now(),
-                            api_key: "1234567890",
-                        })
-                    ).open();
-                });
-            }
+    async createWorldOnServer(worldData: WorldCreationData): Promise<any | null> {
+        try { 
 
             const response = await requestUrl({
                 url: this.apiUrl,
@@ -99,8 +64,9 @@ export class CreateWorldCommand {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    name: name,
-                    email: email,
+                    name: worldData.name,
+                    email: worldData.email,
+                    pin: worldData.pin
                 }),
             });
 
@@ -113,12 +79,14 @@ export class CreateWorldCommand {
                         new ApiResponseModal(
                             this.app,
                             true,
-                            `World "${name}" created successfully!`,
+                            `World "${worldData.name}" created successfully!`,
                             {
                                 world_id: data.world_id,
                                 api_key: data.api_key,
                             },
-                            () => resolve(data)
+                            () => resolve(data),
+                            null,  // No custom title
+                            false  // Don't show details section
                         ).open();
                     });
                 } else {
@@ -127,37 +95,155 @@ export class CreateWorldCommand {
                         this.app,
                         false,
                         data.message || "Server reported an error creating the world.",
-                        null
+                        null,
+                        () => {},
+                        "World Create Failed"
                     ).open();
                     return null;
                 }
+            } else if (response.status === 400) {
+                // Authentication or validation error
+                try {
+                    // Try to parse response for more detailed error message
+                    const data = JSON.parse(response.text);
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        data.message || "Please verify your OnlyWorlds account email address and PIN and try again.",
+                        null,
+                        () => {},
+                        "World Create Failed"
+                    ).open();
+                } catch (parseError) {
+                    // Fallback if parsing fails
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        "Please verify your OnlyWorlds account email address and PIN and try again.",
+                        null,
+                        () => {},
+                        "World Create Failed"
+                    ).open();
+                }
+                return null;
             } else if (response.status === 429) {
                 // Rate limit error
-                const data = JSON.parse(response.text);
-                new ApiResponseModal(
-                    this.app,
-                    false,
-                    data.message || "Too many requests. Please try again later.",
-                    null
-                ).open();
+                try {
+                    // Try to parse response for more detailed error message
+                    const data = JSON.parse(response.text);
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        data.message || "Too many requests. Please try again later.",
+                        null,
+                        () => {},
+                        "Rate Limit Exceeded"
+                    ).open();
+                } catch (parseError) {
+                    // Fallback if parsing fails
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        "Too many requests. Please try again later.",
+                        null,
+                        () => {},
+                        "Rate Limit Exceeded"
+                    ).open();
+                }
                 return null;
             } else {
                 // Other HTTP errors
-                new ApiResponseModal(
-                    this.app,
-                    false,
-                    `Server error (${response.status}): Unable to create world.`,
-                    null
-                ).open();
+                try {
+                    // Try to parse response for more detailed error message
+                    const data = JSON.parse(response.text);
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        data.message || "Server error: Unable to create world.",
+                        null,
+                        () => {},
+                        "World Create Failed"
+                    ).open();
+                } catch (parseError) {
+                    // Fallback if parsing fails
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        `Server error: Unable to create world.`,
+                        null,
+                        () => {},
+                        "World Create Failed"
+                    ).open();
+                }
                 return null;
             }
         } catch (error) {
             // Network or parsing errors
+            let errorMessage = "Unable to connect to OnlyWorlds server.";
+            let errorTitle = "Connection Error";
+            
+            // Log detailed error for debugging
+            console.error("World creation API error:", error);
+            
+            // If we have a more specific error message, use it
+            if (error instanceof Error) {
+                const errorMsg = error.message;
+                
+                // Check if this is a 400 error (authentication/validation failure)
+                if (errorMsg.includes("status 400") || errorMsg.includes("400 Bad Request")) {
+                    console.log("Authentication or validation error detected (400)");
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        "Please verify your OnlyWorlds account email address and PIN and try again.",
+                        null,
+                        () => {},
+                        "World Create Failed"
+                    ).open();
+                    return null;
+                }
+                
+                // Check if this is a 429 error (rate limiting)
+                if (errorMsg.includes("status 429") || errorMsg.includes("429 Too Many Requests")) {
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        "Too many requests. Please try again later.",
+                        null,
+                        () => {},
+                        "Rate Limit Exceeded"
+                    ).open();
+                    return null;
+                }
+                
+                // Check for other common HTTP errors
+                if (errorMsg.includes("status ") || /^\d{3}\s/.test(errorMsg)) {
+                    new ApiResponseModal(
+                        this.app,
+                        false,
+                        "Server error. Unable to create world.",
+                        null,
+                        () => {},
+                        "World Create Failed"
+                    ).open();
+                    return null;
+                }
+                
+                // Only show technical details if it's not a standard network error
+                if (!errorMsg.includes("Failed to fetch") && 
+                    !errorMsg.includes("NetworkError") && 
+                    !errorMsg.includes("Network request failed")) {
+                    errorMessage += " Error: " + errorMsg;
+                }
+            }
+            
             new ApiResponseModal(
                 this.app,
                 false,
-                `Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                null
+                errorMessage,
+                null,
+                () => {},
+                errorTitle
             ).open();
             return null;
         }
