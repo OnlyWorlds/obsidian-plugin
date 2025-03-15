@@ -33,10 +33,7 @@ export class ExportWorldCommand {
                 if (validator.errorCount === 0) {
                     const worldData = await this.collectWorldData(worldFolder);  // Pass the selected world folder
 
-                    if (!worldData || !worldData.World || !worldData.World.api_key) {
-                        new Notice('Error: Could not find API key in the World file.');
-                        return;
-                    }
+  
                     
                     // Construct payload with PIN and world data
                     const payload = {
@@ -55,7 +52,7 @@ export class ExportWorldCommand {
                         });
     
                         if (response.status === 200 || response.status === 201) {
-                            new Notice('Successfully exported world to OnlyWorlds.com.');
+                            new Notice('Successfully exported to OnlyWorlds.com.');
                         } else if (response.status === 403) {
                             new Notice('Export failed: Invalid PIN or insufficient access rights.');
                         } else if (response.status === 429) {
@@ -123,8 +120,17 @@ export class ExportWorldCommand {
             }
         }
     
-      //  console.log(`Final world data: ${JSON.stringify(worldData)}`);
-        return worldData;
+        // Add debug logging at the end of the method, before returning the data
+        try {
+            console.log("WORLD DATA COLLECTION COMPLETE - Raw data structure:");
+            console.log(JSON.stringify(worldData, null, 2));
+            
+            return worldData;
+        } catch (error) {
+            console.error("Error collecting world data:", error);
+            new Notice("Error collecting world data: " + (error instanceof Error ? error.message : "Unknown error"));
+            return null;
+        }
     }
     
     private parseWorldFile(content: string): Record<string, string> {
@@ -146,7 +152,18 @@ export class ExportWorldCommand {
             if (match) {
                 let key = this.toSnakeCase(match[1].replace(/\*\*/g, ''));
                 const value = match[2].trim();
-                data[key] = value;
+                
+                // Special handling for image field
+                if (key === 'image' || key === 'image_url') {
+                    // If the image value is 'None', set it to empty string
+                    if (value === 'None' || value === 'No image set') {
+                        data[key] = '';
+                    } else {
+                        data[key] = value;
+                    }
+                } else {
+                    data[key] = value;
+                }
             }
         });
     
@@ -219,7 +236,17 @@ export class ExportWorldCommand {
                     // Store as actual array instead of comma-separated string
                     data[key] = ids;
                 } else {
-                    data[key] = value;
+                    // Special handling for image fields
+                    if (key === 'image' || key === 'image_url') {
+                        // If the image value is 'None', set it to empty string
+                        if (value === 'None' || value === 'No image set') {
+                            data[key] = '';
+                        } else {
+                            data[key] = value;
+                        }
+                    } else {
+                        data[key] = value;
+                    }
                 }
             } else { 
             }

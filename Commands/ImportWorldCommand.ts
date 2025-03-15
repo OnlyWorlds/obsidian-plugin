@@ -122,6 +122,14 @@ export class ImportWorldCommand {
             return; 
         }             
         const fs: FileSystemAdapter = this.app.vault.adapter; 
+        
+        // Add image_display field based on image_url
+        if (worldData.image_url) {
+            worldData.image_display = `![World Image](${worldData.image_url})`;
+        } else {
+            worldData.image_display = "None";
+        }
+        
         const worldTemplate = Handlebars.compile(worldTemplateString);
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;

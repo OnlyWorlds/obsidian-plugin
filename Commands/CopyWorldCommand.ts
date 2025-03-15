@@ -135,7 +135,18 @@ export class CopyWorldCommand {
             if (match) {
                 let key = this.toSnakeCase(match[1].replace(/\*\*/g, ''));
                 const value = match[2].trim();
-                data[key] = value;
+                
+                // Special handling for image field
+                if (key === 'image' || key === 'image_url') {
+                    // If the image value is 'None', set it to empty string
+                    if (value === 'None' || value === 'No image set') {
+                        data[key] = '';
+                    } else {
+                        data[key] = value;
+                    }
+                } else {
+                    data[key] = value;
+                }
             }
         });
     
@@ -208,10 +219,18 @@ export class CopyWorldCommand {
                     // Store as actual array instead of comma-separated string
                     data[key] = ids;
                 } else {
-                    data[key] = value;
+                    // Special handling for image fields
+                    if (key === 'image' || key === 'image_url') {
+                        // If the image value is 'None', set it to empty string
+                        if (value === 'None' || value === 'No image set') {
+                            data[key] = '';
+                        } else {
+                            data[key] = value;
+                        }
+                    } else {
+                        data[key] = value;
+                    }
                 }
-            } else {
-               
             }
         }
     

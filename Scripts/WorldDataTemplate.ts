@@ -8,7 +8,7 @@ export const worldTemplateString = `
 - **Name:** {{name}}
 - **Description:** {{description}}
 - **Version:** {{ow_version}}
-- **Image URL:** ![World Image]({{image_url}})
+- **Image:** None
 
 ## Time Settings
 - **Focus Text:** {{focus_text}}

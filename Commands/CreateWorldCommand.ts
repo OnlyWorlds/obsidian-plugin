@@ -268,7 +268,8 @@ export class CreateWorldCommand {
             name: worldName,
             description: ``,
             ow_version: "16.10",
-            image_url: "",
+            // Pre-format the image field to avoid Obsidian's wiki link interpretation
+            image_display: "None",
             focus_text: "",
             time_format_names: "Eon, Era, Period, Epoch, Age, Year, Month, Day, Hour, Minute, Second",
             time_format_equivalents: "Eon, Era, Period, Epoch, Age, Year, Month, Day, Hour, Minute, Second",

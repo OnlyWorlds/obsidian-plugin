@@ -1,9 +1,9 @@
-import { App, Notice, Modal, FileSystemAdapter, normalizePath } from 'obsidian';
 import Handlebars from 'handlebars';
-import { Category } from '../enums';
-import { WorldPasteModal } from 'Modals/WorldPasteModal';  
-import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
+import { WorldPasteModal } from 'Modals/WorldPasteModal';
+import { App, FileSystemAdapter, normalizePath, Notice } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
+import { Category } from '../enums';
+import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 
 export class PasteWorldCommand {
     app: App;
@@ -71,6 +71,14 @@ export class PasteWorldCommand {
             return; 
         }             
         const fs: FileSystemAdapter = this.app.vault.adapter; 
+        
+        // Add image_display field based on image_url
+        if (worldData.image_url) {
+            worldData.image_display = `![World Image](${worldData.image_url})`;
+        } else {
+            worldData.image_display = "None";
+        }
+        
         const worldTemplate = Handlebars.compile(worldTemplateString);
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;
