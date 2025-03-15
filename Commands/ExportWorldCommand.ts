@@ -33,7 +33,7 @@ export class ExportWorldCommand {
                 if (validator.errorCount === 0) {
                     const worldData = await this.collectWorldData(worldFolder);  // Pass the selected world folder
 
-  
+               
                     
                     // Construct payload with PIN and world data
                     const payload = {
