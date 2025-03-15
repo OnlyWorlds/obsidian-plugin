@@ -61,7 +61,11 @@ export class TemplateSelectionModal extends Modal {
             this.handleCategorySelection(inputEl.value, dataListEl, categories);
         });
 
+        // Focus the input field and select all text
         inputEl.focus();
+        if (inputEl.value) {
+            inputEl.select(); // This will select all the text in the input
+        }
     }
 
     handleCategorySelection(inputValue: string, dataListEl: HTMLElement, categories: string[]) {
