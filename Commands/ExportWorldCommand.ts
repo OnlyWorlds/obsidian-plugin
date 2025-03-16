@@ -133,9 +133,9 @@ export class ExportWorldCommand {
         }
     }
     
-    private parseWorldFile(content: string): Record<string, string> {
+    private parseWorldFile(content: string): Record<string, string | string[]> {
         let currentSection: string | null = null;
-        const data: Record<string, string> = {};
+        const data: Record<string, string | string[]> = {};
     
         const sectionPattern = /^##\s*(.+)$/; // Pattern to identify sections
         const keyValuePattern = /- \*\*(.*?):\*\* (.*)/; // Pattern for key-value pairs
@@ -161,6 +161,9 @@ export class ExportWorldCommand {
                     } else {
                         data[key] = value;
                     }
+                } else if (key === 'time_format_names' || key === 'time_format_equivalents') {
+                    // Parse time formats as JSON arrays
+                    data[key] = value.split(',').map(item => item.trim());
                 } else {
                     data[key] = value;
                 }
