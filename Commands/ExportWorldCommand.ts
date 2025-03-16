@@ -162,8 +162,20 @@ export class ExportWorldCommand {
                         data[key] = value;
                     }
                 } else if (key === 'time_format_names' || key === 'time_format_equivalents') {
-                    // Parse time formats as JSON arrays
-                    data[key] = value.split(',').map(item => item.trim());
+                    // Support both formats:
+                    // 1. If the value is already a JSON array string (starts with '[')
+                    if (value.startsWith('[') && value.endsWith(']')) {
+                        try {
+                            // Parse as JSON array
+                            data[key] = JSON.parse(value);
+                        } catch (e) {
+                            // If parsing fails, fall back to comma-separated string
+                            data[key] = value.split(',').map(item => item.trim());
+                        }
+                    } else {
+                        // 2. Parse as comma-separated string
+                        data[key] = value.split(',').map(item => item.trim());
+                    }
                 } else {
                     data[key] = value;
                 }

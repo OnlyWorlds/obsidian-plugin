@@ -86,6 +86,20 @@ export default class OnlyWorldsPlugin extends Plugin {
           return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
         }
       });
+
+      // Add helper for formatting arrays consistently
+      Handlebars.registerHelper('formatArray', (arr: string | string[]) => {
+        if (!arr) return '';
+        
+        // Handle both string and array formats
+        if (Array.isArray(arr)) {
+          // If arr is already an array, join with commas
+          return arr.join(', ');
+        } else {
+          // If arr is already a string, return as is
+          return arr;
+        }
+      });
     }
 
       setupCommands() {
