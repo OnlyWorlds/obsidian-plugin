@@ -53,7 +53,7 @@ export class ValidateExportResultModal extends Modal {
             contentEl.createEl('p', { text: `Please correct these issues to allow export of ${this.worldName}.` });
          } else {
             contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for export.` });
-            contentEl.createEl('p', { text: `!!WARNING!! This will overwrite the world version stored on OnlyWorlds.com!` });
+            contentEl.createEl('p', { text: `!!AWARE!! This will overwrite the world stored on OnlyWorlds.com!` });
         }
     
         const errorKeys = Object.keys(this.errors) as (keyof typeof this.errors)[];

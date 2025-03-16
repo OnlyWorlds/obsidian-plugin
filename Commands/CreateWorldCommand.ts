@@ -268,8 +268,7 @@ export class CreateWorldCommand {
             name: worldName,
             description: ``,
             version: "0.20.10",
-            image_url: "",  // Empty string rather than null or "None"
-            focus_text: "", 
+            image_url: "",  // Empty string rather than null or "None" 
             time_format_names: ["Eon", "Era", "Period", "Epoch", "Age", "Year", "Month", "Day", "Hour", "Minute", "Second"],
             time_format_equivalents: ["Eon", "Era", "Period", "Epoch", "Age", "Year", "Month", "Day", "Hour", "Minute", "Second"],
             time_basic_unit: "Year",

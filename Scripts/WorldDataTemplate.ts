@@ -10,8 +10,7 @@ export const worldTemplateString = `
 - **Version:** {{ow_version}}
 - **Image:** None
 
-## Time Settings
-- **Focus Text:** {{focus_text}}
+## Time Settings 
 - **Time Formats:** {{time_format_names}}
 - **Time Format Equivalents:** {{time_format_equivalents}}
 - **Basic Time Unit:** {{time_basic_unit}}
