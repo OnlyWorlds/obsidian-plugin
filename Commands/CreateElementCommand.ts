@@ -1,4 +1,4 @@
-import { App, TFile, Notice, normalizePath, WorkspaceLeaf, TFolder } from 'obsidian';
+import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { v7 as uuidv7 } from 'uuid';
 

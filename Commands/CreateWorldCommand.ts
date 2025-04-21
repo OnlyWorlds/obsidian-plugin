@@ -11,9 +11,10 @@ export class CreateWorldCommand {
     app: App;
     manifest: PluginManifest;
     // DEVELOPMENT: Point to local server instead of production
-    private apiUrl = 'http://127.0.0.1:8000/api/worldsync/create-world-external/';
+    //private apiUrl = 'http://127.0.0.1:8000/api/worldsync/create-world-external/';
     // PRODUCTION: Uncomment this line when deploying to production
-    // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
+    //private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
+    private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/create-world-external/';
      
 
     constructor(app: App, manifest: PluginManifest) {

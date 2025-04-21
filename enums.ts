@@ -17,5 +17,6 @@ export enum Category {
     Law,
     Relation,
     Event,
-    Construct
+    Construct,
+    Narrative
 }

@@ -1,6 +1,6 @@
 import { App, Notice, normalizePath } from 'obsidian';
-import { Category } from '../enums';
 import { v7 as uuidv7 } from 'uuid';
+import { Category } from '../enums';
 
 export class CreateTemplatesCommand {
     app: App;
@@ -19,7 +19,7 @@ export class CreateTemplatesCommand {
         await this.createFolderIfNeeded(templateFolder);
 
         // Base URL for fetching the templates from GitHub
-        const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/languages/obsidian_templates/';
+        const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/conversions/obsidian_templates/';
      
 
         for (const category of categories) {

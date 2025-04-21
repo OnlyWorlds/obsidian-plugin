@@ -18,7 +18,7 @@ export class CreateHandlebarsCommand {
         await this.createFolderIfNeeded(handlebarsFolder);
 
         // Base URL for fetching the Handlebars templates from GitHub
-        const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/languages/obsidian_handlebars/';
+        const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/conversions/obsidian_handlebars/';
 
         console.log('Fetching Handlebars templates from GitHub');
         for (const category of categories) {
