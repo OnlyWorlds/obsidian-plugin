@@ -18,6 +18,7 @@ import { Plugin, TFile, normalizePath } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { CreateTemplatesCommand } from './Commands/CreateTemplatesCommand';
 import { ImportWorldCommand } from './Commands/ImportWorldCommand';
+import { SaveElementCommand } from './Commands/SaveElementCommand';
 import { NoteLinker } from './Listeners/NoteLinker';
 
 export default class OnlyWorldsPlugin extends Plugin {
@@ -116,6 +117,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
+        const saveElementCommand = new SaveElementCommand(this.app);
 
         // manually handled in create/import world commands, no need for user to do this
         // // Register a command to create category folders
@@ -203,6 +205,11 @@ export default class OnlyWorldsPlugin extends Plugin {
         callback: () => renameWorldCommand.execute(),
     });
    
+    this.addCommand({
+      id: 'save-element',
+      name: 'Save Element',
+      callback: () => saveElementCommand.execute(),
+  });
 
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', leaf => this.noteLinker.handleLeafChange(leaf))
