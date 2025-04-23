@@ -7,7 +7,7 @@ export const worldTemplateString = `
 - **API Key:** {{api_key}}
 - **Name:** {{name}}
 - **Description:** {{description}}
-- **Version:** {{ow_version}}
+- **Version:** {{version}}
 - **Image:** None
 
 ## Time Settings 
