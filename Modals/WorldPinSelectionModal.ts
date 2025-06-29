@@ -57,6 +57,15 @@ export class WorldPinSelectionModal extends Modal {
         // Add min/max attributes for 4-digit validation
         input.setAttribute('min', '1000');
         input.setAttribute('max', '9999');
+        input.setAttribute('maxlength', '4');
+        
+        // Prevent entering more than 4 digits
+        input.addEventListener('input', (e: Event) => {
+            const target = e.target as HTMLInputElement;
+            if (target.value.length > 4) {
+                target.value = target.value.slice(0, 4);
+            }
+        });
 
         // Button Container
         const buttonContainer = contentEl.createEl('div');

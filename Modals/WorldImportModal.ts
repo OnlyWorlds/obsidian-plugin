@@ -37,6 +37,14 @@ export class WorldImportModal extends Modal {
         });
         keyInput.style.width = '100%';
         keyInput.style.marginBottom = '15px';
+        keyInput.setAttribute('maxlength', '10');
+        
+        // Prevent entering more than 10 digits for API key
+        keyInput.addEventListener('input', (e: Event) => {
+            const target = e.target as HTMLInputElement;
+            // Only allow digits and limit to 10 characters
+            target.value = target.value.replace(/\D/g, '').slice(0, 10);
+        });
 
         // PIN Input Section
         const pinLabel = contentEl.createEl('label', { text: 'PIN' });
@@ -55,6 +63,15 @@ export class WorldImportModal extends Modal {
         // Add min/max attributes for 4-digit validation
         pinInput.setAttribute('min', '1000');
         pinInput.setAttribute('max', '9999');
+        pinInput.setAttribute('maxlength', '4');
+        
+        // Prevent entering more than 4 digits for PIN
+        pinInput.addEventListener('input', (e: Event) => {
+            const target = e.target as HTMLInputElement;
+            if (target.value.length > 4) {
+                target.value = target.value.slice(0, 4);
+            }
+        });
 
         // Button Container
         const buttonContainer = contentEl.createEl('div');
