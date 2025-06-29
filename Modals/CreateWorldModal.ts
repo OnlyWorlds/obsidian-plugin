@@ -61,10 +61,20 @@ export class CreateWorldModal extends Modal {
         // Add min/max attributes for 4-digit validation
         pinInput.setAttribute('min', '1000');
         pinInput.setAttribute('max', '9999');
+        pinInput.setAttribute('maxlength', '4');
+        
+        // Prevent entering more than 4 digits
+        pinInput.addEventListener('input', (e: Event) => {
+            const target = e.target as HTMLInputElement;
+            if (target.value.length > 4) {
+                target.value = target.value.slice(0, 4);
+            }
+        });
         
         // Description
         const description = contentEl.createEl('p');
-        description.innerHTML = `Your email and PIN must match an OnlyWorlds account to assign ownership of the world.`;
+        description.innerHTML = ``;
+        // description.innerHTML = `Your email and PIN must match an OnlyWorlds account to assign ownership of the world.`;
         description.style.fontSize = '0.85em';
         description.style.fontStyle = 'italic';
         description.style.marginBottom = '20px';

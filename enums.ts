@@ -4,7 +4,7 @@ export enum Category {
     Object,
     Location,
     Species,
-    Territory,
+    Zone,
     Institution,
     Family,
     Creature,
