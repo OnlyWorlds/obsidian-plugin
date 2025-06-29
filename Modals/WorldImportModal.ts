@@ -53,7 +53,7 @@ export class WorldImportModal extends Modal {
         pinLabel.style.fontWeight = 'bold';
         
         const pinInput = contentEl.createEl('input', {
-            type: 'number',
+            type: 'password',
             placeholder: '',
             cls: 'pin-input'
         });
