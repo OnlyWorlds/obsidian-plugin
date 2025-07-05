@@ -8,21 +8,11 @@ It functions as a standalone tool for organizing worlds, and facilitates the tra
 
 OnlyWorlds is a framework for creating, building, sharing, and simulating worlds.
 
-It is currently in a closed release with several prototype tools available. A first public release is planned for first half of 2025. 
+It has been in closed alpha release since early 2024. Full release is planned for late summer 2025.  
 
-More information in this [technical documentation](https://onlyworlds.github.io/), although this site is still under construction and revision.
-
-You can register at https://www.onlyworlds.com for some more information and access to the mobile app.
-
-To do so, please request a keycode by:
-
-- Using [this form](https://www.onlyworlds.com/about/), or
-- Joining [discord](https://discord.gg/twCjqvVBwb), or
-- Emailing onlyworldsdev@gmail.com
-
-
-
-## Configuring Hotkeys
+Full information in this [technical documentation](https://onlyworlds.github.io/).
+ 
+ ## Configuring Hotkeys
 
 This plugin requires a custom hotkey to link element fields
 
