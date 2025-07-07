@@ -1,6 +1,7 @@
 import { Category } from 'enums';
 import { ValidateCopyResultModal } from 'Modals/ValidateCopyResultModal';
-import { App, FileSystemAdapter, normalizePath, Notice, PluginManifest, TFile } from 'obsidian';
+import { WorldSelectionModal } from 'Modals/WorldSelectionModal';
+import { App, FileSystemAdapter, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 
@@ -17,25 +18,35 @@ export class CopyWorldCommand {
 
     async execute() {
         const activeWorldName = await this.worldService.getWorldName(); // Fetch the active world name
-        if (!activeWorldName) {
-            new Notice('No active world selected.');
+        const worldFolders = await this.getWorldFolders();
+        
+        // If only one world exists, skip the selection modal
+        if (worldFolders.length === 1) {
+            await this.processWorldCopy(worldFolders[0]);
             return;
         }
-     
-        const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
-        await validator.execute(activeWorldName); 
+        
+        // If multiple worlds exist, show selection modal
+        new WorldSelectionModal(this.app, async (worldFolder: string) => {
+            await this.processWorldCopy(worldFolder);
+        }, activeWorldName).open(); // Pass the active world name to the modal
+    }
 
-        const validationModal = new ValidateCopyResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, activeWorldName);
+    async processWorldCopy(worldFolder: string) {
+        const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
+        await validator.execute(worldFolder); 
+
+        const validationModal = new ValidateCopyResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, worldFolder);
         validationModal.setExportCallback(async () => {
             if (validator.errorCount === 0) {
-                await this.copyWorldData(activeWorldName); // Only copy data if there are no errors
+                await this.copyWorldData(worldFolder); // Only copy data if there are no errors
             }
         });
         validationModal.open();
     }
 
-    async copyWorldData(activeWorldName: string) {
-        const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${activeWorldName}`);
+    async copyWorldData(worldFolder: string) {
+        const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}`);
         const worldFilePath = `${worldFolderPath}/World.md`;
         const worldDataPath = `${worldFolderPath}/World Data File.md`;
     
@@ -61,7 +72,7 @@ export class CopyWorldCommand {
                 navigator.clipboard.writeText(worldDataJSON);
     
                 // Modal confirmation removed
-                new Notice(`World data file updated for ${activeWorldName}.`);
+                new Notice(`World data file updated for ${worldFolder}.`);
             } catch (error) {
                 console.error('Error during world data processing:', error);
                 new Notice('Failed to process world data.');
@@ -494,6 +505,20 @@ export class CopyWorldCommand {
         return result;
     }
     
+    async getWorldFolders(): Promise<string[]> { 
+        const worldsPath = normalizePath('OnlyWorlds/Worlds/');
+        const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);
+
+        if (!(worldsFolder instanceof TFolder)) {
+            console.error('Expected worlds folder not found.');
+            return [];  
+        }
+
+        return worldsFolder.children
+            .filter(child => child instanceof TFolder && child.children.some(file => file instanceof TFile && file.name === "World.md"))
+            .map(folder => folder.name);
+    }
+
     // Helper method to get WorldTyping data
     private getWorldTypingData(): Record<string, string> {
         return {

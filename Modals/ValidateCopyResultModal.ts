@@ -70,17 +70,27 @@ export class ValidateCopyResultModal extends Modal {
             }
         });
     
-        const actionButton = contentEl.createEl('button', {
-            text: this.errorCount > 0 ? 'Close' : 'Copy',
-            cls: 'mod-cta'
-        });
-    
-        actionButton.addEventListener('click', () => {
-            if (this.errorCount === 0) {
-                this.exportCallback?.();
-            }
+        // Create button container for consistent layout
+        const buttonContainer = contentEl.createEl('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.justifyContent = 'space-between';
+        buttonContainer.style.marginTop = '20px';
+        
+        // Cancel Button (always shown)
+        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        cancelButton.addEventListener('click', () => {
             this.close();
         });
+        
+        // Copy Button (only shown if validation passed)
+        if (this.errorCount === 0) {
+            const copyButton = buttonContainer.createEl('button', { text: 'COPY' });
+            copyButton.style.marginLeft = '8px';
+            copyButton.addEventListener('click', () => {
+                this.exportCallback?.();
+                this.close();
+            });
+        }
     }
     
     // Add a property to hold the export callback function
