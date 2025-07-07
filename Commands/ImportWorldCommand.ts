@@ -11,8 +11,8 @@ export class ImportWorldCommand {
     // DEVELOPMENT: Point to local server instead of production
     // private apiUrl = 'http://127.0.0.1:8000/api/worldsync/send/';
     // PRODUCTION: Uncomment this line when deploying to production
-    // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/';
-     private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/send/';
+     private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/';
+   // private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/send/';
 
     constructor(app: App, manifest: any) {
         this.app = app;

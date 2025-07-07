@@ -19,8 +19,8 @@ export class SaveElementCommand {
     // DEVELOPMENT: Point to local server
    // private apiBaseUrl = 'http://127.0.0.1:8000/api/worldapi/';
     // PRODUCTION: Point to production server
-    // private apiBaseUrl = 'https://www.onlyworlds.com/api/worldapi/';
-    private apiBaseUrl = 'https://onlywords.pythonanywhere.com/api/worldapi/';
+     private apiBaseUrl = 'https://www.onlyworlds.com/api/worldapi/';
+   // private apiBaseUrl = 'https://onlywords.pythonanywhere.com/api/worldapi/';
 
 
     constructor(app: App) {

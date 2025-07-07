@@ -191,12 +191,12 @@ export default class OnlyWorldsPlugin extends Plugin {
     });
     this.addCommand({
       id: 'paste-world',
-      name: 'Paste World',
+      name: 'Paste World from Clipboard',
       callback: () => pasteWorldCommand.execute(),
   });
       this.addCommand({
         id: 'copy-world',
-        name: 'Copy World',
+        name: 'Copy World to Clipboard',
         callback: () => copyWorldCommand.execute(),
     });
       this.addCommand({
