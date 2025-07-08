@@ -21,6 +21,9 @@ export class CreateSettingsCommand {
 Affects: 1. element creation commands, 2. copy world command, 3. manual validation command.
 When empty, defaults to top-in-hierarchy under OnlyWorlds/Worlds/*
 
+- **Default Email Address:** 
+*Your OnlyWorlds email address. When provided, this will be pre-filled in world creation forms.*
+
 - **Individual Element Creation Commands:** No
 *Change to 'Yes' to allow a separate creation command for each element category.
 ('Create new Character', 'Create new Location', etc)

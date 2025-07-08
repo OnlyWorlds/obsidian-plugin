@@ -38,6 +38,34 @@ export class WorldService {
         return null; // Return null if settings file is not found or no name is specified
     }
 
+    async getDefaultEmailFromSettings(): Promise<string | null> {
+        const settingsPath = normalizePath('OnlyWorlds/Settings.md');
+        try {
+            const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath);
+
+            if (!(settingsFile instanceof TFile)) {
+                return null;  
+            }
+            const content = await this.app.vault.read(settingsFile);
+            const match = content.match(/^- \*\*Default Email Address:\*\* (.+)$/m);
+            if (match && match[1].trim()) {
+                const email = match[1].trim();
+                // Basic email validation
+                if (this.isValidEmail(email)) {
+                    return email;
+                }
+            }
+        } catch (error) {
+         
+        }
+        return null;
+    }
+
+    private isValidEmail(email: string): boolean {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    }
+
     private async getWorldNameFromTopFolder(): Promise<string> {
         const worldsPath = normalizePath('OnlyWorlds/Worlds');
         const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);

@@ -1,4 +1,5 @@
 import { App, Modal, Notice } from 'obsidian';
+import { WorldService } from '../Scripts/WorldService';
 
 export interface WorldCreationData {
     name: string;
@@ -8,13 +9,15 @@ export interface WorldCreationData {
 
 export class CreateWorldModal extends Modal {
     onSubmit: (data: WorldCreationData | null) => void;
+    private worldService: WorldService;
 
     constructor(app: App, onSubmit: (data: WorldCreationData | null) => void) {
         super(app);
         this.onSubmit = onSubmit;
+        this.worldService = new WorldService(app);
     }
 
-    onOpen() {
+    async onOpen() {
         let { contentEl } = this;
         contentEl.createEl('h3', { text: 'Create New World' });
         
@@ -38,12 +41,20 @@ export class CreateWorldModal extends Modal {
         emailLabel.style.marginBottom = '4px';
         emailLabel.style.fontWeight = 'bold';
         
+        // Get default email from settings
+        const defaultEmail = await this.worldService.getDefaultEmailFromSettings();
+        
         const emailInput = contentEl.createEl('input', {
             type: 'email',
             placeholder: '',
         });
         emailInput.style.width = '100%';
         emailInput.style.marginBottom = '15px';
+        
+        // Pre-fill email if available from settings
+        if (defaultEmail) {
+            emailInput.value = defaultEmail;
+        }
         
         // PIN Field
         const pinLabel = contentEl.createEl('label', { text: 'OnlyWorlds PIN' });
