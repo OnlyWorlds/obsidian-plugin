@@ -145,9 +145,6 @@ export class CopyWorldCommand {
             }
         }
         
-        // Add WorldTyping section
-        worldData['WorldTyping'] = this.getWorldTypingData();
-    
       //  console.log(`Final world data: ${JSON.stringify(worldData)}`);
         return worldData;
     }

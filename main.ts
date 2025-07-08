@@ -19,6 +19,7 @@ import { WorldService } from 'Scripts/WorldService';
 import { CreateTemplatesCommand } from './Commands/CreateTemplatesCommand';
 import { ImportWorldCommand } from './Commands/ImportWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
+import { UpdateCategoryCountsCommand } from './Commands/UpdateCategoryCountsCommand';
 import { NoteLinker } from './Listeners/NoteLinker';
 
 export default class OnlyWorldsPlugin extends Plugin {
@@ -118,6 +119,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
         const saveElementCommand = new SaveElementCommand(this.app);
+        const updateCategoryCountsCommand = new UpdateCategoryCountsCommand(this.app, this.manifest);
 
         // manually handled in create/import world commands, no need for user to do this
         // // Register a command to create category folders
@@ -211,8 +213,19 @@ export default class OnlyWorldsPlugin extends Plugin {
       callback: () => saveElementCommand.execute(),
   });
 
+    this.addCommand({
+      id: 'update-category-counts',
+      name: 'Update Category Counts',
+      callback: () => updateCategoryCountsCommand.execute(),
+  });
+
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', leaf => this.noteLinker.handleLeafChange(leaf))
+  );
+
+    // Listen for file deletions to update category counts
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => this.handleFileDelete(file))
   );
 
   this.addCommand({
@@ -287,6 +300,32 @@ parseSettingsForDefaultCategory(content: string): string | null {
     const match = content.match(/^- \*\*Individual Element Creation Commands:\*\* (\w+)/m);
     return match ? match[1].toLowerCase() === 'yes' : false;
 }
+
+  async handleFileDelete(file: any) {
+    // Check if deleted file is an element file in a world
+    if (file.extension === 'md' && file.path.includes('OnlyWorlds/Worlds/') && file.path.includes('/Elements/')) {
+      try {
+        // Extract world name and category from path
+        const pathParts = file.path.split('/');
+        const worldsIndex = pathParts.indexOf('Worlds');
+        if (worldsIndex >= 0 && pathParts.length > worldsIndex + 3) {
+          const worldName = pathParts[worldsIndex + 1];
+          const categoryFolderName = pathParts[worldsIndex + 3];
+          
+          // Extract base category name (remove count if present)
+          const categoryMatch = categoryFolderName.match(/^([^(]+)(\s*\(\d+\))?$/);
+          if (categoryMatch) {
+            const baseCategory = categoryMatch[1].trim();
+            
+            // Update the category folder count
+            await this.worldService.updateCategoryFolderName(worldName, baseCategory);
+          }
+        }
+      } catch (error) {
+        console.error('Error updating category count after file deletion:', error);
+      }
+    }
+  }
 
   registerIndividualCreationCommands() {
       Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {  

@@ -53,11 +53,22 @@ export class CreateElementCommand {
 
     async createNoteInCorrectFolder(content: string, category: string, id: string, name: string): Promise<void> {
         const topWorld =  await this.worldService.getWorldName();
-        const worldFolder = normalizePath(`OnlyWorlds/Worlds/${topWorld}/Elements/${category}`);
-        await this.createFolderIfNeeded(worldFolder);
+        
+        // Find the category folder (might have count in name)
+        const existingFolder = await this.worldService.findCategoryFolderByBaseName(topWorld, category);
+        let worldFolder: string;
+        
+        if (existingFolder) {
+            worldFolder = existingFolder.path;
+        } else {
+            // Create new folder with base name initially
+            worldFolder = normalizePath(`OnlyWorlds/Worlds/${topWorld}/Elements/${category}`);
+            await this.createFolderIfNeeded(worldFolder);
+        }
     
-        let newNotePath = normalizePath(`${worldFolder}/${name}.md`);  // Use the provided name for the file
-        newNotePath = await this.generateUniqueFilename(worldFolder, name, 0);
+        // Generate unique filename for element
+        const uniqueFileName = await this.worldService.generateUniqueFileName(worldFolder, name, id);
+        let newNotePath = normalizePath(`${worldFolder}/${uniqueFileName}`);
     
         // Insert the name and ID into the template content
         content = this.insertNameInTemplate(content, name);
@@ -67,6 +78,9 @@ export class CreateElementCommand {
             const createdFile = await this.app.vault.create(newNotePath, content);
             new Notice(`New ${category.toLowerCase()} created: ${name}`);
             this.openNoteInNewPane(createdFile);
+            
+            // Update the category folder name to reflect new count (after the file is created)
+            await this.worldService.updateCategoryFolderName(topWorld, category);
         } catch (error) {
             console.error(`Failed to create note: ${newNotePath}`, error);
             new Notice(`Failed to create note: ${newNotePath}`);
