@@ -13,8 +13,8 @@ export class ExportWorldCommand {
     // DEVELOPMENT: Point to local server instead of production
     // private apiUrl = 'http://127.0.0.1:8000/api/worldsync/store/';
     // PRODUCTION: Uncomment this line when deploying to production
-   // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/store/';
-    private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/store/';
+    private apiUrl = 'https://www.onlyworlds.com/api/worldsync/store/';
+   // private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/store/';
 
     constructor(app: App, manifest: any,  worldService: WorldService,) {
         this.app = app;
@@ -53,7 +53,7 @@ export class ExportWorldCommand {
                         });
     
                         if (response.status === 200 || response.status === 201) {
-                            new Notice('Successfully exported to OnlyWorlds.com.');
+                            new Notice('Successfully exported to onlyworlds.com.');
                         } else if (response.status === 403) {
                             new Notice('Export failed: Invalid PIN or insufficient access rights.');
                         } else if (response.status === 429) {

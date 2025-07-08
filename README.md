@@ -36,7 +36,7 @@ Use the Create Element command to fill your world with elements of [various cate
 
 OnlyWorlds are shaped primarily through elements and their attribute fields. Join community [discussions](https://github.com/OnlyWorlds/OnlyWorlds/discussions) to discuss how to impove these field definitions.
 
-Convert your worlds into a JSON data file by using the 'Copy World' command, or export it to OnlyWorlds.com using the 'Export World' command
+Convert your worlds into a JSON data file by using the 'Copy World' command, or export it to onlyworlds.com using the 'Export World' command
 
 ## Folder Structure
 - **OnlyWorlds/**: Parent folder at top of vault

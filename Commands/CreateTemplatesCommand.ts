@@ -19,7 +19,7 @@ export class CreateTemplatesCommand {
         await this.createFolderIfNeeded(templateFolder);
 
         // Base URL for fetching the templates from GitHub
-        const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/conversions/obsidian_templates/';
+        const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/languages/obsidian_templates/';
      
 
         for (const category of categories) {

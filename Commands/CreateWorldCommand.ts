@@ -13,8 +13,8 @@ export class CreateWorldCommand {
     // DEVELOPMENT: Point to local server instead of production
     //private apiUrl = 'http://127.0.0.1:8000/api/worldsync/create-world-external/';
     // PRODUCTION: Uncomment this line when deploying to production
-    //private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
-    private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/create-world-external/';
+     private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
+   // private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/create-world-external/';
      
 
     constructor(app: App, manifest: PluginManifest) {
@@ -268,7 +268,7 @@ export class CreateWorldCommand {
             api_key: worldData.api_key,
             name: worldName,
             description: ``,
-            version: "0.20.10",
+            version: "0.30.00",
             image_url: "",  // Empty string rather than null or "None" 
             time_format_names: ["Eon", "Era", "Period", "Epoch", "Age", "Year", "Month", "Day", "Hour", "Minute", "Second"],
             time_format_equivalents: ["Eon", "Era", "Period", "Epoch", "Age", "Year", "Month", "Day", "Hour", "Minute", "Second"],

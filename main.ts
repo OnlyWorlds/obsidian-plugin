@@ -13,12 +13,13 @@ import { GraphViewExtensions } from 'Extensions/GraphViewExtensions';
 import Handlebars from 'handlebars';
 import { NameChanger } from 'Listeners/NameChanger';
 import { NameInputModal } from 'Modals/NameInputModal';
-import { TemplateSelectionModal } from 'Modals/TemplateSelectionModal';
+import { CreateElementModal } from 'Modals/CreateElementModal';
 import { Plugin, TFile, normalizePath } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { CreateTemplatesCommand } from './Commands/CreateTemplatesCommand';
 import { ImportWorldCommand } from './Commands/ImportWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
+// UpdateCategoryCountsCommand import removed - handled automatically by other operations
 import { NoteLinker } from './Listeners/NoteLinker';
 
 export default class OnlyWorldsPlugin extends Plugin {
@@ -118,6 +119,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
         const saveElementCommand = new SaveElementCommand(this.app);
+        // UpdateCategoryCountsCommand removed - handled automatically by other operations
 
         // manually handled in create/import world commands, no need for user to do this
         // // Register a command to create category folders
@@ -174,13 +176,15 @@ export default class OnlyWorldsPlugin extends Plugin {
           id: 'create-element',
           name: 'Create Element',
           callback: () => {
-              let templateModal = new TemplateSelectionModal(this.app, (category) => {
-                  let nameModal = new NameInputModal(this.app, category, (cat, name) => {
-                      new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, name);
-                  });
-                  nameModal.open();
-              }, this.defaultCategory); // Pass default category
-              templateModal.open();
+              let createElementModal = new CreateElementModal(
+                  this.app, 
+                  (worldName, category, elementName) => {
+                      new CreateElementCommand(this.app, this.manifest, this.worldService).execute(category, elementName, worldName);
+                  },
+                  this.worldService,
+                  this.defaultCategory
+              );
+              createElementModal.open();
           }
       });
   
@@ -191,12 +195,12 @@ export default class OnlyWorldsPlugin extends Plugin {
     });
     this.addCommand({
       id: 'paste-world',
-      name: 'Paste World',
+      name: 'Paste World from Clipboard',
       callback: () => pasteWorldCommand.execute(),
   });
       this.addCommand({
         id: 'copy-world',
-        name: 'Copy World',
+        name: 'Copy World to Clipboard',
         callback: () => copyWorldCommand.execute(),
     });
       this.addCommand({
@@ -211,8 +215,15 @@ export default class OnlyWorldsPlugin extends Plugin {
       callback: () => saveElementCommand.execute(),
   });
 
+    // Update Category Counts command removed - handled automatically by other operations
+
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', leaf => this.noteLinker.handleLeafChange(leaf))
+  );
+
+    // Listen for file deletions to update category counts
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => this.handleFileDelete(file))
   );
 
   this.addCommand({
@@ -288,16 +299,47 @@ parseSettingsForDefaultCategory(content: string): string | null {
     return match ? match[1].toLowerCase() === 'yes' : false;
 }
 
+  async handleFileDelete(file: any) {
+    // Check if deleted file is an element file in a world
+    if (file.extension === 'md' && file.path.includes('OnlyWorlds/Worlds/') && file.path.includes('/Elements/')) {
+      try {
+        // Extract world name and category from path
+        const pathParts = file.path.split('/');
+        const worldsIndex = pathParts.indexOf('Worlds');
+        if (worldsIndex >= 0 && pathParts.length > worldsIndex + 3) {
+          const worldName = pathParts[worldsIndex + 1];
+          const categoryFolderName = pathParts[worldsIndex + 3];
+          
+          // Extract base category name (remove count if present)
+          const categoryMatch = categoryFolderName.match(/^([^(]+)(\s*\(\d+\))?$/);
+          if (categoryMatch) {
+            const baseCategory = categoryMatch[1].trim();
+            
+            // Update the category folder count
+            await this.worldService.updateCategoryFolderName(worldName, baseCategory);
+          }
+        }
+      } catch (error) {
+        console.error('Error updating category count after file deletion:', error);
+      }
+    }
+  }
+
   registerIndividualCreationCommands() {
       Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {  
           this.addCommand({
               id: `create-new-${category.toLowerCase()}`,
               name: `Create new ${category}`,
               callback: () => {
-                  let nameModal = new NameInputModal(this.app, category, (cat, name) => {
-                      new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, name);
-                  });
-                  nameModal.open();
+                  let createElementModal = new CreateElementModal(
+                      this.app, 
+                      (worldName, cat, elementName) => {
+                          new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, elementName, worldName);
+                      },
+                      this.worldService,
+                      category // Pre-select this specific category
+                  );
+                  createElementModal.open();
               }
           }); 
       });

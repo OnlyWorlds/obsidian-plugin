@@ -16,17 +16,13 @@ export class PinInputModal extends Modal {
 
         new Setting(contentEl)
             .setName('PIN')
-            .setDesc('Enter your numeric OnlyWorlds PIN to save the element.')
+            .setDesc('Enter your OnlyWorlds PIN to verify access.')
             .addText(text => text
                 .setPlaceholder('Enter your PIN')
                 .setValue(this.pin)
                 .onChange(value => {
-                    // Keep only numeric characters
-                    this.pin = value.replace(/[^0-9]/g, '');
-                    // Optionally enforce max length if known (e.g., 4 digits)
-                    // if (this.pin.length > 4) {
-                    //    this.pin = this.pin.substring(0, 4);
-                    // }
+                    // Keep only numeric characters and limit to 4 digits
+                    this.pin = value.replace(/[^0-9]/g, '').substring(0, 4);
                     // Update the input field to show cleaned value immediately
                     text.setValue(this.pin);
                 })
@@ -40,12 +36,23 @@ export class PinInputModal extends Modal {
                 .setButtonText('Submit')
                 .setCta() // Makes the button more prominent
                 .onClick(() => {
-                    if (this.pin) { // Basic check if PIN is entered
+                    // Validate PIN is exactly 4 digits
+                    const pinNum = parseInt(this.pin, 10);
+                    if (this.pin && this.pin.length === 4 && !isNaN(pinNum) && pinNum >= 1000 && pinNum <= 9999) {
                         this.close();
                         this.onSubmit(this.pin);
                     } else {
-                        // Optionally show a small warning within the modal
-                        // For now, just don't submit if empty
+                        // Show validation error
+                        const errorEl = contentEl.querySelector('.pin-error');
+                        if (errorEl) errorEl.remove();
+                        
+                        const error = contentEl.createEl('div', { 
+                            text: 'Please enter a valid 4-digit PIN (1000-9999)', 
+                            cls: 'pin-error' 
+                        });
+                        error.style.color = 'var(--text-error)';
+                        error.style.fontSize = '0.8em';
+                        error.style.marginTop = '5px';
                     }
                 }))
             .addButton(btn => btn

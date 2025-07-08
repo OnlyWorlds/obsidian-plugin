@@ -1,22 +1,25 @@
 import Handlebars from 'handlebars';
 import { WorldImportData, WorldImportModal } from 'Modals/WorldImportModal';
-import { App, FileSystemAdapter, normalizePath, Notice, requestUrl } from 'obsidian';
+import { App, FileSystemAdapter, normalizePath, Notice, requestUrl, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
+import { WorldService } from 'Scripts/WorldService';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 
 export class ImportWorldCommand {
     app: App;
     manifest: any;
+    private worldService: WorldService;
     // DEVELOPMENT: Point to local server instead of production
-     private apiUrl = 'http://127.0.0.1:8000/api/worldsync/send/';
+    // private apiUrl = 'http://127.0.0.1:8000/api/worldsync/send/';
     // PRODUCTION: Uncomment this line when deploying to production
-    // private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/';
-  //  private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/send/';
+     private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/';
+   // private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/send/';
 
     constructor(app: App, manifest: any) {
         this.app = app;
         this.manifest = manifest;
+        this.worldService = new WorldService(app);
     }
     
     async execute(overwrite: boolean = false) {
@@ -53,14 +56,19 @@ export class ImportWorldCommand {
     
                     const worldData = JSON.parse(response.text);
                     const worldName = worldData.World ? worldData.World.name : null;
+                    const worldApiKey = worldData.World ? worldData.World.api_key : null;
     
                     if (!worldName) {
                         new Notice('No valid world data found.');
                         return;
                     }
     
-                    // Corrected paths to include OnlyWorlds/Worlds/{worldName}/Elements
-                    const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldName}`);
+                    // Generate unique world name to prevent conflicts
+                    const uniqueWorldName = await this.worldService.generateUniqueWorldName(worldName, worldApiKey);
+                    console.log(`[ImportWorldCommand] Original world name: ${worldName}, Unique name: ${uniqueWorldName}`);
+    
+                    // Corrected paths to include OnlyWorlds/Worlds/{uniqueWorldName}/Elements
+                    const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${uniqueWorldName}`);
                     const elementsFolderPath = normalizePath(`${worldFolderPath}/Elements`);
                     if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
                         new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
@@ -84,7 +92,10 @@ export class ImportWorldCommand {
                     // Generate element notes in the correct category folders under Elements
                     await this.generateElementNotes(elementsFolderPath, worldData, overwrite);
 
-                    new Notice(`Successfully imported world: ${worldName}`);
+                    // Update all category folder names with counts
+                    await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
+
+                    new Notice(`Successfully imported world: ${uniqueWorldName}`);
                 } catch (error) {
                     console.error('Error during world import:', error);
                     if (error instanceof Error) {
@@ -148,17 +159,75 @@ export class ImportWorldCommand {
             if (!isNaN(Number(category)) || !data[category]) continue;
     
             const elements = data[category];
-            const categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
-    
-            // Check if category folder exists, create if not
-            if (!this.app.vault.getAbstractFileByPath(categoryDirectory)) {
-                await this.app.vault.createFolder(categoryDirectory);
+            console.log(`[ImportWorldCommand] Processing category: ${category} with ${elements.length} elements`);
+            
+            // Find existing category folder or create new one
+            // Extract world name more reliably
+            const pathParts = worldFolderPath.split('/');
+            const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
+            const worldName = worldsIndex >= 0 && pathParts.length > worldsIndex + 1 ? pathParts[worldsIndex + 1] : pathParts[pathParts.length - 1];
+            
+            console.log(`[ImportWorldCommand] Extracted world name: ${worldName}`);
+            
+            const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
+            let categoryDirectory: string;
+            
+            if (existingFolder) {
+                categoryDirectory = existingFolder.path;
+                console.log(`[ImportWorldCommand] Using existing folder: ${existingFolder.path}`);
+            } else {
+                // Create folder with base name initially (count will be added later)
+                categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
+                console.log(`[ImportWorldCommand] Creating new folder: ${categoryDirectory}`);
+                await this.createFolderIfNeeded(categoryDirectory);
             }
     
             for (const element of elements) {
-                const notePath = `${categoryDirectory}/${element.name}.md`;
+                console.log(`[ImportWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
+                
+                // First check if an element with this ID already exists
+                const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
+                console.log(`[ImportWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
+                
+                if (existingElementPath) {
+                    // Element already exists, check if filename needs to be updated
+                    const currentFileName = existingElementPath.split('/').pop()?.replace('.md', '') || '';
+                    const expectedFileName = element.name;
+                    
+                    if (currentFileName !== expectedFileName && !currentFileName.startsWith(expectedFileName + ' (')) {
+                        // Name has changed, rename the file
+                        console.log(`[ImportWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
+                        const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
+                        const newPath = `${categoryDirectory}/${newFileName}`;
+                        
+                        try {
+                            const existingFile = this.app.vault.getAbstractFileByPath(existingElementPath);
+                            if (existingFile) {
+                                await this.app.fileManager.renameFile(existingFile, newPath);
+                                var notePath = newPath;
+                                console.log(`[ImportWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
+                            } else {
+                                var notePath = existingElementPath;
+                                console.log(`[ImportWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
+                            }
+                        } catch (error) {
+                            console.error(`[ImportWorldCommand] Error renaming file: ${error}`);
+                            var notePath = existingElementPath; // Fall back to existing path
+                        }
+                    } else {
+                        var notePath = existingElementPath;
+                        console.log(`[ImportWorldCommand] Element exists, updating: ${notePath}`);
+                    }
+                } else {
+                    // Generate unique filename for new element
+                    const uniqueFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
+                    var notePath = `${categoryDirectory}/${uniqueFileName}`;
+                    console.log(`[ImportWorldCommand] Creating new element: ${notePath}`);
+                }
     
-                if (overwrite || !await fs.exists(notePath)) {
+                if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                    console.log(`[ImportWorldCommand] Writing element to file: ${notePath}`);
+                    
                     // Fetch the template from the user's vault
                     const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Handlebars/${category}Handlebar.md`);
                     let templateText: string;
@@ -180,6 +249,9 @@ export class ImportWorldCommand {
     
                     // Write the note content to the appropriate file path
                     await fs.write(notePath, noteContent); 
+                    console.log(`[ImportWorldCommand] Successfully wrote element: ${notePath}`);
+                } else {
+                    console.log(`[ImportWorldCommand] Skipping element (already exists and not overwriting): ${notePath}`);
                 }
             }
         } 
@@ -205,5 +277,49 @@ export class ImportWorldCommand {
             }
         } 
         return undefined; // Return undefined if no match is found
+    }
+
+    async findElementByIdInCategory(categoryDirectory: string, elementId: string): Promise<string | null> {
+        console.log(`[ImportWorldCommand] Looking for element ID ${elementId} in directory: ${categoryDirectory}`);
+        
+        const categoryFolder = this.app.vault.getAbstractFileByPath(categoryDirectory);
+        
+        if (!(categoryFolder instanceof TFolder)) {
+            console.log(`[ImportWorldCommand] Category folder not found or not a folder: ${categoryDirectory}`);
+            return null;
+        }
+
+        console.log(`[ImportWorldCommand] Found ${categoryFolder.children.length} files in category folder`);
+
+        for (const child of categoryFolder.children) {
+            if (child instanceof TFile && child.extension === 'md') {
+                console.log(`[ImportWorldCommand] Checking file: ${child.path}`);
+                try {
+                    const content = await this.app.vault.read(child);
+                    console.log(`[ImportWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
+                    
+                    // Look for ID in the content - this regex looks for the ID field in the element
+                    // Look for ID in various possible formats
+                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m) || 
+                                  content.match(/^- .*Id.*: (.+)$/m) ||
+                                  content.match(/Id.*: (.+)$/m);
+                    
+                    if (idMatch) {
+                        console.log(`[ImportWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
+                        if (idMatch[1].trim() === elementId) {
+                            console.log(`[ImportWorldCommand] MATCH! Found existing element at: ${child.path}`);
+                            return child.path;
+                        }
+                    } else {
+                        console.log(`[ImportWorldCommand] No ID found in file: ${child.path}`);
+                    }
+                } catch (error) {
+                    console.error(`Error reading element file: ${child.path}`, error);
+                }
+            }
+        }
+        
+        console.log(`[ImportWorldCommand] No existing element found for ID: ${elementId}`);
+        return null;
     }
 }
