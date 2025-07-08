@@ -15,12 +15,8 @@ interface WorldFileData {
 }
 
 export class SaveElementCommand {
-    app: App;
-    // DEVELOPMENT: Point to local server
-   // private apiBaseUrl = 'http://127.0.0.1:8000/api/worldapi/';
-    // PRODUCTION: Point to production server
-     private apiBaseUrl = 'https://www.onlyworlds.com/api/worldapi/';
-   // private apiBaseUrl = 'https://onlywords.pythonanywhere.com/api/worldapi/';
+    app: App; 
+     private apiBaseUrl = 'https://www.onlyworlds.com/api/worldapi/'; 
 
 
     constructor(app: App) {
@@ -44,24 +40,24 @@ export class SaveElementCommand {
     }
 
     async execute() {
-        console.log("Executing SaveElementCommand...");
+     //   console.log("Executing SaveElementCommand...");
         const activeFile = this.app.workspace.getActiveFile();
 
         if (!activeFile || !(activeFile instanceof TFile)) {
             new Notice("No active file selected or it's not a valid file.");
             return;
         }
-        console.log(`Processing file: ${activeFile.path}`);
+     //   console.log(`Processing file: ${activeFile.path}`);
 
         // 1. Validate Path and Extract Info
         const pathInfo = this.extractPathInfo(activeFile.path);
         if (!pathInfo) {
             new Notice("The current file is not a valid OnlyWorlds element note.");
-            console.log(`Invalid path: ${activeFile.path}`);
+        //    console.log(`Invalid path: ${activeFile.path}`);
             return;
         }
         const { worldName, category } = pathInfo;
-        console.log(`Extracted Path Info: World=${worldName}, Category=${category}`);
+ //       console.log(`Extracted Path Info: World=${worldName}, Category=${category}`);
 
         // 2. Read and Parse Element Content using the refined parser
         const fileContent = await this.app.vault.read(activeFile);
@@ -79,14 +75,14 @@ export class SaveElementCommand {
             console.error("Missing ID in parsed data:", elementData);
             return;
         }
-        console.log(`Element UUID for URL: ${elementUuid}`);
-
+ //       console.log(`Element UUID for URL: ${elementUuid}`);
+ 
         // Remove ID from payload as it's in the URL path
         delete elementData.id;
 
         // 3. Get API Key from World.md
         const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
-        console.log(`Looking for World.md at: ${worldFilePath}`);
+    //    console.log(`Looking for World.md at: ${worldFilePath}`);
         let apiKey: string | undefined;
         try {
             const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
@@ -108,11 +104,11 @@ export class SaveElementCommand {
         }
 
         // 4. Prompt for PIN
-        console.log("Prompting for PIN...");
+     //   console.log("Prompting for PIN...");
         new PinInputModal(this.app, async (pin: string | null) => {
             if (!pin) {
                 new Notice("Save cancelled: PIN not provided.");
-                console.log("PIN prompt cancelled by user.");
+             //   console.log("PIN prompt cancelled by user.");
                 return;
             }
             console.log("PIN provided.");
@@ -121,11 +117,11 @@ export class SaveElementCommand {
             const apiUrl = `${this.apiBaseUrl}${category.toLowerCase()}/${elementUuid}/`;
             const payload = { ...elementData }; // Use the parsed data
 
-            console.log("--- Sending Payload ---");
-            console.log(JSON.stringify(payload, null, 2));
-            console.log("Target URL:", apiUrl);
-            console.log("API Key:", apiKey); // Don't log PIN
-            console.log("-----------------------");
+            // console.log("--- Sending Payload ---");
+            // console.log(JSON.stringify(payload, null, 2));
+            // console.log("Target URL:", apiUrl);
+            // console.log("API Key:", apiKey); // Don't log PIN
+            // console.log("-----------------------");
 
             // 6. Make API Call
             try {
@@ -135,7 +131,7 @@ export class SaveElementCommand {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'API-Key': apiKey,
+                        'API-Key': apiKey!,
                         'API-Pin': pin
                     },
                     body: JSON.stringify(payload),
@@ -181,7 +177,7 @@ export class SaveElementCommand {
             // Strip count suffix from category name (e.g., "Character (3)" -> "Character")
             const rawCategory = match[2];
             const baseCategoryName = rawCategory.replace(/\s*\(\d+\)$/, '');
-            console.log(`[SaveElementCommand] Extracted category: "${rawCategory}" -> base: "${baseCategoryName}"`);
+         //   console.log(`[SaveElementCommand] Extracted category: "${rawCategory}" -> base: "${baseCategoryName}"`);
             return { worldName: match[1], category: baseCategoryName };
         }
         return null;
@@ -189,7 +185,7 @@ export class SaveElementCommand {
 
     // Refined parser based on ExportWorldCommand's logic
     async parseElementContent(content: string, currentFilePath: string): Promise<ElementData | null> {
-        console.log("Starting element parsing (v2)...");
+     //   console.log("Starting element parsing (v2)...");
         const data: ElementData = {};
         const lines = content.split('\n');
 
@@ -204,7 +200,7 @@ export class SaveElementCommand {
             const idMatchSimple = line.match(idPatternSimple);
             if (idMatchSimple && idMatchSimple[1]) {
                 foundId = idMatchSimple[1].trim();
-                console.log(`  -> Found ID via simple pattern: ${foundId}`);
+             //   console.log(`  -> Found ID via simple pattern: ${foundId}`);
                 continue; // Don't process the ID line with the general pattern
             }
 
@@ -218,12 +214,12 @@ export class SaveElementCommand {
 
                 // Skip empty values, API expects null
                 if (!rawValue || rawValue.toLowerCase() === 'none') {
-                    console.log(`  -> Field [${key}]: Skipping empty value.`);
+                //    console.log(`  -> Field [${key}]: Skipping empty value.`);
                     data[snakeKey] = null;
                     continue;
                 }
 
-                console.log(`  -> Field [${key}] (Tooltip: ${tooltip}): Raw value = "${rawValue}"`);
+              //  console.log(`  -> Field [${key}] (Tooltip: ${tooltip}): Raw value = "${rawValue}"`);
 
                 // --- Handle Links based on Tooltip ---
                 if (tooltip.toLowerCase().startsWith('single ') || tooltip.toLowerCase().startsWith('multi ')) {
@@ -234,28 +230,41 @@ export class SaveElementCommand {
                     if (tooltip.toLowerCase().startsWith('single ')) {
                         const finalKey = `${snakeKey}_id`; // Append _id for single links
                         data[finalKey] = ids.length > 0 ? ids[0] : null;
-                        console.log(`     Recognized as Single Link field. Key: ${finalKey}, Assigned ID = ${data[finalKey]}`);
+                     //   console.log(`     Recognized as Single Link field. Key: ${finalKey}, Assigned ID = ${data[finalKey]}`);
                     } else { // Must be multi
                         const finalKey = `${snakeKey}_ids`; // Append _ids for multi links
                         data[finalKey] = ids; // Assign array
-                        console.log(`     Recognized as Multi Link field. Key: ${finalKey}, Assigned IDs = [${ids.join(', ')}]`);
+                   //     console.log(`     Recognized as Multi Link field. Key: ${finalKey}, Assigned IDs = [${ids.join(', ')}]`);
                     }
                 }
                 // --- Handle Numbers ---
                 else if (tooltip.toLowerCase() === 'number') {
                     const num = parseInt(rawValue, 10);
                     if (!isNaN(num) && /^\d+$/.test(rawValue)) {
-                        data[snakeKey] = num;
-                        console.log(`     Recognized as Number: Assigned value = ${num}`);
+                        // Special handling for TTRPG stats - use uppercase keys
+                        const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+                        if (ttrpgStats.includes(snakeKey.toLowerCase())) {
+                            data[snakeKey.toUpperCase()] = num;
+                          //  console.log(`     Recognized as TTRPG Stat: Assigned ${snakeKey.toUpperCase()} = ${num}`);
+                        } else {
+                            data[snakeKey] = num;
+                          //  console.log(`     Recognized as Number: Assigned value = ${num}`);
+                        }
                     } else {
                         console.warn(`     Could not parse number for key "${key}": ${rawValue}. Assigning null.`);
-                        data[snakeKey] = null;
+                        // Also handle empty TTRPG stats
+                        const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+                        if (ttrpgStats.includes(snakeKey.toLowerCase())) {
+                            data[snakeKey.toUpperCase()] = null;
+                        } else {
+                            data[snakeKey] = null;
+                        }
                     }
                 }
                 // --- Handle Text (Default) ---
                 else {
                     data[snakeKey] = rawValue;
-                    console.log(`     Recognized as Text: Assigned value = "${rawValue}"`);
+                 //   console.log(`     Recognized as Text: Assigned value = "${rawValue}"`);
                 }
             }
         }
@@ -268,7 +277,7 @@ export class SaveElementCommand {
              const idFallbackMatch = content.match(/Id<\/span>:\s*([a-f0-9\-]{36})/);
              if (idFallbackMatch && idFallbackMatch[1]) {
                  data.id = idFallbackMatch[1].trim();
-                 console.log(`  -> Found ID via fallback pattern: ${data.id}`);
+              //   console.log(`  -> Found ID via fallback pattern: ${data.id}`);
              }
         }
 
@@ -277,11 +286,11 @@ export class SaveElementCommand {
             const nameMatch = content.match(/Name<\/span>:\s*(.+)/);
             if (nameMatch && nameMatch[1]) {
                 data.name = nameMatch[1].trim().split('<')[0].trim();
-                console.log(`  -> Found Name: ${data.name}`);
+            //    console.log(`  -> Found Name: ${data.name}`);
             }
         }
 
-        console.log("Finished element parsing (v2).");
+       // console.log("Finished element parsing (v2).");
         if (!data.id) {
             console.error("  -> CRITICAL: Element ID could not be found after parsing.");
         }
@@ -290,7 +299,7 @@ export class SaveElementCommand {
 
     // Refined ID extraction based on ExportWorldCommand logic
     async extractLinkedIds(linkedText: string, tooltip: string, currentFilePath: string): Promise<string[]> {
-        console.log(`    Extracting IDs (v2) for Links: "${linkedText}"`);
+  //      console.log(`    Extracting IDs (v2) for Links: "${linkedText}"`);
         const ids: string[] = [];
         const linkPattern = /\[\[(.*?)\]\]/g; // Find [[Note Name]]
         let match;
@@ -310,11 +319,11 @@ export class SaveElementCommand {
             console.warn(`      Cannot extract IDs: Linked category not determined from tooltip: "${tooltip}"`);
             return ids;
         }
-        console.log(`      Determined linked category: ${linkedCategory}`);
+       // console.log(`      Determined linked category: ${linkedCategory}`);
 
         while ((match = linkPattern.exec(linkedText)) !== null) {
             const noteName = match[1];
-            console.log(`      Found link: [[${noteName}]]`);
+      //      console.log(`      Found link: [[${noteName}]]`);
             
             // Find the actual category folder (which might have count suffix)
             const actualCategoryFolder = await this.findCategoryFolderByBaseName(worldName, linkedCategory);
@@ -324,18 +333,18 @@ export class SaveElementCommand {
             }
             
             const linkedFilePath = normalizePath(`${actualCategoryFolder}/${noteName}.md`);
-            console.log(`      Looking for linked file at: ${linkedFilePath}`);
+        //    console.log(`      Looking for linked file at: ${linkedFilePath}`);
 
             try {
                 const linkedFile = this.app.vault.getAbstractFileByPath(linkedFilePath);
                 if (linkedFile instanceof TFile) {
-                    console.log(`        Found linked file.`);
+              //      console.log(`        Found linked file.`);
                     const fileContent = await this.app.vault.read(linkedFile);
                     // Use the simpler ID extraction function (like ExportWorldCommand's parseElement)
                     const linkedElementData = this.parseElementIdAndName(fileContent); // NEW helper call
                     if (linkedElementData && linkedElementData.id !== "Unknown Id") {
                         ids.push(linkedElementData.id);
-                        console.log(`        Successfully extracted ID: ${linkedElementData.id}`);
+                  //      console.log(`        Successfully extracted ID: ${linkedElementData.id}`);
                     } else {
                         console.warn(`        Could not extract valid ID from linked file: ${linkedFilePath}`);
                     }
@@ -346,21 +355,21 @@ export class SaveElementCommand {
                 console.error(`        Error reading or parsing linked file ${linkedFilePath}:`, error);
             }
         }
-        console.log(`    Finished extracting IDs (v2). Found: [${ids.join(', ')}]`);
+   //     console.log(`    Finished extracting IDs (v2). Found: [${ids.join(', ')}]`);
         return ids;
     }
 
     // Helper to parse just ID and Name from content (like ExportWorldCommand)
     private parseElementIdAndName(content: string): { id: string, name: string } {
-        console.log("        Parsing linked element ID/Name...");
+     //   console.log("        Parsing linked element ID/Name...");
         // Match ID: Use the regex from ExportWorldCommand
-         const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\s<]+)/); 
+         const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\r\n<]+)/); 
          // Match Name: Use the regex from ExportWorldCommand
-         const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\s<]+)/);
+         const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\r\n<]+)/);
 
          const id = idMatch && idMatch[1] ? idMatch[1].trim() : "Unknown Id";
          const name = nameMatch && nameMatch[1] ? nameMatch[1].trim() : "Unnamed Element"; 
-         console.log(`        Found ID: ${id}, Name: ${name}`);
+    //     console.log(`        Found ID: ${id}, Name: ${name}`);
          return { id, name };
     }
 
@@ -389,7 +398,7 @@ export class SaveElementCommand {
             if (child instanceof TFolder) {
                 // Check if folder name starts with the base category name
                 if (child.name === baseCategoryName || child.name.startsWith(`${baseCategoryName} (`)) {
-                    console.log(`[SaveElementCommand] Found category folder: ${child.path}`);
+                //    console.log(`[SaveElementCommand] Found category folder: ${child.path}`);
                     return child.path;
                 }
             }

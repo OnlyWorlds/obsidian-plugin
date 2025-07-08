@@ -235,12 +235,6 @@ export class CopyWorldCommand {
         // Extract the element type from the surrounding line context
         const elementTypeMatch = /data-tooltip="(Single|Multi) ([^"]+)"/.exec(lineText);
         const elementType = elementTypeMatch ? elementTypeMatch[2] : null;
-        
-        // Debug logging (can be removed in production)
-        // console.log(`Processing linked text: ${linkedText}`);
-        // console.log(`Line text: ${lineText}`);
-        // console.log(`Extracted element type: ${elementType}`);
-        // console.log(`Using world name: ${resolvedWorldName}`); 
     
         if (!elementType) {
             console.warn("Element type not found in the linked text. Attempting to extract IDs without type filtering.");
@@ -259,37 +253,38 @@ export class CopyWorldCommand {
         }
     
         while ((match = linkPattern.exec(linkedText)) !== null) {
-            const noteName = match[1]; 
+            const linkedName = match[1]; 
     
-            // Build the correct file path based on the world name and element type
-            const linkedFilePath = normalizePath(`OnlyWorlds/Worlds/${resolvedWorldName}/Elements/${elementType}/${noteName}.md`);
-            // console.log(`Looking for file at: ${linkedFilePath}`);
-    
-            const linkedFile = this.app.vault.getAbstractFileByPath(linkedFilePath);
-    
-            if (linkedFile && linkedFile instanceof TFile) { 
-                try {
-                    const fileContent = await this.app.vault.read(linkedFile);
-                    const { id } = this.parseElement(fileContent); // Assumes parseElement can extract 'id' from note
-                    if (id && id !== "Unknown Id") {
-                        ids.push(id); 
-                    }
-                } catch (error) {
-                    console.warn(`Error reading linked file ${noteName}:`, error);
-                    // Continue processing other links
-                }
+            // Search for the element by name content instead of constructing file path
+            const elementId = await this.findElementIdByNameInCategory(linkedName, elementType, resolvedWorldName);
+            if (elementId) {
+                ids.push(elementId);
             } else {
-                console.warn(`Linked file not found at ${linkedFilePath}. Attempting fallback search.`);
-                // Try fallback search
-                const foundId = await this.findElementIdByName(noteName, resolvedWorldName);
-                if (foundId) {
-                    ids.push(foundId);
-                } else {
-                    console.warn(`Fallback search also failed for: ${noteName}`);
-                }
+                console.warn(`Linked file not found: ${linkedName}`);
             }
         }
         return ids;
+    }
+    
+    private async findElementIdByNameInCategory(elementName: string, elementType: string, worldName: string): Promise<string | null> {
+        const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${elementType}`);
+        const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
+        
+        for (const file of files) {
+            try {
+                const fileContent = await this.app.vault.read(file);
+                const { name, id } = this.parseElement(fileContent);
+                
+                // Match by name content rather than filename
+                if (name === elementName) {
+                    return id;
+                }
+            } catch (error) {
+                console.error(`Error reading file ${file.path}:`, error);
+            }
+        }
+        
+        return null;
     }
     
     async parseTemplate(content: string, worldName?: string): Promise<Record<string, any>> {
@@ -368,8 +363,8 @@ export class CopyWorldCommand {
     
     private parseElement(content: string): { name: string, id: string } { 
         // Adjust the regex to capture the full ID including dashes
-        const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\s<]+)/);
-        const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\s<]+)/);
+        const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\r\n<]+)/);
+        const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\r\n<]+)/);
         
         const id = idMatch ? idMatch[1].trim() : "Unknown Id";
         const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element";
@@ -460,7 +455,7 @@ export class CopyWorldCommand {
     // Simplified method to ensure essential fields exist without hardcoding category schemas
     private addMissingElementFields(element: Record<string, any>, category: string): Record<string, any> {
         // Only ensure absolutely essential fields exist
-        const result = {
+        const result: Record<string, any> = {
             id: element.id || this.generateUUID(),
             name: element.name || 'Unnamed',
             description: element.description || '',

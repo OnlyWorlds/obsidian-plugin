@@ -9,12 +9,8 @@ export class ExportWorldCommand {
     app: App;
     manifest: any;
     worldService: WorldService;
-
-    // DEVELOPMENT: Point to local server instead of production
-    // private apiUrl = 'http://127.0.0.1:8000/api/worldsync/store/';
-    // PRODUCTION: Uncomment this line when deploying to production
-    private apiUrl = 'https://www.onlyworlds.com/api/worldsync/store/';
-   // private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/store/';
+ 
+    private apiUrl = 'https://www.onlyworlds.com/api/worldsync/store/'; 
 
     constructor(app: App, manifest: any,  worldService: WorldService,) {
         this.app = app;
@@ -113,7 +109,7 @@ export class ExportWorldCommand {
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     const fileContent = await fs.read(file.path); 
-                    return await this.parseTemplate(fileContent);
+                    return await this.parseTemplate(fileContent, worldFolder);
                 }));
     
                 // Filter out empty entries
@@ -123,8 +119,8 @@ export class ExportWorldCommand {
     
         // Add debug logging at the end of the method, before returning the data
         try {
-            console.log("WORLD DATA COLLECTION COMPLETE - Raw data structure:");
-            console.log(JSON.stringify(worldData, null, 2));
+         //   console.log("WORLD DATA COLLECTION COMPLETE - Raw data structure:");
+         //   console.log(JSON.stringify(worldData, null, 2));
             
             return worldData;
         } catch (error) {
@@ -188,14 +184,10 @@ export class ExportWorldCommand {
     
     
     
-    private async extractLinkedIds(linkedText: string, lineText: string): Promise<string[]> {
+    private async extractLinkedIds(linkedText: string, lineText: string, worldFolder: string): Promise<string[]> {
         const linkPattern = /\[\[(.*?)\]\]/g;
         const ids: string[] = [];
         let match;
-    
-        // Extract world name from the active file path
-        const currentFile = this.app.workspace.getActiveFile();
-        const worldName = currentFile ? this.extractWorldName(currentFile.path) : "Unknown World"; 
     
         // Extract the element type from the surrounding line context
         const elementTypeMatch = /data-tooltip="(Single|Multi) ([^"]+)"/.exec(lineText);
@@ -207,25 +199,41 @@ export class ExportWorldCommand {
         }
     
         while ((match = linkPattern.exec(linkedText)) !== null) {
-            const noteName = match[1]; 
+            const linkedName = match[1]; 
     
-            // Build the correct file path based on the world name and element type
-            const linkedFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${elementType}/${noteName}.md`);
-         
-            const linkedFile = this.app.vault.getAbstractFileByPath(linkedFilePath);
-    
-            if (linkedFile && linkedFile instanceof TFile) { 
-                const fileContent = await this.app.vault.read(linkedFile);
-                const { id } = this.parseElement(fileContent); // Assumes parseElement can extract 'id' from note
-                ids.push(id); 
+            // Search for the element by name content instead of constructing file path
+            const elementId = await this.findElementIdByName(linkedName, elementType, worldFolder);
+            if (elementId) {
+                ids.push(elementId);
             } else {
-                console.error(`Linked file not found: ${noteName}`);
+                console.error(`Linked file not found: ${linkedName}`);
             }
         }
         return ids;
     }
     
-    async parseTemplate(content: string): Promise<Record<string, any>> {
+    private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
+        const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements/${elementType}`);
+        const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
+        
+        for (const file of files) {
+            try {
+                const fileContent = await this.app.vault.read(file);
+                const { name, id } = this.parseElement(fileContent);
+                
+                // Match by name content rather than filename
+                if (name === elementName) {
+                    return id;
+                }
+            } catch (error) {
+                console.error(`Error reading file ${file.path}:`, error);
+            }
+        }
+        
+        return null;
+    }
+    
+    async parseTemplate(content: string, worldFolder: string): Promise<Record<string, any>> {
         let currentSection: string | null = null;
         const data: Record<string, any> = {};
     
@@ -242,12 +250,19 @@ export class ExportWorldCommand {
     
             const match = line.match(keyValuePattern);
             if (match) {
-                let key = this.toSnakeCase(match[1].replace(/\*\*/g, ''));
+                const originalKey = match[1].replace(/\*\*/g, '');
+                let key = this.toSnakeCase(originalKey);
                 const value = match[2].trim(); 
+    
+                // Special handling for TTRPG stats - use uppercase keys
+                const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+                if (ttrpgStats.includes(key.toLowerCase())) {
+                    key = key.toUpperCase();
+                }
     
                 if (value.startsWith('[[')) {
                     // If value contains links, extract IDs as an array
-                    const ids = await this.extractLinkedIds(value, line);
+                    const ids = await this.extractLinkedIds(value, line, worldFolder);
                     
                     // Store as actual array instead of comma-separated string
                     data[key] = ids;
@@ -261,7 +276,17 @@ export class ExportWorldCommand {
                             data[key] = value;
                         }
                     } else {
-                        data[key] = value;
+                        // Handle numeric values for TTRPG stats
+                        if (ttrpgStats.includes(key.toLowerCase()) || key.match(/^[A-Z]{3}$/)) {
+                            const num = parseInt(value, 10);
+                            if (!isNaN(num) && /^\d+$/.test(value)) {
+                                data[key] = num;
+                            } else {
+                                data[key] = value === '' ? null : value;
+                            }
+                        } else {
+                            data[key] = value;
+                        }
                     }
                 }
             } else { 
@@ -272,20 +297,11 @@ export class ExportWorldCommand {
     }
     
     
-    private extractWorldName(filePath: string): string {
-        const pathParts = filePath.split('/');
-        const worldIndex = pathParts.indexOf('Worlds');
-        if (worldIndex !== -1 && pathParts.length > worldIndex + 1) {
-            return pathParts[worldIndex + 1];
-        }
-        return "Unknown World";  // Default if the world name cannot be determined
-    }
     
     private parseElement(content: string): { name: string, id: string } {
-        console.log("Parsing element content...");
         // Adjust the regex to capture the full ID including dashes
-        const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\s<]+)/);
-        const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\s<]+)/);
+        const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\r\n<]+)/);
+        const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\r\n<]+)/);
         
         const id = idMatch ? idMatch[1].trim() : "Unknown Id";
         const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element"; 

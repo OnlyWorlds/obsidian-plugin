@@ -4,6 +4,7 @@ import { Category } from '../enums';
 export class WorldService {
     private app: App;
     private defaultWorldName: string = 'DefaultWorld'; // Default world name as a fallback
+    private folderRenameDebounce: Map<string, NodeJS.Timeout> = new Map();
 
     constructor(app: App) {
         this.app = app;
@@ -157,21 +158,38 @@ export class WorldService {
     }
 
     async updateCategoryFolderName(worldName: string, category: string): Promise<void> {
-        const existingFolder = await this.findCategoryFolderByBaseName(worldName, category);
+        const debounceKey = `${worldName}-${category}`;
         
-        if (existingFolder) {
-            const newName = await this.getCategoryFolderNameWithCount(worldName, category);
-            
-            // Only rename if the name is different
-            if (existingFolder.name !== newName) {
-                try {
-                    const newPath = `${existingFolder.parent?.path}/${newName}`;
-                    await this.app.fileManager.renameFile(existingFolder, newPath);
-                } catch (error) {
-                    console.error(`Error renaming category folder from ${existingFolder.name} to ${newName}:`, error);
-                }
-            }
+        // Clear any existing debounce timer for this world/category
+        if (this.folderRenameDebounce.has(debounceKey)) {
+            clearTimeout(this.folderRenameDebounce.get(debounceKey)!);
         }
+        
+        // Set a new debounce timer
+        const timeoutId = setTimeout(async () => {
+            try {
+                const existingFolder = await this.findCategoryFolderByBaseName(worldName, category);
+                
+                if (existingFolder) {
+                    const newName = await this.getCategoryFolderNameWithCount(worldName, category);
+                    
+                    // Only rename if the name is different
+                    if (existingFolder.name !== newName) {
+                        try {
+                            const newPath = `${existingFolder.parent?.path}/${newName}`;
+                            await this.app.fileManager.renameFile(existingFolder, newPath);
+                        } catch (error) {
+                            console.error(`Error renaming category folder from ${existingFolder.name} to ${newName}:`, error);
+                        }
+                    }
+                }
+            } finally {
+                // Remove the debounce timer after completion
+                this.folderRenameDebounce.delete(debounceKey);
+            }
+        }, 300); // 300ms debounce delay
+        
+        this.folderRenameDebounce.set(debounceKey, timeoutId);
     }
 
     async updateAllCategoryFolderNames(worldName: string): Promise<void> {

@@ -31,7 +31,7 @@ export class PasteWorldCommand {
             // Find existing world by API key or generate unique world name
             const existingWorldName = await this.findWorldByApiKey(apiKey);
             const targetWorldName = existingWorldName || await this.worldService.generateUniqueWorldName(worldName, apiKey);
-            console.log(`[PasteWorldCommand] Original world name: ${worldName}, Target name: ${targetWorldName}`);
+         //   console.log(`[PasteWorldCommand] Original world name: ${worldName}, Target name: ${targetWorldName}`);
 
             const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${targetWorldName}`);
             const elementsFolderPath = normalizePath(`${worldFolderPath}/Elements`);
@@ -113,7 +113,7 @@ export class PasteWorldCommand {
             if (!isNaN(Number(category)) || !data[category]) continue;
     
             const elements = data[category];
-            console.log(`[PasteWorldCommand] Processing category: ${category} with ${elements.length} elements`);
+     //      console.log(`[PasteWorldCommand] Processing category: ${category} with ${elements.length} elements`);
             
             // Find existing category folder or create new one
             // Extract world name more reliably
@@ -121,27 +121,27 @@ export class PasteWorldCommand {
             const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
             const worldName = worldsIndex >= 0 && pathParts.length > worldsIndex + 1 ? pathParts[worldsIndex + 1] : pathParts[pathParts.length - 1];
             
-            console.log(`[PasteWorldCommand] Extracted world name: ${worldName} from path: ${worldFolderPath}`);
+         //   console.log(`[PasteWorldCommand] Extracted world name: ${worldName} from path: ${worldFolderPath}`);
             
             const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
             let categoryDirectory: string;
             
             if (existingFolder) {
                 categoryDirectory = existingFolder.path;
-                console.log(`[PasteWorldCommand] Using existing folder: ${existingFolder.path}`);
+            //    console.log(`[PasteWorldCommand] Using existing folder: ${existingFolder.path}`);
             } else {
                 // Create folder with base name initially (count will be added later)
                 categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
-                console.log(`[PasteWorldCommand] Creating new folder: ${categoryDirectory}`);
+            //    console.log(`[PasteWorldCommand] Creating new folder: ${categoryDirectory}`);
                 await this.createFolderIfNeeded(categoryDirectory);
             }
     
             for (const element of elements) {
-                console.log(`[PasteWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
+            //    console.log(`[PasteWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
                 
                 // First check if an element with this ID already exists
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
-                console.log(`[PasteWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
+            //    console.log(`[PasteWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
                 
                 if (existingElementPath) {
                     // Element already exists, check if filename needs to be updated
@@ -150,7 +150,7 @@ export class PasteWorldCommand {
                     
                     if (currentFileName !== expectedFileName && !currentFileName.startsWith(expectedFileName + ' (')) {
                         // Name has changed, rename the file
-                        console.log(`[PasteWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
+                    //    console.log(`[PasteWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
                         const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
                         const newPath = `${categoryDirectory}/${newFileName}`;
                         
@@ -159,10 +159,10 @@ export class PasteWorldCommand {
                             if (existingFile) {
                                 await this.app.fileManager.renameFile(existingFile, newPath);
                                 var notePath = newPath;
-                                console.log(`[PasteWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
+                            //    console.log(`[PasteWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
                             } else {
                                 var notePath = existingElementPath;
-                                console.log(`[PasteWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
+                            //    console.log(`[PasteWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
                             }
                         } catch (error) {
                             console.error(`[PasteWorldCommand] Error renaming file: ${error}`);
@@ -170,13 +170,13 @@ export class PasteWorldCommand {
                         }
                     } else {
                         var notePath = existingElementPath;
-                        console.log(`[PasteWorldCommand] Element exists, updating: ${notePath}`);
+                        
                     }
                 } else {
                     // Generate unique filename for new element
                     const uniqueFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
                     var notePath = `${categoryDirectory}/${uniqueFileName}`;
-                    console.log(`[PasteWorldCommand] Creating new element: ${notePath}`);
+                //    console.log(`[PasteWorldCommand] Creating new element: ${notePath}`);
                 }
     
                 if (overwrite || existingElementPath || !await fs.exists(notePath)) {
@@ -270,8 +270,8 @@ export class PasteWorldCommand {
             if (child instanceof TFile && child.extension === 'md') {
                 try {
                     const content = await this.app.vault.read(child);
-                    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
-                    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
+                //    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
+                //    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
                     // Look for ID in the content - this regex looks for the ID field in the element
                     // Look for ID in various possible formats
@@ -280,13 +280,13 @@ export class PasteWorldCommand {
                                   content.match(/Id.*: (.+)$/m);
                     
                     if (idMatch) {
-                        console.log(`[PasteWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
+                    //    console.log(`[PasteWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
                         if (idMatch[1].trim() === elementId) {
-                            console.log(`[PasteWorldCommand] MATCH! Found existing element at: ${child.path}`);
+                    //        console.log(`[PasteWorldCommand] MATCH! Found existing element at: ${child.path}`);
                             return child.path;
                         }
                     } else {
-                        console.log(`[PasteWorldCommand] No ID found in file: ${child.path}`);
+                    //    console.log(`[PasteWorldCommand] No ID found in file: ${child.path}`);
                     }
                 } catch (error) {
                     console.error(`Error reading element file: ${child.path}`, error);

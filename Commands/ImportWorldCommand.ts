@@ -9,12 +9,9 @@ import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 export class ImportWorldCommand {
     app: App;
     manifest: any;
-    private worldService: WorldService;
-    // DEVELOPMENT: Point to local server instead of production
-    // private apiUrl = 'http://127.0.0.1:8000/api/worldsync/send/';
-    // PRODUCTION: Uncomment this line when deploying to production
-     private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/';
-   // private apiUrl = 'https://onlywords.pythonanywhere.com/api/worldsync/send/';
+    private worldService: WorldService; 
+    // private apiUrl = 'http://127.0.0.1:8000/api/worldsync/send/'; 
+     private apiUrl = 'https://www.onlyworlds.com/api/worldsync/send/'; 
 
     constructor(app: App, manifest: any) {
         this.app = app;
@@ -65,7 +62,7 @@ export class ImportWorldCommand {
     
                     // Generate unique world name to prevent conflicts
                     const uniqueWorldName = await this.worldService.generateUniqueWorldName(worldName, worldApiKey);
-                    console.log(`[ImportWorldCommand] Original world name: ${worldName}, Unique name: ${uniqueWorldName}`);
+               //     console.log(`[ImportWorldCommand] Original world name: ${worldName}, Unique name: ${uniqueWorldName}`);
     
                     // Corrected paths to include OnlyWorlds/Worlds/{uniqueWorldName}/Elements
                     const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${uniqueWorldName}`);
@@ -159,7 +156,7 @@ export class ImportWorldCommand {
             if (!isNaN(Number(category)) || !data[category]) continue;
     
             const elements = data[category];
-            console.log(`[ImportWorldCommand] Processing category: ${category} with ${elements.length} elements`);
+         //   console.log(`[ImportWorldCommand] Processing category: ${category} with ${elements.length} elements`);
             
             // Find existing category folder or create new one
             // Extract world name more reliably
@@ -167,27 +164,27 @@ export class ImportWorldCommand {
             const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
             const worldName = worldsIndex >= 0 && pathParts.length > worldsIndex + 1 ? pathParts[worldsIndex + 1] : pathParts[pathParts.length - 1];
             
-            console.log(`[ImportWorldCommand] Extracted world name: ${worldName}`);
+         //   console.log(`[ImportWorldCommand] Extracted world name: ${worldName}`);
             
             const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
             let categoryDirectory: string;
             
             if (existingFolder) {
                 categoryDirectory = existingFolder.path;
-                console.log(`[ImportWorldCommand] Using existing folder: ${existingFolder.path}`);
+          //      console.log(`[ImportWorldCommand] Using existing folder: ${existingFolder.path}`);
             } else {
                 // Create folder with base name initially (count will be added later)
                 categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
-                console.log(`[ImportWorldCommand] Creating new folder: ${categoryDirectory}`);
+             //   console.log(`[ImportWorldCommand] Creating new folder: ${categoryDirectory}`);
                 await this.createFolderIfNeeded(categoryDirectory);
             }
     
             for (const element of elements) {
-                console.log(`[ImportWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
+            //    console.log(`[ImportWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
                 
                 // First check if an element with this ID already exists
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
-                console.log(`[ImportWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
+           //     console.log(`[ImportWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
                 
                 if (existingElementPath) {
                     // Element already exists, check if filename needs to be updated
@@ -196,7 +193,7 @@ export class ImportWorldCommand {
                     
                     if (currentFileName !== expectedFileName && !currentFileName.startsWith(expectedFileName + ' (')) {
                         // Name has changed, rename the file
-                        console.log(`[ImportWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
+                  //      console.log(`[ImportWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
                         const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
                         const newPath = `${categoryDirectory}/${newFileName}`;
                         
@@ -205,10 +202,10 @@ export class ImportWorldCommand {
                             if (existingFile) {
                                 await this.app.fileManager.renameFile(existingFile, newPath);
                                 var notePath = newPath;
-                                console.log(`[ImportWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
+                           //     console.log(`[ImportWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
                             } else {
                                 var notePath = existingElementPath;
-                                console.log(`[ImportWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
+                             //   console.log(`[ImportWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
                             }
                         } catch (error) {
                             console.error(`[ImportWorldCommand] Error renaming file: ${error}`);
@@ -216,17 +213,15 @@ export class ImportWorldCommand {
                         }
                     } else {
                         var notePath = existingElementPath;
-                        console.log(`[ImportWorldCommand] Element exists, updating: ${notePath}`);
+                    //(`[ImportWorldCommand] Element exists, updating: ${notePath}`);
                     }
                 } else {
                     // Generate unique filename for new element
                     const uniqueFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
-                    var notePath = `${categoryDirectory}/${uniqueFileName}`;
-                    console.log(`[ImportWorldCommand] Creating new element: ${notePath}`);
+                    var notePath = `${categoryDirectory}/${uniqueFileName}`; 
                 }
     
-                if (overwrite || existingElementPath || !await fs.exists(notePath)) {
-                    console.log(`[ImportWorldCommand] Writing element to file: ${notePath}`);
+                if (overwrite || existingElementPath || !await fs.exists(notePath)) { 
                     
                     // Fetch the template from the user's vault
                     const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Handlebars/${category}Handlebar.md`);
@@ -248,10 +243,9 @@ export class ImportWorldCommand {
                     noteContent = await this.linkifyContent(noteContent, data);
     
                     // Write the note content to the appropriate file path
-                    await fs.write(notePath, noteContent); 
-                    console.log(`[ImportWorldCommand] Successfully wrote element: ${notePath}`);
+                    await fs.write(notePath, noteContent);  
                 } else {
-                    console.log(`[ImportWorldCommand] Skipping element (already exists and not overwriting): ${notePath}`);
+                  //  console.log(`[ImportWorldCommand] Skipping element (already exists and not overwriting): ${notePath}`);
                 }
             }
         } 
@@ -280,23 +274,23 @@ export class ImportWorldCommand {
     }
 
     async findElementByIdInCategory(categoryDirectory: string, elementId: string): Promise<string | null> {
-        console.log(`[ImportWorldCommand] Looking for element ID ${elementId} in directory: ${categoryDirectory}`);
+     //   console.log(`[ImportWorldCommand] Looking for element ID ${elementId} in directory: ${categoryDirectory}`);
         
         const categoryFolder = this.app.vault.getAbstractFileByPath(categoryDirectory);
         
         if (!(categoryFolder instanceof TFolder)) {
-            console.log(`[ImportWorldCommand] Category folder not found or not a folder: ${categoryDirectory}`);
+          //  console.log(`[ImportWorldCommand] Category folder not found or not a folder: ${categoryDirectory}`);
             return null;
         }
 
-        console.log(`[ImportWorldCommand] Found ${categoryFolder.children.length} files in category folder`);
+     //   console.log(`[ImportWorldCommand] Found ${categoryFolder.children.length} files in category folder`);
 
         for (const child of categoryFolder.children) {
             if (child instanceof TFile && child.extension === 'md') {
-                console.log(`[ImportWorldCommand] Checking file: ${child.path}`);
+             //   console.log(`[ImportWorldCommand] Checking file: ${child.path}`);
                 try {
                     const content = await this.app.vault.read(child);
-                    console.log(`[ImportWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
+                  //  console.log(`[ImportWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
                     // Look for ID in the content - this regex looks for the ID field in the element
                     // Look for ID in various possible formats
@@ -305,13 +299,13 @@ export class ImportWorldCommand {
                                   content.match(/Id.*: (.+)$/m);
                     
                     if (idMatch) {
-                        console.log(`[ImportWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
+                     //   console.log(`[ImportWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
                         if (idMatch[1].trim() === elementId) {
-                            console.log(`[ImportWorldCommand] MATCH! Found existing element at: ${child.path}`);
+                         //   console.log(`[ImportWorldCommand] MATCH! Found existing element at: ${child.path}`);
                             return child.path;
                         }
                     } else {
-                        console.log(`[ImportWorldCommand] No ID found in file: ${child.path}`);
+                    //    console.log(`[ImportWorldCommand] No ID found in file: ${child.path}`);
                     }
                 } catch (error) {
                     console.error(`Error reading element file: ${child.path}`, error);
@@ -319,7 +313,7 @@ export class ImportWorldCommand {
             }
         }
         
-        console.log(`[ImportWorldCommand] No existing element found for ID: ${elementId}`);
+       // console.log(`[ImportWorldCommand] No existing element found for ID: ${elementId}`);
         return null;
     }
 }

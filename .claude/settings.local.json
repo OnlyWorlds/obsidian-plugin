@@ -4,7 +4,10 @@
       "Bash(grep:*)",
       "Bash(npm run build:*)",
       "Bash(npm run dev:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(npx tsc:*)",
+      "Bash(find:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }
