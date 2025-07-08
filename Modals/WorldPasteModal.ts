@@ -1,4 +1,4 @@
-import { App, Modal, Notice } from 'obsidian';
+import { App, Modal } from 'obsidian';
 
 export class WorldPasteModal extends Modal {
     onSubmit: (jsonData: any) => void;
@@ -11,6 +11,13 @@ export class WorldPasteModal extends Modal {
     onOpen() {
         let { contentEl } = this;
         contentEl.createEl('h3', { text: 'Create World From World Data' });
+        
+        // Add subtext under the header
+        const subtext = contentEl.createEl('p', { text: 'Paste a JSON world data object here. It will additively overwrite any existing world that has the same API key. ' });
+        subtext.style.fontSize = '0.9em';
+        subtext.style.color = 'var(--text-muted)';
+        subtext.style.marginBottom = '15px';
+        subtext.style.marginTop = '5px';
 
         // Create a textarea element with specific class
         let inputArea = contentEl.createEl('textarea', {

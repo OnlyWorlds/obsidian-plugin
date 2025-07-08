@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import { WorldPasteModal } from 'Modals/WorldPasteModal';
-import { App, FileSystemAdapter, normalizePath, Notice } from 'obsidian';
+import { App, FileSystemAdapter, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
@@ -17,14 +17,19 @@ export class PasteWorldCommand {
     async execute() {
         let modal = new WorldPasteModal(this.app, async (worldDataJson) => {
             const worldData = worldDataJson['World'];
+            const apiKey = worldData ? worldData.api_key : null;
             const worldName = worldData ? worldData.name : null;
 
-            if (!worldName) {
-                new Notice('No valid world data found.');
+            if (!apiKey || !worldName) {
+                new Notice('No valid world data found (missing API key or name).');
                 return;
             }
 
-            const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldName}`);
+            // Find existing world by API key or use the world name
+            const existingWorldName = await this.findWorldByApiKey(apiKey);
+            const targetWorldName = existingWorldName || worldName;
+
+            const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${targetWorldName}`);
             const elementsFolderPath = normalizePath(`${worldFolderPath}/Elements`);
             if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
                 new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
@@ -48,7 +53,11 @@ export class PasteWorldCommand {
             // Generate element notes in the correct category folders under Elements
             await this.generateElementNotes(elementsFolderPath, worldDataJson, false);
 
-            new Notice(`Succesfully pasted world: ${worldName}`);
+            if (existingWorldName) {
+                new Notice(`Successfully updated existing world: ${targetWorldName}`);
+            } else {
+                new Notice(`Successfully created new world: ${targetWorldName}`);
+            }
         });
         modal.open();
     }
@@ -105,9 +114,11 @@ export class PasteWorldCommand {
             }
     
             for (const element of elements) {
-                const notePath = `${categoryDirectory}/${element.name}.md`;
+                // First check if an element with this ID already exists
+                const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
+                const notePath = existingElementPath || `${categoryDirectory}/${element.name}.md`;
     
-                if (overwrite || !await fs.exists(notePath)) {
+                if (overwrite || existingElementPath || !await fs.exists(notePath)) {
                     // Use the Handlebars templates from the user's vault
                     const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Handlebars/${category}Handlebar.md`);
                     let templateText: string;
@@ -154,5 +165,62 @@ export class PasteWorldCommand {
             }
         } 
         return undefined;
+    }
+
+    async findWorldByApiKey(apiKey: string): Promise<string | null> {
+        const worldsPath = normalizePath('OnlyWorlds/Worlds');
+        const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);
+        
+        if (!(worldsFolder instanceof TFolder)) {
+            return null;
+        }
+
+        for (const child of worldsFolder.children) {
+            if (child instanceof TFolder) {
+                const worldFilePath = normalizePath(`${child.path}/World.md`);
+                const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
+                
+                if (worldFile instanceof TFile) {
+                    try {
+                        const content = await this.app.vault.read(worldFile);
+                        const apiKeyMatch = content.match(/^- \*\*API Key:\*\* (.+)$/m);
+                        
+                        if (apiKeyMatch && apiKeyMatch[1].trim() === apiKey) {
+                            return child.name;
+                        }
+                    } catch (error) {
+                        console.error(`Error reading world file: ${worldFilePath}`, error);
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    async findElementByIdInCategory(categoryDirectory: string, elementId: string): Promise<string | null> {
+        const categoryFolder = this.app.vault.getAbstractFileByPath(categoryDirectory);
+        
+        if (!(categoryFolder instanceof TFolder)) {
+            return null;
+        }
+
+        for (const child of categoryFolder.children) {
+            if (child instanceof TFile && child.extension === 'md') {
+                try {
+                    const content = await this.app.vault.read(child);
+                    // Look for ID in the content - this regex looks for the ID field in the element
+                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m);
+                    
+                    if (idMatch && idMatch[1].trim() === elementId) {
+                        return child.path;
+                    }
+                } catch (error) {
+                    console.error(`Error reading element file: ${child.path}`, error);
+                }
+            }
+        }
+        
+        return null;
     }
 }
