@@ -13,14 +13,14 @@ export class CreateElementCommand {
         this.worldService = worldService;
     }
 
-    async execute(category: string, name: string): Promise<void> {
+    async execute(category: string, name: string, worldName?: string): Promise<void> {
         const uuid = uuidv7();
         const templateContent = await this.getTemplateContent(category);
         if (!templateContent) {
             new Notice(`Template for ${category} not found.`);
             return;
         } 
-        await this.createNoteInCorrectFolder(templateContent, category, uuid, name);
+        await this.createNoteInCorrectFolder(templateContent, category, uuid, name, worldName);
     }
     
 
@@ -51,8 +51,8 @@ export class CreateElementCommand {
     }
 
 
-    async createNoteInCorrectFolder(content: string, category: string, id: string, name: string): Promise<void> {
-        const topWorld =  await this.worldService.getWorldName();
+    async createNoteInCorrectFolder(content: string, category: string, id: string, name: string, worldName?: string): Promise<void> {
+        const topWorld = worldName || await this.worldService.getWorldName();
         
         // Find the category folder (might have count in name)
         const existingFolder = await this.worldService.findCategoryFolderByBaseName(topWorld, category);

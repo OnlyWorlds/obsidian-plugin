@@ -13,7 +13,7 @@ import { GraphViewExtensions } from 'Extensions/GraphViewExtensions';
 import Handlebars from 'handlebars';
 import { NameChanger } from 'Listeners/NameChanger';
 import { NameInputModal } from 'Modals/NameInputModal';
-import { TemplateSelectionModal } from 'Modals/TemplateSelectionModal';
+import { CreateElementModal } from 'Modals/CreateElementModal';
 import { Plugin, TFile, normalizePath } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { CreateTemplatesCommand } from './Commands/CreateTemplatesCommand';
@@ -176,13 +176,15 @@ export default class OnlyWorldsPlugin extends Plugin {
           id: 'create-element',
           name: 'Create Element',
           callback: () => {
-              let templateModal = new TemplateSelectionModal(this.app, (category) => {
-                  let nameModal = new NameInputModal(this.app, category, (cat, name) => {
-                      new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, name);
-                  });
-                  nameModal.open();
-              }, this.defaultCategory); // Pass default category
-              templateModal.open();
+              let createElementModal = new CreateElementModal(
+                  this.app, 
+                  (worldName, category, elementName) => {
+                      new CreateElementCommand(this.app, this.manifest, this.worldService).execute(category, elementName, worldName);
+                  },
+                  this.worldService,
+                  this.defaultCategory
+              );
+              createElementModal.open();
           }
       });
   
@@ -329,10 +331,15 @@ parseSettingsForDefaultCategory(content: string): string | null {
               id: `create-new-${category.toLowerCase()}`,
               name: `Create new ${category}`,
               callback: () => {
-                  let nameModal = new NameInputModal(this.app, category, (cat, name) => {
-                      new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, name);
-                  });
-                  nameModal.open();
+                  let createElementModal = new CreateElementModal(
+                      this.app, 
+                      (worldName, cat, elementName) => {
+                          new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, elementName, worldName);
+                      },
+                      this.worldService,
+                      category // Pre-select this specific category
+                  );
+                  createElementModal.open();
               }
           }); 
       });

@@ -73,8 +73,20 @@ export class WorldService {
         if (worldsFolder instanceof TFolder && worldsFolder.children.length > 0) {
             const subFolders = worldsFolder.children.filter(child => child instanceof TFolder);
             if (subFolders.length > 0) {
-                const worldFolder = subFolders[0];
-                return worldFolder.name; // Return the name of the first subfolder
+                // Sort folders to prefer base names over numbered versions
+                const sortedFolders = subFolders.sort((a, b) => {
+                    // If one has a number suffix and the other doesn't, prefer the one without
+                    const aHasNumber = /\s\(\d+\)$/.test(a.name);
+                    const bHasNumber = /\s\(\d+\)$/.test(b.name);
+                    
+                    if (!aHasNumber && bHasNumber) return -1;
+                    if (aHasNumber && !bHasNumber) return 1;
+                    
+                    // Otherwise, sort alphabetically
+                    return a.name.localeCompare(b.name);
+                });
+                
+                return sortedFolders[0].name; // Return the name of the first (preferred) folder
             }
         }
         return this.defaultWorldName; // Return default world name if no subfolder is found
