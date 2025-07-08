@@ -1,5 +1,5 @@
 import { PinInputModal } from 'Modals/PinInputModal'; // This modal will be created next
-import { App, Notice, TFile, normalizePath, requestUrl } from 'obsidian';
+import { App, Notice, TFile, TFolder, normalizePath, requestUrl } from 'obsidian';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -174,11 +174,15 @@ export class SaveElementCommand {
 
     // Helper to extract World Name and Category from path
     extractPathInfo(filePath: string): { worldName: string; category: string } | null {
-        // Example path: OnlyWorlds/Worlds/MyWorld/Elements/Characters/Hero.md
+        // Example path: OnlyWorlds/Worlds/MyWorld/Elements/Character (3)/Hero.md
         const pattern = /^OnlyWorlds\/Worlds\/([^\/]+)\/Elements\/([^\/]+)\/.+\.md$/i;
         const match = filePath.match(pattern);
         if (match && match[1] && match[2]) {
-            return { worldName: match[1], category: match[2] };
+            // Strip count suffix from category name (e.g., "Character (3)" -> "Character")
+            const rawCategory = match[2];
+            const baseCategoryName = rawCategory.replace(/\s*\(\d+\)$/, '');
+            console.log(`[SaveElementCommand] Extracted category: "${rawCategory}" -> base: "${baseCategoryName}"`);
+            return { worldName: match[1], category: baseCategoryName };
         }
         return null;
     }
@@ -311,7 +315,15 @@ export class SaveElementCommand {
         while ((match = linkPattern.exec(linkedText)) !== null) {
             const noteName = match[1];
             console.log(`      Found link: [[${noteName}]]`);
-            const linkedFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${linkedCategory}/${noteName}.md`);
+            
+            // Find the actual category folder (which might have count suffix)
+            const actualCategoryFolder = await this.findCategoryFolderByBaseName(worldName, linkedCategory);
+            if (!actualCategoryFolder) {
+                console.warn(`      Cannot find category folder for: ${linkedCategory}`);
+                continue;
+            }
+            
+            const linkedFilePath = normalizePath(`${actualCategoryFolder}/${noteName}.md`);
             console.log(`      Looking for linked file at: ${linkedFilePath}`);
 
             try {
@@ -361,6 +373,30 @@ export class SaveElementCommand {
             data.api_key = match[1].trim();
         }
         return Object.keys(data).length > 0 ? data : null; // Return null if no key found
+    }
+
+    // Helper method to find category folder by base name (handles count suffixes)
+    async findCategoryFolderByBaseName(worldName: string, baseCategoryName: string): Promise<string | null> {
+        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`);
+        const elementsFolder = this.app.vault.getAbstractFileByPath(elementsPath);
+        
+        if (!(elementsFolder instanceof TFolder)) {
+            console.warn(`Elements folder not found or not a folder: ${elementsPath}`);
+            return null;
+        }
+        
+        for (const child of elementsFolder.children) {
+            if (child instanceof TFolder) {
+                // Check if folder name starts with the base category name
+                if (child.name === baseCategoryName || child.name.startsWith(`${baseCategoryName} (`)) {
+                    console.log(`[SaveElementCommand] Found category folder: ${child.path}`);
+                    return child.path;
+                }
+            }
+        }
+        
+        console.warn(`[SaveElementCommand] Category folder not found for: ${baseCategoryName}`);
+        return null;
     }
 
     // Error Handler
