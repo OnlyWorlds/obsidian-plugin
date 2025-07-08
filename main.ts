@@ -19,7 +19,7 @@ import { WorldService } from 'Scripts/WorldService';
 import { CreateTemplatesCommand } from './Commands/CreateTemplatesCommand';
 import { ImportWorldCommand } from './Commands/ImportWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
-import { UpdateCategoryCountsCommand } from './Commands/UpdateCategoryCountsCommand';
+// UpdateCategoryCountsCommand import removed - handled automatically by other operations
 import { NoteLinker } from './Listeners/NoteLinker';
 
 export default class OnlyWorldsPlugin extends Plugin {
@@ -119,7 +119,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
         const saveElementCommand = new SaveElementCommand(this.app);
-        const updateCategoryCountsCommand = new UpdateCategoryCountsCommand(this.app, this.manifest);
+        // UpdateCategoryCountsCommand removed - handled automatically by other operations
 
         // manually handled in create/import world commands, no need for user to do this
         // // Register a command to create category folders
@@ -213,11 +213,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       callback: () => saveElementCommand.execute(),
   });
 
-    this.addCommand({
-      id: 'update-category-counts',
-      name: 'Update Category Counts',
-      callback: () => updateCategoryCountsCommand.execute(),
-  });
+    // Update Category Counts command removed - handled automatically by other operations
 
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', leaf => this.noteLinker.handleLeafChange(leaf))
