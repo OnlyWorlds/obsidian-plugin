@@ -1,11 +1,12 @@
 {
 	"id": "onlyworlds-builder",
 	"name": "OnlyWorlds Builder",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"minAppVersion": "0.15.0",
 	"description": "World building structure with OnlyWorlds integration",
 	"author": "Titus",
 	"authorUrl": "https://onlyworlds.github.io",
 	"fundingUrl": "https://www.onlyworlds.com",
-	"isDesktopOnly": true
+	"isDesktopOnly": true,
+	"css": "styles.css"
 }

@@ -48,8 +48,8 @@ export class CopyWorldCommand {
     async copyWorldData(worldFolder: string) {
         const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}`);
         const worldFilePath = `${worldFolderPath}/World.md`;
-        const worldDataPath = `${worldFolderPath}/World Data File.md`;
-    
+        const worldDataPath = `${worldFolderPath}/World Data File.md`; 
+
         // Retrieve the 'World.md' file as a TFile instance
         const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath) as TFile | null;
     
@@ -72,7 +72,7 @@ export class CopyWorldCommand {
                 navigator.clipboard.writeText(worldDataJSON);
     
                 // Modal confirmation removed
-                new Notice(`World data file updated for ${worldFolder}.`);
+                new Notice(`World ${worldFolder} copied to clipboard.`);
             } catch (error) {
                 console.error('Error during world data processing:', error);
                 new Notice('Failed to process world data.');
