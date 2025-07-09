@@ -13,14 +13,14 @@ export class CreateElementCommand {
         this.worldService = worldService;
     }
 
-    async execute(category: string, name: string, worldName?: string): Promise<void> {
+    async execute(category: string, name: string, worldName?: string, openFile: boolean = true): Promise<void> {
         const uuid = uuidv7();
         const templateContent = await this.getTemplateContent(category);
         if (!templateContent) {
             new Notice(`Template for ${category} not found.`);
             return;
         } 
-        await this.createNoteInCorrectFolder(templateContent, category, uuid, name, worldName);
+        await this.createNoteInCorrectFolder(templateContent, category, uuid, name, worldName, openFile);
     }
     
 
@@ -51,7 +51,7 @@ export class CreateElementCommand {
     }
 
 
-    async createNoteInCorrectFolder(content: string, category: string, id: string, name: string, worldName?: string): Promise<void> {
+    async createNoteInCorrectFolder(content: string, category: string, id: string, name: string, worldName?: string, openFile: boolean = true): Promise<void> {
         const topWorld = worldName || await this.worldService.getWorldName();
         
         // Find the category folder (might have count in name)
@@ -77,7 +77,9 @@ export class CreateElementCommand {
         try {
             const createdFile = await this.app.vault.create(newNotePath, content);
             new Notice(`New ${category.toLowerCase()} created: ${name}`);
-            this.openNoteInNewPane(createdFile);
+            if (openFile) {
+                this.openNoteInNewPane(createdFile);
+            }
             
             // Update the category folder name to reflect new count (after the file is created)
             await this.worldService.updateCategoryFolderName(topWorld, category);

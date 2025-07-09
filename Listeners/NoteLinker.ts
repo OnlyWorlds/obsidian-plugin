@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition, MarkdownView, WorkspaceLeaf } from 'obsidian';
+import { App, Editor, EditorPosition, MarkdownView, WorkspaceLeaf, PluginManifest } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 
@@ -7,10 +7,12 @@ export class NoteLinker {
     private worldService: WorldService;
     public  currentEditor: Editor | null = null;
     private app: App;
+    private manifest: PluginManifest;
 
-    constructor(app: App, worldService: WorldService) {  // Specify the type here
+    constructor(app: App, worldService: WorldService, manifest: PluginManifest) {  // Specify the type here
         this.app = app;
         this.worldService = worldService;
+        this.manifest = manifest;
     }
   
 
@@ -34,15 +36,27 @@ export class NoteLinker {
             
             const worldName = this.extractWorldName(currentFile.path);
             
-            const match = /data-tooltip="(Single|Multi) (.*?)">/.exec(lineText);
-            if (match) {
-                const elementType = match[2];
-                const fieldName = match[2]; // Assume this captures the field name correctly
+            const tooltipMatch = /data-tooltip="(Single|Multi) (.*?)">/.exec(lineText);
+            const fieldNameMatch = /data-tooltip="[^"]*">([^<]+)<\/span>/.exec(lineText);
+            
+            if (tooltipMatch && fieldNameMatch) {
+                const elementType = tooltipMatch[2];
+                const fieldName = fieldNameMatch[1].trim();
                 const elements = await this.fetchElements(elementType, currentId);
                 
-                new ElementSelectionModal(this.app, elements, elementType, fieldName, (selectedElements) => {
-                    this.handleElementSelection(editor, cursor, lineText, selectedElements);
-                }).open();
+                const modal = new ElementSelectionModal(
+                    this.app, 
+                    elements, 
+                    elementType, 
+                    fieldName, 
+                    (selectedElements) => {
+                        this.handleElementSelection(editor, cursor, lineText, selectedElements);
+                    },
+                    this.worldService,
+                    this.manifest,
+                    () => this.fetchElements(elementType, currentId)
+                );
+                modal.open();
             }
         }
     }
