@@ -6,11 +6,11 @@ It functions as a standalone tool for organizing worlds, and facilitates the tra
 
 ## OnlyWorlds
 
-OnlyWorlds is a framework for creating, building, sharing, and simulating worlds.
+OnlyWorlds is an open-source data standard for worldbuilding.
 
-It has been in closed alpha release since early 2024. Full release is planned for late summer 2025.  
+Public release planned for December 2025.
 
-Full information in this [technical documentation](https://onlyworlds.github.io/).
+Full documentation at [onlyworlds.github.io](https://onlyworlds.github.io/).
  
  ## Configuring Hotkeys
 
