@@ -26,17 +26,17 @@ To set up:
  
 ## Getting Started 
 
-Create a free account at https://onlyworlds.com. Note and/or change your PIN in your profile section
+Create a free account at https://onlyworlds.com. Note and/or change your PIN in your profile section.
 
-Use the Create World command (Ctrl + P) in Obsidian
+Use the Create World command (Ctrl + P) in Obsidian.
 
-If necessary folders and/or files are missing, this command will automatically import and create them
+If necessary folders and/or files are missing, this command will automatically import and create them.
 
-A folder 'OnlyWorlds' will be created at the top of your vault. This folder must remain at the top of your vault for the plugin to function
+A folder 'OnlyWorlds' will be created at the top of your vault. This folder must remain at the top of your vault for the plugin to function.
 
-Use the Create Element command to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html)
+Use the Create Element command to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html).
 
-You can upload your world(s) to the onlyworlds.com server using the 'Export World' or 'Save Element' commands
+You can upload your world(s) to the onlyworlds.com server using the 'Export World' or 'Save Element' commands.
 
 Alternatively, you can copy your full world as JSON data directly to your clipboard.  
 
@@ -87,3 +87,4 @@ Alternatively, you can copy your full world as JSON data directly to your clipbo
 Feedback and contribution for this plugin or anything OnlyWorlds is always welcome, via  [discord](https://discord.gg/twCjqvVBwb) or [github](https://github.com/OnlyWorlds/OnlyWorlds) or [reddit](https://www.reddit.com/r/OnlyWorlds/) or [email](info@onlyworlds.com)
 
   
+
