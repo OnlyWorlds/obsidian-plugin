@@ -18,5 +18,8 @@ export enum Category {
     Relation,
     Event,
     Construct,
-    Narrative
+    Narrative,
+    Map,
+    Pin,
+    Marker
 }

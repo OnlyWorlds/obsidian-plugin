@@ -123,7 +123,8 @@ export class CopyWorldCommand {
             worldData['World'] = completeWorldInfo;
         } catch (error) {
             console.error('Error reading World file:', error);
-            new Notice('Failed to read World file: ' + error.message);
+            const msg = error instanceof Error ? error.message : String(error);
+            new Notice('Failed to read World file: ' + msg);
             return {}; // Stop further processing if the World file cannot be read
         }
     

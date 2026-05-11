@@ -1,43 +1,57 @@
 import { CopyWorldCommand } from 'Commands/CopyWorldCommand';
 import { CreateElementCommand } from 'Commands/CreateElementCommand';
-import { CreateHandlebarsCommand } from 'Commands/CreateHandlebarsCommand';
-import { CreateReadmeCommand } from 'Commands/CreateReadmeCommand';
-import { CreateSettingsCommand } from 'Commands/CreateSettingsCommand';
 import { CreateWorldCommand } from 'Commands/CreateWorldCommand';
 import { ExportWorldCommand } from 'Commands/ExportWorldCommand';
+import { ImportWorldCommand } from './Commands/ImportWorldCommand';
 import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
+import { SaveElementCommand } from './Commands/SaveElementCommand';
 import { ValidateWorldCommand } from 'Commands/ValidateWorldCommand';
 import { Category } from 'enums';
-import { GraphViewExtensions } from 'Extensions/GraphViewExtensions';
 import Handlebars from 'handlebars';
 import { NameChanger } from 'Listeners/NameChanger';
-import { NameInputModal } from 'Modals/NameInputModal';
-import { CreateElementModal } from 'Modals/CreateElementModal';
-import { Plugin, TFile, normalizePath } from 'obsidian';
-import { WorldService } from 'Scripts/WorldService';
-import { CreateTemplatesCommand } from './Commands/CreateTemplatesCommand';
-import { ImportWorldCommand } from './Commands/ImportWorldCommand';
-import { SaveElementCommand } from './Commands/SaveElementCommand';
-// UpdateCategoryCountsCommand import removed - handled automatically by other operations
 import { NoteLinker } from './Listeners/NoteLinker';
+import { CreateElementModal } from 'Modals/CreateElementModal';
+import { Platform, Plugin, TFile, normalizePath } from 'obsidian';
+import { WorldService } from 'Scripts/WorldService';
+import { PinCache } from './auth/pin-cache';
+import { ObsidianOnlyWorldsClient } from './client';
+import { DEFAULT_SETTINGS, OnlyWorldsPluginSettings } from './settings/settings';
+import { OnlyWorldsSettingTab } from './settings/settings-tab';
+import { AutoSyncEngine } from './sync/auto-sync';
+import { SyncRibbon } from './sync/ribbon';
+import { SyncStatusBar } from './sync/status-bar';
 
 export default class OnlyWorldsPlugin extends Plugin {
-  graphViewExtensions: GraphViewExtensions;
     noteLinker: NoteLinker;
     nameChanger: NameChanger;
     worldService: WorldService;
+    settings: OnlyWorldsPluginSettings;
+    pinCache: PinCache;
+    statusBar: SyncStatusBar | null = null;
+    ribbon: SyncRibbon | null = null;
+    autoSync: AutoSyncEngine | null = null;
     private defaultCategory: string | null = null;
-      onload(): void {
+      async onload(): Promise<void> {
+
+        await this.loadSettings();
+        this.pinCache = new PinCache(this.app, () => this.settings.apiPin);
+        this.addSettingTab(new OnlyWorldsSettingTab(this.app, this));
+
+        if (this.settings.showStatusBar && !Platform.isMobile) {
+            this.statusBar = new SyncStatusBar(this.addStatusBarItem());
+        }
+
+        this.ribbon = new SyncRibbon(this.app, this);
+        this.ribbon.register();
+
+        this.autoSync = new AutoSyncEngine(this.app, this);
+        this.autoSync.registerListeners();
 
         this.worldService = new WorldService(this.app);
-        this.registerHandlebarsHelpers(); 
+        this.registerHandlebarsHelpers();
 
-        // didnt get custom graphview working yet
-      //  this.graphViewExtensions = new GraphViewExtensions(this.app, this);
-      //   this.graphViewExtensions.initializeGraphView();
-      // this.addStyles(); 
-       this.nameChanger = new NameChanger(this.app); 
+       this.nameChanger = new NameChanger(this.app);
        this.nameChanger.setupNameChangeListener();
         this.noteLinker = new NoteLinker(this.app,  this.worldService, this.manifest);  
 
@@ -57,18 +71,6 @@ export default class OnlyWorldsPlugin extends Plugin {
 
         console.log("OnlyWorlds Plugin loaded"); 
       }
-
-      addStyles() {
-        const style = document.createElement('style');
-        style.textContent = `
-            .graph-view.color-fill-character { color: blue; }
-            .graph-view.color-fill-location { color: green; }
-            .graph-view.color-fill-event { color: red; }
-            .graph-view.color-fill-default { color: grey; }
-            // Add more styles for other categories as needed
-        `;
-        document.head.appendChild(style);
-    }
 
     registerHandlebarsHelpers() {
       if (typeof Handlebars === 'undefined') {
@@ -105,49 +107,14 @@ export default class OnlyWorldsPlugin extends Plugin {
     }
 
       setupCommands() {
-       
-        const createReadmeCommand = new CreateReadmeCommand(this.app, this.manifest);
-        const createTemplatesCommand = new CreateTemplatesCommand(this.app, this.manifest);
-        const createHandlebarsCommand = new CreateHandlebarsCommand(this.app, this.manifest);
-        const createSettingsCommand = new CreateSettingsCommand(this.app, this.manifest);
-     //   const createCategoryFoldersCommand = new CreateCategoryFoldersCommand(this.app, this.manifest);
         const retrieveWorldCommand = new ImportWorldCommand(this.app, this.manifest);
-        const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService);        
+        const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
         const createWorldCommand = new CreateWorldCommand(this.app, this.manifest);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
-        const saveElementCommand = new SaveElementCommand(this.app);
-        // UpdateCategoryCountsCommand removed - handled automatically by other operations
-
-        // manually handled in create/import world commands, no need for user to do this
-        // // Register a command to create category folders
-        // this.addCommand({
-        //     id: 'create-category-folders',
-        //     name: 'Create Element Folders',
-        //     callback: () => {
-        //         createCategoryFoldersCommand.execute();
-        //     }
-        // });
-
-         
-        // These excluded as user should not need to call them anyways; and settings/readme require fix on no existing folders
-        // this.addCommand({
-        //     id: 'setup-templates',
-        //     name: 'Create Templates',
-        //     callback: () => createTemplatesCommand.execute(),
-        // });
-        // this.addCommand({
-        //     id: 'setup-settings',
-        //     name: 'Create Settings',
-        //     callback: () => createSettingsCommand.execute(),
-        // });
-        // this.addCommand({
-        //     id: 'setup-readme',
-        //     name: 'Create Readme',
-        //     callback: () => createReadmeCommand.execute(),
-        // });
+        const saveElementCommand = new SaveElementCommand(this.app, this);
 
 
           // Register a command to fetch world data and convert to notes
@@ -212,8 +179,11 @@ export default class OnlyWorldsPlugin extends Plugin {
     this.addCommand({
       id: 'save-element',
       name: 'Save Element',
+      // No default hotkey — Obsidian guidelines recommend letting users bind their own
+      // to avoid conflicts. Suggest Ctrl/Cmd+Shift+S in the README/docs.
       callback: () => saveElementCommand.execute(),
   });
+
 
     // Update Category Counts command removed - handled automatically by other operations
 
@@ -223,7 +193,9 @@ export default class OnlyWorldsPlugin extends Plugin {
 
     // Listen for file deletions to update category counts
     this.registerEvent(
-      this.app.vault.on('delete', (file) => this.handleFileDelete(file))
+      this.app.vault.on('delete', (file) => {
+          if (file instanceof TFile) this.handleFileDelete(file);
+      })
   );
 
   this.addCommand({
@@ -299,7 +271,7 @@ parseSettingsForDefaultCategory(content: string): string | null {
     return match ? match[1].toLowerCase() === 'yes' : false;
 }
 
-  async handleFileDelete(file: any) {
+  async handleFileDelete(file: TFile) {
     // Check if deleted file is an element file in a world
     if (file.extension === 'md' && file.path.includes('OnlyWorlds/Worlds/') && file.path.includes('/Elements/')) {
       try {
@@ -326,13 +298,13 @@ parseSettingsForDefaultCategory(content: string): string | null {
   }
 
   registerIndividualCreationCommands() {
-      Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {  
+      Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {
           this.addCommand({
               id: `create-new-${category.toLowerCase()}`,
               name: `Create new ${category}`,
               callback: () => {
                   let createElementModal = new CreateElementModal(
-                      this.app, 
+                      this.app,
                       (worldName, cat, elementName) => {
                           new CreateElementCommand(this.app, this.manifest, this.worldService).execute(cat, elementName, worldName);
                       },
@@ -341,7 +313,48 @@ parseSettingsForDefaultCategory(content: string): string | null {
                   );
                   createElementModal.open();
               }
-          }); 
+          });
       });
+  }
+
+  async loadSettings(): Promise<void> {
+      this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings(): Promise<void> {
+      await this.saveData(this.settings);
+  }
+
+  /**
+   * Centralized sync-status update — routes to status bar (desktop) and ribbon (both).
+   */
+  setSyncStatus(status: 'idle' | 'dirty' | 'syncing' | 'synced' | 'error', opts?: { error?: string }): void {
+      this.statusBar?.setStatus(status, opts);
+      this.ribbon?.setStatus(status);
+  }
+
+  /**
+   * Build an Obsidian-aware OnlyWorlds API client for a given world.
+   *
+   * Returns null if API key or PIN are unavailable (user-cancelled, etc).
+   * The caller is responsible for handling the null case.
+   */
+  async buildClient(apiKey?: string): Promise<ObsidianOnlyWorldsClient | null> {
+      const key = apiKey || this.settings.apiKey;
+      if (!key) {
+          return null;
+      }
+      const pin = await this.pinCache.get();
+      if (!pin) {
+          return null;
+      }
+      return new ObsidianOnlyWorldsClient({ apiKey: key, apiPin: pin });
+  }
+
+  onunload(): void {
+      this.pinCache?.clear();
+      this.statusBar = null;
+      this.ribbon = null;
+      this.autoSync = null;
   }
 }

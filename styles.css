@@ -1,5 +1,23 @@
 /* styles.css */
 
+/* Sync status bar layout */
+.ow-sync-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Sync status bar spinner */
+.ow-sync-status .ow-spin,
+.ow-ribbon.ow-spin {
+    display: inline-flex;
+    animation: ow-spin 1.5s linear infinite;
+}
+@keyframes ow-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
  
 
 .text-field::after, .number-field::after, .link-field::after, .multi-link-field::after  {
