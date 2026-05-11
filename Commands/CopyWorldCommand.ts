@@ -1,7 +1,7 @@
 import { Category } from 'enums';
 import { ValidateCopyResultModal } from 'Modals/ValidateCopyResultModal';
 import { WorldSelectionModal } from 'Modals/WorldSelectionModal';
-import { App, FileSystemAdapter, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
+import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 
@@ -84,11 +84,7 @@ export class CopyWorldCommand {
     
     
     async collectWorldData(worldFolder: string) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter;
+        const fs = this.app.vault.adapter;
         let worldData: Record<string, any> = {};  // Change from any[] to any for flexible indexing
         
         // Extract world name from folder path

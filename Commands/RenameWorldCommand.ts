@@ -1,4 +1,4 @@
-import { App, Notice, requestUrl, FileSystemAdapter, normalizePath, TFile, TFolder } from 'obsidian';
+import { App, Notice, requestUrl, normalizePath, TFile, TFolder } from 'obsidian';
 import { WorldRenameModal } from 'Modals/WorldRenameModal';
 
  

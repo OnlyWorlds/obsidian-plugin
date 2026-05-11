@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import { WorldImportData, WorldImportModal } from 'Modals/WorldImportModal';
-import { App, FileSystemAdapter, normalizePath, Notice, requestUrl, TFile, TFolder } from 'obsidian';
+import { App, normalizePath, Notice, requestUrl, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { WorldService } from 'Scripts/WorldService';
 import { Category } from '../enums';
@@ -67,11 +67,7 @@ export class ImportWorldCommand {
                     // Corrected paths to include OnlyWorlds/Worlds/{uniqueWorldName}/Elements
                     const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${uniqueWorldName}`);
                     const elementsFolderPath = normalizePath(`${worldFolderPath}/Elements`);
-                    if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-                        new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-                        return; 
-                    }             
-                    const fs: FileSystemAdapter = this.app.vault.adapter;
+                    const fs = this.app.vault.adapter;
     
                     // Ensure the World and Elements folders exist
                     await this.createFolderIfNeeded(worldFolderPath);
@@ -126,11 +122,7 @@ export class ImportWorldCommand {
     }
     
     async generateWorldFile(worldData: any, worldFolderPath: string) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter; 
+        const fs = this.app.vault.adapter;
         
         // Add image_display field based on image_url
         if (worldData.image_url) {
@@ -145,12 +137,7 @@ export class ImportWorldCommand {
         await fs.write(worldFilePath, worldContent); 
     }
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }
-    
-        const fs: FileSystemAdapter = this.app.vault.adapter;
+        const fs = this.app.vault.adapter;
     
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;

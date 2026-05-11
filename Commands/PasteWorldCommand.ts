@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import { WorldPasteModal } from 'Modals/WorldPasteModal';
-import { App, FileSystemAdapter, normalizePath, Notice, TFile, TFolder } from 'obsidian';
+import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { WorldService } from 'Scripts/WorldService';
 import { Category } from '../enums';
@@ -35,11 +35,7 @@ export class PasteWorldCommand {
 
             const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${targetWorldName}`);
             const elementsFolderPath = normalizePath(`${worldFolderPath}/Elements`);
-            if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-                new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-                return; 
-            }             
-            const fs: FileSystemAdapter = this.app.vault.adapter;
+            const fs = this.app.vault.adapter;
 
             // Ensure the World and Elements folders exist
             await this.createFolderIfNeeded(worldFolderPath);
@@ -82,11 +78,7 @@ export class PasteWorldCommand {
     }
 
     async generateWorldFile(worldData: any, worldFolderPath: string) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter; 
+        const fs = this.app.vault.adapter;
         
         // Add image_display field based on image_url
         if (worldData.image_url) {
@@ -102,12 +94,7 @@ export class PasteWorldCommand {
     }
 
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }
-    
-        const fs: FileSystemAdapter = this.app.vault.adapter;
+        const fs = this.app.vault.adapter;
     
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;

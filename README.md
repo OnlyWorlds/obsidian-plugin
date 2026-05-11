@@ -88,8 +88,9 @@ OnlyWorlds/
 | Auto-sync debounce | 3000ms | How long to wait after last edit. |
 | Show status bar indicator | on | Desktop status bar icon. |
 
-## Get in touch
- 
+## Get in touch 
+
+- [github](https://github.com/OnlyWorlds)
 - [discord](https://discord.gg/twCjqvVBwb)
 - [council](https://council.onlyworlds.com)
-- info@onlyworlds.com
+- [email](info@onlyworlds.com)

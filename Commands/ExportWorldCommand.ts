@@ -1,6 +1,6 @@
 import { ValidateExportResultModal } from 'Modals/ValidateExportResultModal';
 import { WorldPinSelectionModal } from 'Modals/WorldPinSelectionModal';
-import { App, FileSystemAdapter, normalizePath, Notice, PluginManifest, requestUrl } from 'obsidian';
+import { App, normalizePath, Notice, PluginManifest, requestUrl } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
@@ -94,11 +94,7 @@ export class ExportWorldCommand {
     
 
     async collectWorldData(worldFolder: string) {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            new Notice('Unexpected adapter type. This feature requires a file system-based vault.');
-            return; 
-        }             
-        const fs: FileSystemAdapter = this.app.vault.adapter;
+        const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};   
     
         // Path to the 'World' file inside the selected world folder

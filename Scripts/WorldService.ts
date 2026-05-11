@@ -1,4 +1,4 @@
-import { App, TFolder, TFile, normalizePath, FileSystemAdapter } from 'obsidian';
+import { App, TFolder, TFile, normalizePath } from 'obsidian';
 import { Category } from '../enums';
 
 export class WorldService {
@@ -201,11 +201,7 @@ export class WorldService {
     }
 
     async generateUniqueFileName(categoryPath: string, elementName: string, elementId: string): Promise<string> {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            return `${elementName}.md`; // Fallback if not file system adapter
-        }
-        
-        const fs: FileSystemAdapter = this.app.vault.adapter;
+        const fs = this.app.vault.adapter;
         
         // First, try the base name
         const baseName = `${elementName}.md`;
@@ -258,11 +254,7 @@ export class WorldService {
     }
 
     async generateUniqueWorldName(worldName: string, worldApiKey?: string): Promise<string> {
-        if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
-            return worldName; // Fallback if not file system adapter
-        }
-        
-        const fs: FileSystemAdapter = this.app.vault.adapter;
+        const fs = this.app.vault.adapter;
         const worldsBasePath = normalizePath('OnlyWorlds/Worlds');
         
         // First, try the base name
