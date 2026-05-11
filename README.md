@@ -1,12 +1,10 @@
 # OnlyWorlds Builder — Obsidian Plugin
 
-Obsidian plugin for building and syncing OnlyWorlds worlds.
+Obsidian plugin for building and syncing with OnlyWorlds.
 
 ## What is OnlyWorlds
 
-OnlyWorlds is an open data standard for worldbuilding. A world is made of elements across 22 categories, each with defined fields and link relationships. Worlds can live entirely in a local vault, and can be uploaded to [onlyworlds.com](https://www.onlyworlds.com), where a free account hosts your worlds and exposes them via REST API so that other tools can read and write it. The standard is open source and the tools and platform are free.
-
-[About page](https://onlyworlds.com/about) and [full docs](https://onlyworlds.github.io).
+[OnlyWorlds](https://www.onlyworlds.com/about) is an open data standard for worldbuilding. A world is made of elements across 22 categories, each with defined fields and link relationships. Worlds can live entirely in a local vault, and can be uploaded to [onlyworlds.com](https://www.onlyworlds.com/worlds), where a free account hosts your worlds and exposes them via REST API so that other tools can read and write it. The standard is open source and the tools and platform are free.
 
 ## What this plugin does
 
@@ -16,27 +14,27 @@ Optional: connect the plugin to an onlyworlds.com account, and edits can be push
 
 ## Getting started
 
-Local-only setup (no account needed):
+Local-only setup:
 
 1. Install the plugin from Community Plugins.
 2. Run **Create World** from the command palette (Ctrl/Cmd+P). The plugin creates the `OnlyWorlds/` folder structure in your vault.
 3. Use `Create Element` to add elements. Edit them like any Obsidian note.
 
-If you already have a world on onlyworlds.com, run **Import World** instead of step 2. It sets up the folder structure and pulls your existing elements into the vault.
+If you already have a world on onlyworlds.com, run **Import World** instead of step 2 to set up the folder structure and pull your existing elements into the vault.
 
 To also sync with onlyworlds.com:
 
-4. Create a free account at [onlyworlds.com](https://www.onlyworlds.com). Note your API key and 4-digit PIN from your profile.
-5. In Obsidian, open **Settings → OnlyWorlds**. Paste your API key and PIN.
+4. Create a free account at [onlyworlds.com](https://www.onlyworlds.com).
+5. In Obsidian, open **Settings → OnlyWorlds**. Paste your active world's API key, and PIN from your profile.
 6. Push to web with auto-sync or the `Save Element` command (see below).
 
 ## How sync works
 
 Three ways to push edits to onlyworlds.com:
 
-**Save Element.** Run the command on the active note to push that single element. Bind a hotkey if you'll use it often (Settings → Hotkeys, search "Save Element"; Ctrl/Cmd+Shift+S is a good fit).
-
 **Export World.** Push every element in the active world in one go. A full overwrite of the cloud world from your local copy.
+
+**Save Element.** Run the command on the active note to push that single element. Bind a hotkey if you'll use it often (Settings → Hotkeys, search "Save Element", set something like Ctrl/Cmd+Shift+S).
 
 **Auto-sync.** Toggle on in plugin settings. After 3 seconds of inactivity following an edit, the plugin pushes the changed element via the OnlyWorlds API. 
 
@@ -90,9 +88,8 @@ OnlyWorlds/
 | Auto-sync debounce | 3000ms | How long to wait after last edit. |
 | Show status bar indicator | on | Desktop status bar icon. |
 
-## Contact
-
-- [discord](https://discord.gg/twCjqvVBwb): questions, feedback, support
-- [github.com/OnlyWorlds](https://github.com/OnlyWorlds): source and issues
-- [reddit.com/r/OnlyWorlds](https://www.reddit.com/r/OnlyWorlds/): community
+## Get in touch
+ 
+- [discord](https://discord.gg/twCjqvVBwb)
+- [council](https://council.onlyworlds.com)
 - info@onlyworlds.com
