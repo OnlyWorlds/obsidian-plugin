@@ -1,90 +1,98 @@
-# OnlyWorlds Plugin for Obsidian
+# OnlyWorlds Builder — Obsidian Plugin
 
-This plugin provides complete workflows for world creation, building, and management, fully compatible with the [OnlyWorlds](https://www.onlyworlds.com) framework.
+Obsidian plugin for building and syncing OnlyWorlds worlds.
 
-It functions as a standalone tool for organizing worlds, and facilitates the transfer of these worlds across other tools within the framework.
+## What is OnlyWorlds
 
-## OnlyWorlds
+OnlyWorlds is an open data standard for worldbuilding. A world is made of elements across 22 categories, each with defined fields and link relationships. Worlds can live entirely in a local vault, and can be uploaded to [onlyworlds.com](https://www.onlyworlds.com), where a free account hosts your worlds and exposes them via REST API so that other tools can read and write it. The standard is open source and the tools and platform are free.
 
-OnlyWorlds is an open-source data standard for worldbuilding.
+[About page](https://onlyworlds.com/about) and [full docs](https://onlyworlds.github.io).
 
-Public release planned for December 2025.
+## What this plugin does
 
-Full documentation at [onlyworlds.github.io](https://onlyworlds.github.io/).
+Manages OnlyWorlds elements as Obsidian notes: one note per element, organized into folders per category, inside an `OnlyWorlds/` folder in a vault. Notes are plain markdown, editable like any other.
+
+Optional: connect the plugin to an onlyworlds.com account, and edits can be pushed to the cloud on demand or automatically. That makes the same world available to other OnlyWorlds tools and accessible via the API.
+
+## Getting started
+
+Local-only setup (no account needed):
+
+1. Install the plugin from Community Plugins.
+2. Run **Create World** from the command palette (Ctrl/Cmd+P). The plugin creates the `OnlyWorlds/` folder structure in your vault.
+3. Use `Create Element` to add elements. Edit them like any Obsidian note.
+
+If you already have a world on onlyworlds.com, run **Import World** instead of step 2. It sets up the folder structure and pulls your existing elements into the vault.
+
+To also sync with onlyworlds.com:
+
+4. Create a free account at [onlyworlds.com](https://www.onlyworlds.com). Note your API key and 4-digit PIN from your profile.
+5. In Obsidian, open **Settings → OnlyWorlds**. Paste your API key and PIN.
+6. Push to web with auto-sync or the `Save Element` command (see below).
+
+## How sync works
+
+Three ways to push edits to onlyworlds.com:
+
+**Save Element.** Run the command on the active note to push that single element. Bind a hotkey if you'll use it often (Settings → Hotkeys, search "Save Element"; Ctrl/Cmd+Shift+S is a good fit).
+
+**Export World.** Push every element in the active world in one go. A full overwrite of the cloud world from your local copy.
+
+**Auto-sync.** Toggle on in plugin settings. After 3 seconds of inactivity following an edit, the plugin pushes the changed element via the OnlyWorlds API. 
+
+The ribbon icon and desktop status bar reflect the current state: `idle`, `dirty` (unsaved local changes), `syncing`, `synced`, or `error`. 
+
+You can set your PIN once in settings so the plugin never asks again.  
+
+## Authentication
+
+The plugin talks to the OnlyWorlds REST API at `https://www.onlyworlds.com/api/worldapi/`. Each API call sends your API-Key and API-Pin as headers, scoped to one world. Your API key identifies which world you're touching, and your PIN authorizes writes. Both stay local. They live in your vault's plugin settings (`data.json`).
+
+## Folder structure
+
+The plugin creates and manages:
+
+```
+OnlyWorlds/
+├── Worlds/<World name>/
+│   ├── World.md
+│   └── Elements/<Category>/<element>.md
+└── PluginFiles/   (templates, managed automatically)
+```
  
- ## Configuring Hotkeys
 
-This plugin requires a custom hotkey to link element fields
+## Commands
 
-Suggestion: CTRL/CMD + SHIFT + L
+| Command | What it does |
+|---|---|
+| `Create World` | Create a new world (account-linked) and the local folder structure. |
+| `Import World` | Pull all elements of an existing world from onlyworlds.com into your vault. |
+| `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
+| `Save Element` | Push the active element note to the API. Bind a hotkey via Settings → Hotkeys. |
+| `Export World` | Bulk push every element in the active world. |
+| `Validate World` | Check element notes for malformed fields. |
+| `Rename World` | Rename a world folder safely. |
+| `Link Elements` | With your cursor in a link field, pick a target element to insert. |
+| `Copy World to Clipboard` | Serialize the active world as JSON and copy to clipboard. |
+| `Paste World from Clipboard` | Build a world from JSON in clipboard. |
 
-To set up:
-1. Open Obsidian
-2. Go to `Settings` -> `Hotkeys`
-3. Search for "Link Elements"
-4. Click on the + symbol, then input a combination
- 
-## Getting Started 
+## Settings
 
-Create a free account at https://onlyworlds.com. Note and/or change your PIN in your profile section.
+| Setting | Default | What it does |
+|---|---|---|
+| API key | empty | Your OnlyWorlds API key. Stored locally. |
+| API PIN | empty | Your 4-digit PIN. Stored locally. Empty means you'll be prompted once per session. |
+| Default world | empty | The active world. Falls back to the alphabetically first under `OnlyWorlds/Worlds/`. |
+| Default email | empty | Pre-fills email when creating worlds. |
+| Default new element category | Character | Pre-selected in `Create Element`. |
+| Individual element creation commands | off | Adds `Create new <Category>` commands for each of the 22 categories. Reload Obsidian after toggling. |
+| Auto-sync to OnlyWorlds | off | Push edits automatically after idle period. |
+| Auto-sync debounce | 3000ms | How long to wait after last edit. |
+| Show status bar indicator | on | Desktop status bar icon. |
 
-Use the Create World command (Ctrl + P) in Obsidian.
+## Contact
 
-If necessary folders and/or files are missing, this command will automatically import and create them.
-
-A folder 'OnlyWorlds' will be created at the top of your vault. This folder must remain at the top of your vault for the plugin to function.
-
-Use the Create Element command to fill your world with elements of [various categories](https://onlyworlds.github.io/docs/framework/categories.html).
-
-You can upload your world(s) to the onlyworlds.com server using the 'Export World' or 'Save Element' commands.
-
-Alternatively, you can copy your full world as JSON data directly to your clipboard.  
-
-## Folder Structure
-- **OnlyWorlds/**: Parent folder at top of vault
-	- **PluginFiles**:
-		- **Handlebars/**: Should not be modified
-    	- **Templates/**: Should not be modified
-    - **Worlds/**: User worlds directory
-        - **WorldOne/**:  
-            - **Elements/**: World elements, represented as notes
-            - **World**: World configuration file 
-            - **World Data**: Output file for Copy World command 
-        - **WorldTwo/**:  
-            - ..
-    - **README**: ..
-    - **Settings**: A few plugin options
-
-## Commands 
-- `Create World` Create a new world file and necessary files
-- `Import World` Load a world from the onlyworlds.com server into your vault (overwrites existing worlds with the same API key)
-- `Export World` Send world data to the onlyworlds.com server
-- `Save Element` Upload your curently opened element note to the onlyworlds.com server
-- `Paste World`  Create necessary files and world directly from a World Data string - `Import World` Create necessary files and world from online World Data using a world key
-- `Copy World` Create world data string from a world in your vault
-- `Rename World`  Safely change the name of your world  
-- `Validate World`  Manual call that is forced on export for ensuring correct content and formatting
-- `Create Element`  Choose a category, then enter a name to create 
-
-## Element Editing
-- **Normal fields**: Accept text of any length
-
-- **Italic fields**: Numeric only. Hover or click the field to see potential maximum value
-
-- **Link fields** (underlined): Place cursor behind, then use {your-link-elements-hotkey} to view pickable elements. Light blue for single link, dark for multi link
-
-### Editing Guidelines
-- The **Name** field of an element must match the note name
-- Each element must have a unique Id, generated automatically with **Create Element** command. Try to avoid manual duplication or creation. But if you do, make sure to generate a [new UUIDv7](https://www.uuidgenerator.net/version7)
-
-## Settings 
-- Write the **active world** name for ongoing work 
-- Enable 18 category-specific commands for creating elements
-- Set the default category for creating new elements
-- Add your onlyworlds.com email for convenience
-   
-## Contact and Contribution
-Feedback and contribution for this plugin or anything OnlyWorlds is always welcome, via  [discord](https://discord.gg/twCjqvVBwb) or [github](https://github.com/OnlyWorlds/OnlyWorlds) or [reddit](https://www.reddit.com/r/OnlyWorlds/) or [email](info@onlyworlds.com)
-
-  
-
+- [discord](https://discord.gg/twCjqvVBwb): questions, feedback, support
+- [github.com/OnlyWorlds](https://github.com/OnlyWorlds): source and issues
+- [reddit.com/r/OnlyWorlds](https://www.reddit.com/r/OnlyWorlds/): community
+- info@onlyworlds.com

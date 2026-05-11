@@ -20,9 +20,14 @@ export class CreateTemplatesCommand {
 
         // Base URL for fetching the templates from GitHub
         const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/languages/obsidian_templates/';
-     
+
+        // Categories with no legacy template files upstream (added to schema later).
+        const noLegacyTemplate = new Set(['Map', 'Pin', 'Marker']);
 
         for (const category of categories) {
+            if (noLegacyTemplate.has(category)) {
+                continue;
+            }
             const fileName = `${category}.md`;
             const targetPath = normalizePath(`${templateFolder}/${fileName}`);
             const templateUrl = `${githubBaseUrl}${fileName}`;

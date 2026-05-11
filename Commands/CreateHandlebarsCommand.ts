@@ -21,7 +21,14 @@ export class CreateHandlebarsCommand {
         const githubBaseUrl = 'https://raw.githubusercontent.com/OnlyWorlds/OnlyWorlds/main/languages/obsidian_handlebars/';
 
         console.log('Fetching Handlebars templates from GitHub');
+
+        // Categories with no legacy handlebars upstream (added to schema later).
+        const noLegacyHandlebars = new Set(['Map', 'Pin', 'Marker']);
+
         for (const category of categories) {
+            if (noLegacyHandlebars.has(category)) {
+                continue;
+            }
             const fileName = `${category}Handlebar.md`; // Example: CharacterHandlebar.md
             const targetPath = normalizePath(`${handlebarsFolder}/${fileName}`);
             const templateUrl = `${githubBaseUrl}${fileName}`;

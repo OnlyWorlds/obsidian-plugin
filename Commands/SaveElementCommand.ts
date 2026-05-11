@@ -1,26 +1,27 @@
-import { PinInputModal } from 'Modals/PinInputModal'; // This modal will be created next
-import { App, Notice, TFile, TFolder, normalizePath, requestUrl } from 'obsidian';
+import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
+import type OnlyWorldsPlugin from '../main';
+import { readElement, categoryToResourceKey } from '../vault/element-file';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
     id?: string; // ID is handled separately for the URL path
     name?: string;
-    [key: string]: any; // Allow other fields
+    [key: string]: unknown; // Allow other fields
 }
 
 // Define the structure for world file data (adapt as needed)
 interface WorldFileData {
     api_key?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 export class SaveElementCommand {
-    app: App; 
-     private apiBaseUrl = 'https://www.onlyworlds.com/api/worldapi/'; 
+    app: App;
+    plugin: OnlyWorldsPlugin;
 
-
-    constructor(app: App) {
+    constructor(app: App, plugin: OnlyWorldsPlugin) {
         this.app = app;
+        this.plugin = plugin;
     }
 
     // Helper method to convert strings to snake_case
@@ -40,28 +41,30 @@ export class SaveElementCommand {
     }
 
     async execute() {
-     //   console.log("Executing SaveElementCommand...");
         const activeFile = this.app.workspace.getActiveFile();
 
         if (!activeFile || !(activeFile instanceof TFile)) {
             new Notice("No active file selected or it's not a valid file.");
             return;
         }
-     //   console.log(`Processing file: ${activeFile.path}`);
 
         // 1. Validate Path and Extract Info
         const pathInfo = this.extractPathInfo(activeFile.path);
         if (!pathInfo) {
             new Notice("The current file is not a valid OnlyWorlds element note.");
-        //    console.log(`Invalid path: ${activeFile.path}`);
             return;
         }
         const { worldName, category } = pathInfo;
- //       console.log(`Extracted Path Info: World=${worldName}, Category=${category}`);
 
-        // 2. Read and Parse Element Content using the refined parser
-        const fileContent = await this.app.vault.read(activeFile);
-        const elementData = await this.parseElementContent(fileContent, activeFile.path);
+        // 2. Try v2 (frontmatter) first; fall back to v1 (span-tag) if no frontmatter id.
+        let elementData: ElementData | null = null;
+        const v2 = await readElement(this.app, activeFile);
+        if (v2 && v2.id) {
+            elementData = { id: v2.id, ...v2.fields };
+        } else {
+            const fileContent = await this.app.vault.read(activeFile);
+            elementData = await this.parseElementContent(fileContent, activeFile.path);
+        }
 
         if (!elementData) {
              new Notice("Could not parse element data from the note.");
@@ -75,97 +78,82 @@ export class SaveElementCommand {
             console.error("Missing ID in parsed data:", elementData);
             return;
         }
- //       console.log(`Element UUID for URL: ${elementUuid}`);
- 
+
         // Remove ID from payload as it's in the URL path
         delete elementData.id;
 
-        // 3. Get API Key from World.md
-        const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
-    //    console.log(`Looking for World.md at: ${worldFilePath}`);
-        let apiKey: string | undefined;
-        try {
-            const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
-            if (worldFile instanceof TFile) {
-                const worldFileContent = await this.app.vault.read(worldFile);
-                const worldData = this.parseWorldFile(worldFileContent);
-                apiKey = worldData?.api_key;
-                if (!apiKey) {
-                     throw new Error("API Key field not found or empty in World.md.");
+        // 3. Resolve API Key. Settings tab wins if set; fall back to per-world World.md
+        // (legacy storage) so existing vaults keep working.
+        let apiKey: string | undefined = this.plugin.settings.apiKey?.trim() || undefined;
+        if (!apiKey) {
+            const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
+            try {
+                const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
+                if (worldFile instanceof TFile) {
+                    const worldFileContent = await this.app.vault.read(worldFile);
+                    const worldData = this.parseWorldFile(worldFileContent);
+                    apiKey = worldData?.api_key;
+                    if (!apiKey) {
+                         throw new Error("API Key field not found or empty in World.md, and no API key in plugin settings.");
+                    }
+                } else {
+                     throw new Error("World.md file not found or is a folder, and no API key in plugin settings.");
                 }
-                console.log(`Found API Key: ${apiKey}`);
-            } else {
-                 throw new Error("World.md file not found or is a folder.");
+            } catch (error) {
+                console.error(`Error accessing or parsing World.md for ${worldName}:`, error);
+                new Notice(`Error getting API key: ${error instanceof Error ? error.message : 'Unknown error'}.`);
+                return;
             }
-        } catch (error) {
-            console.error(`Error accessing or parsing World.md for ${worldName}:`, error);
-            new Notice(`Error getting API key: ${error instanceof Error ? error.message : 'Unknown error'}. Please check World.md.`);
+        }
+
+        // 4. Build SDK client (pulls cached PIN, or prompts once per session)
+        const client = await this.plugin.buildClient(apiKey);
+        if (!client) {
+            new Notice("Save cancelled: PIN not provided.");
             return;
         }
 
-        // 4. Prompt for PIN
-     //   console.log("Prompting for PIN...");
-        new PinInputModal(this.app, async (pin: string | null) => {
-            if (!pin) {
-                new Notice("Save cancelled: PIN not provided.");
-             //   console.log("PIN prompt cancelled by user.");
-                return;
-            }
-            console.log("PIN provided.");
+        // 5. Choose the SDK resource for this category and call update()
+        const resource = this.getResource(client as unknown as Record<string, unknown>, category);
+        if (!resource) {
+            new Notice(`Unknown OnlyWorlds element category: ${category}`);
+            return;
+        }
 
-            // 5. Construct URL and Payload
-            const apiUrl = `${this.apiBaseUrl}${category.toLowerCase()}/${elementUuid}/`;
-            const payload = { ...elementData }; // Use the parsed data
+        // Strip 'world' field if present — API rejects it on writes (422).
+        // SDK does not strip automatically (see open-improvements.md).
+        //
+        // TODO Phase 3: Add proper read-before-PATCH safety.
+        // SDK's update() is PATCH and destructive on text fields and multi-link _ids.
+        // Current behavior matches the legacy PUT (full overwrite from local parse),
+        // so not a regression — but a real fix requires the frontmatter migration
+        // since the span-tag parser already produces a "full" payload from the file.
+        const payload: Record<string, unknown> = { ...elementData };
+        delete payload.world;
+        delete payload.world_id;
 
-            // console.log("--- Sending Payload ---");
-            // console.log(JSON.stringify(payload, null, 2));
-            // console.log("Target URL:", apiUrl);
-            // console.log("API Key:", apiKey); // Don't log PIN
-            // console.log("-----------------------");
+        try {
+            new Notice(`Saving ${category} "${elementData.name || elementUuid}"...`);
+            await resource.update(elementUuid, payload as unknown);
+            new Notice(`${category} saved.`);
+        } catch (error) {
+            console.error('Error during SDK update call:', error);
+            const msg = error instanceof Error ? error.message : 'Unknown error';
+            new Notice(`Failed to save ${category}: ${msg}`, 10000);
+        }
+    }
 
-            // 6. Make API Call
-            try {
-                new Notice(`Saving ${category} "${elementData.name || elementUuid}"...`);
-                const response = await requestUrl({
-                    url: apiUrl,
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'API-Key': apiKey!,
-                        'API-Pin': pin
-                    },
-                    body: JSON.stringify(payload),
-                });
-                console.log(`API Response Status: ${response.status}`);
-
-                // 7. Handle Response
-                if (response.status === 200 || response.status === 201) {
-                    const responseData = response.json;
-                    console.log("API Success Response:", responseData);
-                    const message = responseData?.message || `Element ${response.status === 201 ? 'created' : 'updated'} successfully.`;
-                    new Notice(message);
-                } else {
-                     console.log("API Error Response:", response.json);
-                     this.handleApiError(response.status, response.json);
-                }
-
-            } catch (error) {
-                console.error('Error during API requestUrl call:', error);
-                 if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
-                    // Try to get status and body from caught error if requestUrl failed structurally
-                     let responseBody = {};
-                     try {
-                        if (typeof error.body === 'string') responseBody = JSON.parse(error.body);
-                        else if (typeof error.body === 'object') responseBody = error.body;
-                     } catch(parseErr) { console.error("Failed to parse error body:", parseErr)}
-                    this.handleApiError(error.status, responseBody);
-                 } else if (error instanceof Error) {
-                    new Notice(`Network or processing error: ${error.message}`);
-                 } else {
-                    new Notice('An unknown error occurred while saving the element.');
-                 }
-            }
-        }).open();
+    /**
+     * Map a category name (e.g. "Character") to the SDK client's resource accessor.
+     * Uses the resource's update()/get()/etc methods. Returns null for unknown categories.
+     */
+    private getResource(client: Record<string, unknown>, category: string): { update: (id: string, data: unknown) => Promise<unknown> } | null {
+        const accessor = categoryToResourceKey(category);
+        const resource = client[accessor];
+        if (!resource) {
+            return null;
+        }
+        return resource as { update: (id: string, data: unknown) => Promise<unknown> };
     }
 
     // Helper to extract World Name and Category from path
@@ -212,10 +200,13 @@ export class SaveElementCommand {
                 const rawValue = match[3].trim();
                 let snakeKey = this.toSnakeCase(key);
 
-                // Skip empty values, API expects null
+                // Skip empty values, API expects null.
+                // TTRPG stats need uppercase keys even when null.
                 if (!rawValue || rawValue.toLowerCase() === 'none') {
-                //    console.log(`  -> Field [${key}]: Skipping empty value.`);
-                    data[snakeKey] = null;
+                    const rawKeyLetters = key.replace(/[^a-zA-Z]/g, '').toUpperCase();
+                    const ttrpgStats = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+                    const finalKey = ttrpgStats.includes(rawKeyLetters) ? rawKeyLetters : snakeKey;
+                    data[finalKey] = null;
                     continue;
                 }
 
@@ -240,25 +231,18 @@ export class SaveElementCommand {
                 // --- Handle Numbers ---
                 else if (tooltip.toLowerCase() === 'number') {
                     const num = parseInt(rawValue, 10);
+                    // TTRPG stats — API expects uppercase STR/DEX/CON/INT/WIS/CHA.
+                    // The raw field name in the span could be "Str", "STR", "str", or "s_t_r"
+                    // (the last from snake_casing all-caps input). Normalize from the raw key.
+                    const rawKeyLetters = key.replace(/[^a-zA-Z]/g, '').toUpperCase();
+                    const ttrpgStats = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+                    const isTtrpgStat = ttrpgStats.includes(rawKeyLetters);
+                    const finalKey = isTtrpgStat ? rawKeyLetters : snakeKey;
                     if (!isNaN(num) && /^\d+$/.test(rawValue)) {
-                        // Special handling for TTRPG stats - use uppercase keys
-                        const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-                        if (ttrpgStats.includes(snakeKey.toLowerCase())) {
-                            data[snakeKey.toUpperCase()] = num;
-                          //  console.log(`     Recognized as TTRPG Stat: Assigned ${snakeKey.toUpperCase()} = ${num}`);
-                        } else {
-                            data[snakeKey] = num;
-                          //  console.log(`     Recognized as Number: Assigned value = ${num}`);
-                        }
+                        data[finalKey] = num;
                     } else {
                         console.warn(`     Could not parse number for key "${key}": ${rawValue}. Assigning null.`);
-                        // Also handle empty TTRPG stats
-                        const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-                        if (ttrpgStats.includes(snakeKey.toLowerCase())) {
-                            data[snakeKey.toUpperCase()] = null;
-                        } else {
-                            data[snakeKey] = null;
-                        }
+                        data[finalKey] = null;
                     }
                 }
                 // --- Handle Text (Default) ---
@@ -408,34 +392,4 @@ export class SaveElementCommand {
         return null;
     }
 
-    // Error Handler
-    handleApiError(status: number, responseData: any) {
-        let message = `Error saving element (Status ${status}).`;
-        const responseMessage = responseData?.message || responseData?.detail || '';
-
-        let detailMessage = '';
-        if (typeof responseData?.detail === 'string') {
-            try {
-                 const details = JSON.parse(responseData.detail);
-                 if (Array.isArray(details)) {
-                     detailMessage = details.map((err: any) => `${err.loc?.slice(1).join('.') || 'error'}: ${err.msg}`).join('; ');
-                 } else { detailMessage = responseData.detail; }
-            } catch (e) { detailMessage = responseData.detail; }
-        } else if (responseData?.detail) {
-             try { detailMessage = JSON.stringify(responseData.detail); } catch (e) { detailMessage = 'Invalid error detail format'; }
-        }
-
-        switch (status) {
-            case 400: message = `Bad Request: ${detailMessage || responseMessage || 'Invalid data sent.'}`; break;
-            case 401:
-            case 403: message = `Authentication Failed: ${responseMessage || 'Invalid API Key or PIN.'}`; break;
-            case 404: message = `Not Found: ${responseMessage || 'Element UUID or API endpoint not found.'}`; break;
-            case 422: message = `Validation Error: ${detailMessage || responseMessage || 'Invalid data format.'}`; break;
-            case 429: message = `Rate Limit Exceeded: ${responseMessage || 'Please try again later.'}`; break;
-            case 500:
-            default: message = `Server Error (Status ${status}): ${responseMessage || 'Failed to save element on the server.'}`; break;
-        }
-        console.error("API Error Details:", status, responseData);
-        new Notice(message, 10000);
-    }
-} 
+}
