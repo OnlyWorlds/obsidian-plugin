@@ -2,7 +2,6 @@ import { CopyWorldCommand } from 'Commands/CopyWorldCommand';
 import { CreateElementCommand } from 'Commands/CreateElementCommand';
 import { CreateWorldCommand } from 'Commands/CreateWorldCommand';
 import { ExportWorldCommand } from 'Commands/ExportWorldCommand';
-import { ImportWorldCommand } from './Commands/ImportWorldCommand';
 import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
@@ -107,7 +106,9 @@ export default class OnlyWorldsPlugin extends Plugin {
     }
 
       setupCommands() {
-        const retrieveWorldCommand = new ImportWorldCommand(this.app, this.manifest);
+        // Legacy ImportWorldCommand retired in 2.1.0: its 10-digit key modal
+        // rejected the new prefixed ow_* keys, and the SDK settings flow
+        // (link world + sync) covers the import job.
         const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
         const createWorldCommand = new CreateWorldCommand(this.app, this.manifest);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
@@ -116,13 +117,6 @@ export default class OnlyWorldsPlugin extends Plugin {
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
         const saveElementCommand = new SaveElementCommand(this.app, this);
 
-
-          // Register a command to fetch world data and convert to notes
-        this.addCommand({
-            id: 'import-world',
-            name: 'Import World',
-            callback: () => retrieveWorldCommand.execute(),
-        });
 
              // Register a command to convert nodes and send as world data
         this.addCommand({
