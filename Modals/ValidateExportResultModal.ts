@@ -50,9 +50,9 @@ export class ValidateExportResultModal extends Modal {
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });
     
         if (this.errorCount > 0) {
-            contentEl.createEl('p', { text: `Please correct these issues to allow export of ${this.worldName}.` });
+            contentEl.createEl('p', { text: `Please correct these issues to allow upload of ${this.worldName}.` });
          } else {
-            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for export.` });
+            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for upload.` });
             contentEl.createEl('p', { text: `!! This will overwrite the world stored on onlyworlds.com!!` });
         }
     
@@ -85,7 +85,7 @@ export class ValidateExportResultModal extends Modal {
         
         // Export Button (only shown if validation passed)
         if (this.errorCount === 0) {
-            const exportButton = buttonContainer.createEl('button', { text: 'EXPORT' });
+            const exportButton = buttonContainer.createEl('button', { text: 'UPLOAD' });
             exportButton.style.marginLeft = '8px';
             exportButton.addEventListener('click', () => {
                 this.exportCallback?.();

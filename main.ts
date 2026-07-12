@@ -1,6 +1,7 @@
 import { CopyWorldCommand } from 'Commands/CopyWorldCommand';
 import { CreateElementCommand } from 'Commands/CreateElementCommand';
 import { CreateWorldCommand } from 'Commands/CreateWorldCommand';
+import { DownloadWorldCommand } from 'Commands/DownloadWorldCommand';
 import { ExportWorldCommand } from 'Commands/ExportWorldCommand';
 import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
@@ -77,17 +78,32 @@ export default class OnlyWorldsPlugin extends Plugin {
         return;
       }
     
-      Handlebars.registerHelper('linkify', (ids: string | string[]) => {
-        if (!ids) return '';
-        
-        // Handle both string and array formats
-        if (Array.isArray(ids)) {
-          // If ids is already an array
-          return ids.map(id => `[[${id.trim()}]]`).join(', ');
-        } else {
-          // If ids is a comma-separated string (legacy format)
-          return ids.split(',').map(id => `[[${id.trim()}]]`).join(', ');
+      // Emits [[id]] tokens; linkifyContent() then rewrites each id to [[Name]].
+      // The v1-dialect GET expands links as stub objects {id, name, ...} (single)
+      // or arrays of stubs (multi), so pull .id off stubs before tokenizing.
+      const toId = (v: unknown): string | null => {
+        if (v == null) return null;
+        if (typeof v === 'string') return v.trim();
+        if (typeof v === 'object' && 'id' in (v as Record<string, unknown>)) {
+          const id = (v as Record<string, unknown>).id;
+          return typeof id === 'string' ? id.trim() : null;
         }
+        return null;
+      };
+      Handlebars.registerHelper('linkify', (ids: unknown) => {
+        if (!ids) return '';
+
+        // Array of ids or stubs
+        if (Array.isArray(ids)) {
+          return ids.map(toId).filter((id): id is string => !!id).map(id => `[[${id}]]`).join(', ');
+        }
+        // Single stub object
+        if (typeof ids === 'object') {
+          const id = toId(ids);
+          return id ? `[[${id}]]` : '';
+        }
+        // Comma-separated string (legacy format)
+        return String(ids).split(',').map(id => id.trim()).filter(id => !!id).map(id => `[[${id}]]`).join(', ');
       });
 
       // Add helper for formatting arrays consistently
@@ -106,23 +122,32 @@ export default class OnlyWorldsPlugin extends Plugin {
     }
 
       setupCommands() {
-        // Legacy ImportWorldCommand retired in 2.1.0: its 10-digit key modal
-        // rejected the new prefixed ow_* keys, and the SDK settings flow
-        // (link world + sync) covers the import job.
+        // 2.2.0: Download World restores the pull path retired with the legacy
+        // ImportWorldCommand in 2.1.0 — that retirement claimed the settings flow
+        // covered import, but no pull path actually existed. Same fetch (worldsync
+        // send) and note-builder, prefixed-key-clean modal.
+        const downloadWorldCommand = new DownloadWorldCommand(this.app, this.manifest);
         const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
         const createWorldCommand = new CreateWorldCommand(this.app, this.manifest);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
-        const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest);
+        const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest, this);
         const saveElementCommand = new SaveElementCommand(this.app, this);
 
 
              // Register a command to convert nodes and send as world data
         this.addCommand({
             id: 'export-world',
-            name: 'Export World',
+            name: 'Upload World',
             callback: () => sendWorldCommand.execute(),
+        });
+
+             // Pull an existing API world into the vault (counterpart to Upload)
+        this.addCommand({
+            id: 'download-world',
+            name: 'Download World',
+            callback: () => downloadWorldCommand.execute(),
         });
 
              // Register a command to create a new world and OW file structures

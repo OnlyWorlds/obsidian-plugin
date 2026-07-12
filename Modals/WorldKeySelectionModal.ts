@@ -28,7 +28,7 @@ export class WorldKeySelectionModal extends Modal {
 
         const input = contentEl.createEl('input', {
             type: 'text',
-            placeholder: 'Please enter 10-digit world key',
+            placeholder: 'ow_ key or 10-digit key',
             cls: 'key-selection-input'
         });
 

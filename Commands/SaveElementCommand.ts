@@ -82,28 +82,30 @@ export class SaveElementCommand {
         // Remove ID from payload as it's in the URL path
         delete elementData.id;
 
-        // 3. Resolve API Key. Settings tab wins if set; fall back to per-world World.md
-        // (legacy storage) so existing vaults keep working.
-        let apiKey: string | undefined = this.plugin.settings.apiKey?.trim() || undefined;
-        if (!apiKey) {
-            const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
-            try {
-                const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
-                if (worldFile instanceof TFile) {
-                    const worldFileContent = await this.app.vault.read(worldFile);
-                    const worldData = this.parseWorldFile(worldFileContent);
-                    apiKey = worldData?.api_key;
-                    if (!apiKey) {
-                         throw new Error("API Key field not found or empty in World.md, and no API key in plugin settings.");
-                    }
-                } else {
-                     throw new Error("World.md file not found or is a folder, and no API key in plugin settings.");
-                }
-            } catch (error) {
-                console.error(`Error accessing or parsing World.md for ${worldName}:`, error);
-                new Notice(`Error getting API key: ${error instanceof Error ? error.message : 'Unknown error'}.`);
-                return;
+        // 3. Resolve API Key. THIS world's World.md wins — in a multi-world vault
+        // the settings key may belong to a different world, and the API routes a
+        // write to whatever world the key names (a save under world B's folder
+        // with world A's settings key lands the element in world A — the
+        // wrong-world class, hit live 2026-07-12). Settings key is the fallback
+        // for vaults whose World.md carries no key.
+        let apiKey: string | undefined;
+        const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
+        try {
+            const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
+            if (worldFile instanceof TFile) {
+                const worldFileContent = await this.app.vault.read(worldFile);
+                const worldData = this.parseWorldFile(worldFileContent);
+                apiKey = worldData?.api_key?.trim() || undefined;
             }
+        } catch (error) {
+            console.error(`Error accessing or parsing World.md for ${worldName}:`, error);
+        }
+        if (!apiKey) {
+            apiKey = this.plugin.settings.apiKey?.trim() || undefined;
+        }
+        if (!apiKey) {
+            new Notice("Error getting API key: no API key in this world's World.md or in plugin settings.");
+            return;
         }
 
         // 4. Build SDK client (pulls cached PIN, or prompts once per session)
@@ -132,28 +134,51 @@ export class SaveElementCommand {
         delete payload.world;
         delete payload.world_id;
 
+        const label = elementData.name || elementUuid;
         try {
-            new Notice(`Saving ${category} "${elementData.name || elementUuid}"...`);
+            new Notice(`Saving ${category} "${label}"...`);
             await resource.update(elementUuid, payload as unknown);
             new Notice(`${category} saved.`);
         } catch (error) {
+            // The SDK's request() throws a plain Error whose message begins
+            // "API Error {status}". A 404 means this id doesn't exist server-side
+            // yet — a locally-created element that was never pushed. The server
+            // preserves client-supplied ids on CREATE, so fall back to create().
+            if (this.isNotFound(error)) {
+                try {
+                    new Notice(`Creating ${category} "${label}"...`);
+                    await resource.create({ id: elementUuid, ...payload } as unknown);
+                    new Notice(`${category} created.`);
+                } catch (createError) {
+                    console.error('Error during SDK create fallback:', createError);
+                    const msg = createError instanceof Error ? createError.message : 'Unknown error';
+                    new Notice(`Failed to create ${category}: ${msg}`, 10000);
+                }
+                return;
+            }
             console.error('Error during SDK update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
             new Notice(`Failed to save ${category}: ${msg}`, 10000);
         }
     }
 
+    // The SDK surfaces HTTP errors as Error("API Error {status}: ...").
+    // Match a genuine 404 so we don't fall back to create() on other failures.
+    private isNotFound(error: unknown): boolean {
+        return error instanceof Error && /^API Error 404\b/.test(error.message);
+    }
+
     /**
      * Map a category name (e.g. "Character") to the SDK client's resource accessor.
      * Uses the resource's update()/get()/etc methods. Returns null for unknown categories.
      */
-    private getResource(client: Record<string, unknown>, category: string): { update: (id: string, data: unknown) => Promise<unknown> } | null {
+    private getResource(client: Record<string, unknown>, category: string): { update: (id: string, data: unknown) => Promise<unknown>; create: (data: unknown) => Promise<unknown> } | null {
         const accessor = categoryToResourceKey(category);
         const resource = client[accessor];
         if (!resource) {
             return null;
         }
-        return resource as { update: (id: string, data: unknown) => Promise<unknown> };
+        return resource as { update: (id: string, data: unknown) => Promise<unknown>; create: (data: unknown) => Promise<unknown> };
     }
 
     // Helper to extract World Name and Category from path
@@ -360,7 +385,7 @@ export class SaveElementCommand {
     // Parser for World.md
     parseWorldFile(content: string): WorldFileData | null {
         const data: WorldFileData = {};
-        const apiKeyRegex = /- \*\*API Key:\*\* (\d+)/; // Match "- **API Key:** digits"
+        const apiKeyRegex = /- \*\*API Key:\*\* (\S+)/; // Match "- **API Key:** <key>" (ow_ or classic)
         const match = content.match(apiKeyRegex);
         if (match && match[1]) {
             data.api_key = match[1].trim();

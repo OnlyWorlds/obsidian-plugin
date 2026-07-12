@@ -15,7 +15,7 @@ export  class WorldKeyModal extends Modal {
 
         const input = contentEl.createEl('input', {
             type: 'text',
-            placeholder: 'Please enter 10-digit key', 
+            placeholder: 'ow_ key or 10-digit key',
         });
 
         const button = contentEl.createEl('button', { text: 'IMPORT' });

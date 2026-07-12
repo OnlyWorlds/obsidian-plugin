@@ -55,34 +55,41 @@ export class ExportWorldCommand {
                 };
 
                 try {
+                    // throw:false so requestUrl doesn't throw on non-2xx — otherwise the
+                    // server's 400 body (which names the exact failing element/field) is lost.
                     const response = await requestUrl({
                         url: this.apiUrl,
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(payload),
+                        throw: false
                     });
 
                     if (response.status === 200 || response.status === 201) {
-                        new Notice('Successfully exported to onlyworlds.com.');
+                        new Notice('Successfully uploaded to onlyworlds.com.');
+                    } else if (response.status === 400) {
+                        // The 400 body names the exact failing element/field. Surface it.
+                        let body: unknown = response.text;
+                        try { body = JSON.parse(response.text); } catch { /* not JSON — keep raw text */ }
+                        // Stringified so the console shows the body, not a collapsed "Object".
+                        console.error('Upload rejected (400):', response.text);
+                        const detail = (body && typeof body === 'object' && 'error' in body
+                            ? String((body as Record<string, unknown>).error)
+                            : response.text) || 'validation failed';
+                        new Notice(`Upload failed: ${detail}`, 15000);
                     } else if (response.status === 403) {
-                        new Notice('Export failed: Invalid PIN or insufficient access rights.');
+                        new Notice('Upload failed: Invalid PIN or insufficient access rights.');
                     } else if (response.status === 429) {
-                        new Notice('Export failed: Rate limit exceeded. Please try again later.');
+                        new Notice('Upload failed: Rate limit exceeded. Please try again later.');
                     } else {
-                        console.error(`Failed to send world data, status code: ${response.status}`);
+                        console.error(`Failed to send world data, status code: ${response.status}`, response.text);
                         new Notice(`Failed to send world data: ${response.status}`);
                     }
                 } catch (error) {
-                    console.error('Export error:', error);
-                    if (error instanceof Error && error.message.includes('status 403')) {
-                        new Notice('Export failed: Invalid PIN or insufficient access rights.');
-                    } else if (error instanceof Error && error.message.includes('status 429')) {
-                        new Notice('Export failed: Rate limit exceeded. Please try again later.');
-                    } else {
-                        new Notice(`Error during export: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                    }
+                    console.error('Upload error:', error);
+                    new Notice(`Error during upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
             }
         });
@@ -248,63 +255,75 @@ export class ExportWorldCommand {
     async parseTemplate(content: string, worldFolder: string): Promise<Record<string, unknown>> {
         let currentSection: string | null = null;
         const data: Record<string, unknown> = {};
-    
+
         const sectionPattern = /^##\s*(.+)$/; // Pattern to identify sections
-        const keyValuePattern = /- <span class="[^"]+" data-tooltip="[^"]+">(.+?)<\/span>:\s*(.*)/; // Pattern for key-value pairs
-    
+        // Capture the tooltip so link/number fields are typed like SaveElementCommand.
+        const keyValuePattern = /- <span class="[^"]+" data-tooltip="([^"]+)">(.+?)<\/span>:\s*(.*)/; // tooltip, key, value
+
         const lines = content.split('\n');
         for (const line of lines) {
             const sectionMatch = line.match(sectionPattern);
             if (sectionMatch) {
-                currentSection = this.toSnakeCase(sectionMatch[1]); 
+                currentSection = this.toSnakeCase(sectionMatch[1]);
                 continue;
             }
-    
+
             const match = line.match(keyValuePattern);
             if (match) {
-                const originalKey = match[1].replace(/\*\*/g, '');
+                const tooltip = match[1].trim();
+                const originalKey = match[2].replace(/\*\*/g, '');
                 let key = this.toSnakeCase(originalKey);
-                const value = match[2].trim(); 
-    
+                const value = match[3].trim();
+
                 // Special handling for TTRPG stats - use uppercase keys
                 const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
                 if (ttrpgStats.includes(key.toLowerCase())) {
                     key = key.toUpperCase();
                 }
-    
-                if (value.startsWith('[[')) {
-                    // If value contains links, extract IDs as an array
-                    const ids = await this.extractLinkedIds(value, line, worldFolder);
-                    
-                    // Store as actual array instead of comma-separated string
-                    data[key] = ids;
-                } else {
-                    // Special handling for image fields
-                    if (key === 'image' || key === 'image_url') {
-                        // If the image value is 'None', set it to empty string
-                        if (value === 'None' || value === 'No image set') {
-                            data[key] = '';
-                        } else {
-                            data[key] = value;
-                        }
+
+                const lowerTooltip = tooltip.toLowerCase();
+                // --- Links: ship as <field>_id / <field>_ids (UUIDs, never names) ---
+                if (lowerTooltip.startsWith('single ') || lowerTooltip.startsWith('multi ')) {
+                    const ids = value ? await this.extractLinkedIds(value, line, worldFolder) : [];
+                    // A non-wikilink value in a link field can't be resolved to a UUID here
+                    // (extractLinkedIds only matches [[Name]]). Never ship a raw name.
+                    if (value && !value.includes('[[')) {
+                        console.warn(`Link field "${key}" holds a non-wikilink value; nulling instead of shipping a name: "${value}"`);
+                    }
+                    if (lowerTooltip.startsWith('single ')) {
+                        data[`${key}_id`] = ids.length > 0 ? ids[0] : null;
                     } else {
-                        // Handle numeric values for TTRPG stats
-                        if (ttrpgStats.includes(key.toLowerCase()) || key.match(/^[A-Z]{3}$/)) {
-                            const num = parseInt(value, 10);
-                            if (!isNaN(num) && /^\d+$/.test(value)) {
-                                data[key] = num;
-                            } else {
-                                data[key] = value === '' ? null : value;
-                            }
-                        } else {
-                            data[key] = value;
-                        }
+                        data[`${key}_ids`] = ids;
                     }
                 }
-            } else { 
+                // --- Numbers ---
+                else if (lowerTooltip === 'number' || ttrpgStats.includes(key.toLowerCase()) || key.match(/^[A-Z]{3}$/)) {
+                    const num = parseInt(value, 10);
+                    if (!isNaN(num) && /^\d+$/.test(value)) {
+                        data[key] = num;
+                    } else {
+                        data[key] = value === '' ? null : value;
+                    }
+                }
+                // --- Image fields ---
+                else if (key === 'image' || key === 'image_url') {
+                    if (value === 'None' || value === 'No image set') {
+                        data[key] = '';
+                    } else {
+                        data[key] = value;
+                    }
+                }
+                // --- Text (default) ---
+                else {
+                    // Empty fields ship as null, never "" — the API
+                    // 422s "" on integer fields (height, weight, dates),
+                    // while null reads as "no value" for every kind.
+                    // SaveElementCommand's parser already does this.
+                    data[key] = value === '' ? null : value;
+                }
             }
         }
-    
+
         return data;
     }
     

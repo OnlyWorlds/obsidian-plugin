@@ -4,7 +4,7 @@ Obsidian plugin for building and syncing with OnlyWorlds.
 
 ## What is OnlyWorlds
 
-[OnlyWorlds](https://www.onlyworlds.com/about) is an open data standard for worldbuilding. A world is made of elements across 22 categories, each with defined fields and link relationships. Worlds can live entirely in a local vault, and can be uploaded to [onlyworlds.com](https://www.onlyworlds.com/worlds), where a free account hosts your worlds and exposes them via REST API so that other tools can read and write it. The standard is open source and the tools and platform are free.
+[OnlyWorlds](https://www.onlyworlds.com/about) is an open data standard for worldbuilding. A world is made of elements across 22 categories, each with defined fields and link relationships. Worlds can live entirely in a local vault, and can be uploaded to [onlyworlds.com](https://www.onlyworlds.com), where a free account hosts your worlds and exposes them via REST API so that other tools can read and write it. The standard is open source and the tools and platform are free.
 
 ## What this plugin does
 
@@ -20,12 +20,12 @@ Local-only setup:
 2. Run **Create World** from the command palette (Ctrl/Cmd+P). The plugin creates the `OnlyWorlds/` folder structure in your vault.
 3. Use `Create Element` to add elements. Edit them like any Obsidian note.
 
-If you already have a world on onlyworlds.com, run **Import World** instead of step 2 to set up the folder structure and pull your existing elements into the vault.
+If you already have a world on onlyworlds.com, connect it via **Settings → OnlyWorlds** instead of step 2: enter your world's API key and PIN, and the plugin sets up the folder structure and pulls your existing elements into the vault.
 
 To also sync with onlyworlds.com:
 
 4. Create a free account at [onlyworlds.com](https://www.onlyworlds.com).
-5. In Obsidian, open **Settings → OnlyWorlds**. Paste your active world's API key, and PIN from your profile.
+5. In Obsidian, open **Settings → OnlyWorlds**. Paste your world's API key — shown on your world's page under [Account](https://www.onlyworlds.com/account/) — and your 4-digit PIN. Classic 10-digit keys and newer `ow_`-prefixed keys both work.
 6. Push to web with auto-sync or the `Save Element` command (see below).
 
 ## How sync works
@@ -64,7 +64,6 @@ OnlyWorlds/
 | Command | What it does |
 |---|---|
 | `Create World` | Create a new world (account-linked) and the local folder structure. |
-| `Import World` | Pull all elements of an existing world from onlyworlds.com into your vault. |
 | `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
 | `Save Element` | Push the active element note to the API. Bind a hotkey via Settings → Hotkeys. |
 | `Export World` | Bulk push every element in the active world. |
