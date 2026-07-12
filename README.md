@@ -20,7 +20,7 @@ Local-only setup:
 2. Run **Create World** from the command palette (Ctrl/Cmd+P). The plugin creates the `OnlyWorlds/` folder structure in your vault.
 3. Use `Create Element` to add elements. Edit them like any Obsidian note.
 
-If you already have a world on onlyworlds.com, connect it via **Settings → OnlyWorlds** instead of step 2: enter your world's API key and PIN, and the plugin sets up the folder structure and pulls your existing elements into the vault.
+If you already have a world on onlyworlds.com, run **Download World** instead of step 2: enter the world's API key (a classic 10-digit key or an `ow_` key from your account page) and your PIN, and the plugin sets up the folder structure and pulls your existing elements into the vault. You can also just set your key in **Settings → OnlyWorlds** to sync on demand.
 
 To also sync with onlyworlds.com:
 
@@ -32,7 +32,7 @@ To also sync with onlyworlds.com:
 
 Three ways to push edits to onlyworlds.com:
 
-**Export World.** Push every element in the active world in one go. A full overwrite of the cloud world from your local copy.
+**Upload World.** Push every element in the active world in one go. A full overwrite of the cloud world from your local copy.
 
 **Save Element.** Run the command on the active note to push that single element. Bind a hotkey if you'll use it often (Settings → Hotkeys, search "Save Element", set something like Ctrl/Cmd+Shift+S).
 
@@ -64,11 +64,12 @@ OnlyWorlds/
 | Command | What it does |
 |---|---|
 | `Create World` | Create a new world (account-linked) and the local folder structure. |
+| `Download World` | Pull an existing world from onlyworlds.com into your vault (works with 10-digit and `ow_` keys). |
 | `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
 | `Save Element` | Push the active element note to the API. Bind a hotkey via Settings → Hotkeys. |
-| `Export World` | Bulk push every element in the active world. |
+| `Upload World` | Bulk push every element in the active world. |
 | `Validate World` | Check element notes for malformed fields. |
-| `Rename World` | Rename a world folder safely. |
+| `Rename World` | Rename a world folder, and sync the new name to onlyworlds.com if the world has a write key. |
 | `Link Elements` | With your cursor in a link field, pick a target element to insert. |
 | `Copy World to Clipboard` | Serialize the active world as JSON and copy to clipboard. |
 | `Paste World from Clipboard` | Build a world from JSON in clipboard. |
