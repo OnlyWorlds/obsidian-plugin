@@ -295,7 +295,9 @@ export class CreateWorldCommand {
     }
 
     compileWorldNote(data: any): string {
-        const template = Handlebars.compile(worldTemplateString);
+        // noEscape: span-tag note bodies carry plain data, not HTML — see
+        // DownloadWorldCommand. Prevents apostrophes/ampersands escaping on disk.
+        const template = Handlebars.compile(worldTemplateString, { noEscape: true });
         return template(data);
     }
 }

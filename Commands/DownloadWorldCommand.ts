@@ -137,7 +137,11 @@ export class DownloadWorldCommand {
             worldData.image_display = "None";
         }
         
-        const worldTemplate = Handlebars.compile(worldTemplateString);
+        // noEscape: note bodies are span-tag markdown, not HTML — field values
+        // are plain data. Default escaping turned "The Kid's Family" into
+        // "The Kid&#x27;s Family" on disk, which then failed file lookups and
+        // uploaded escaped names verbatim.
+        const worldTemplate = Handlebars.compile(worldTemplateString, { noEscape: true });
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;
         await fs.write(worldFilePath, worldContent); 
@@ -229,7 +233,7 @@ export class DownloadWorldCommand {
                         continue;
                     }
     
-                    const template = Handlebars.compile(templateText);
+                    const template = Handlebars.compile(templateText, { noEscape: true });
                     let noteContent = template(element);
     
                     // Process the content to replace links with proper IDs

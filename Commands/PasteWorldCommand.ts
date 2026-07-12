@@ -87,7 +87,9 @@ export class PasteWorldCommand {
             worldData.image_display = "None";
         }
         
-        const worldTemplate = Handlebars.compile(worldTemplateString);
+        // noEscape: span-tag note bodies carry plain data, not HTML — see
+        // DownloadWorldCommand. Prevents apostrophes/ampersands escaping on disk.
+        const worldTemplate = Handlebars.compile(worldTemplateString, { noEscape: true });
         const worldContent = worldTemplate(worldData);
         const worldFilePath = `${worldFolderPath}/World.md`;
         await fs.write(worldFilePath, worldContent); 
@@ -180,7 +182,7 @@ export class PasteWorldCommand {
                         continue;
                     }
     
-                    const template = Handlebars.compile(templateText);
+                    const template = Handlebars.compile(templateText, { noEscape: true });
                     let noteContent = template(element);
     
                     // Replace links with proper IDs

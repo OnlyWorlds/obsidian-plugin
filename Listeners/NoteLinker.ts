@@ -1,6 +1,7 @@
 import { App, Editor, EditorPosition, MarkdownView, WorkspaceLeaf, PluginManifest } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
+import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 
 
 export class NoteLinker {
@@ -99,7 +100,9 @@ export class NoteLinker {
     const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*(.+)/);
 
     const id = idMatch ? idMatch[1].trim() : "Unknown Id";
-    const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element"; 
+    // Decode so a [[wikilink]] written from an escaped target note carries the
+    // raw name (which then matches the real filename and the API name).
+    const name = nameMatch ? decodeHtmlEntities(nameMatch[1].trim()) : "Unnamed Element";
 
     return { id, name };
 }

@@ -4,6 +4,7 @@ import { WorldSelectionModal } from 'Modals/WorldSelectionModal';
 import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
+import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 
 export class CopyWorldCommand {
     app: App;
@@ -175,8 +176,8 @@ export class CopyWorldCommand {
                     key = 'time_current';
                 }
                 
-                // Handle HTML entity decoding
-                value = value.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                // Handle HTML entity decoding (incl. apostrophe forms &#x27;/&#39;/&apos;)
+                value = decodeHtmlEntities(value);
                 
                 // Special handling for image field
                 if (key === 'image' || key === 'image_url') {
@@ -304,8 +305,10 @@ export class CopyWorldCommand {
                 const spanClass = match[1];
                 const tooltip = match[2];
                 let key = this.toSnakeCase(match[3].replace(/\*\*/g, ''));
-                let value = match[4].trim(); 
-    
+                // Decode entities from pre-noEscape notes so names/text and
+                // [[wikilink]] display text are raw.
+                let value = decodeHtmlEntities(match[4].trim());
+
                 // Determine field type from CSS class and tooltip
                 const fieldType = this.getFieldType(spanClass, tooltip);
     
@@ -364,7 +367,8 @@ export class CopyWorldCommand {
         const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\r\n<]+)/);
         
         const id = idMatch ? idMatch[1].trim() : "Unknown Id";
-        const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element";
+        // Decode so name matches decoded [[wikilink]] text in findElementIdByNameInCategory.
+        const name = nameMatch ? decodeHtmlEntities(nameMatch[1].trim()) : "Unnamed Element";
           
         return { id, name };
     }

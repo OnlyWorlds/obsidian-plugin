@@ -4,6 +4,7 @@ import { App, normalizePath, Notice, PluginManifest, requestUrl } from 'obsidian
 import { WorldService } from 'Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
+import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import type OnlyWorldsPlugin from '../main';
 
 export class ExportWorldCommand {
@@ -273,7 +274,9 @@ export class ExportWorldCommand {
                 const tooltip = match[1].trim();
                 const originalKey = match[2].replace(/\*\*/g, '');
                 let key = this.toSnakeCase(originalKey);
-                const value = match[3].trim();
+                // Decode entities from pre-noEscape notes so names/text ship raw,
+                // and [[wikilink]] display text matches the target note's name.
+                const value = decodeHtmlEntities(match[3].trim());
 
                 // Special handling for TTRPG stats - use uppercase keys
                 const ttrpgStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
@@ -335,8 +338,10 @@ export class ExportWorldCommand {
         const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\r\n<]+)/);
         
         const id = idMatch ? idMatch[1].trim() : "Unknown Id";
-        const name = nameMatch ? nameMatch[1].trim() : "Unnamed Element"; 
-        
+        // Decode so the name matches decoded [[wikilink]] text in findElementIdByName
+        // even for target notes still escaped on disk.
+        const name = nameMatch ? decodeHtmlEntities(nameMatch[1].trim()) : "Unnamed Element";
+
         return { id, name };
     }
 

@@ -2,6 +2,7 @@ import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement, categoryToResourceKey } from '../vault/element-file';
 import { resolveWorldKey } from '../vault/world-key';
+import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -213,7 +214,10 @@ export class SaveElementCommand {
             if (match) {
                 const tooltip = match[1].trim();
                 const key = match[2].trim();
-                const rawValue = match[3].trim();
+                // Decode entities from notes written before noEscape: a name/link
+                // stored as "The Kid&#x27;s Family" must become raw text so the
+                // wikilink file lookup matches and the API stores the real name.
+                const rawValue = decodeHtmlEntities(match[3].trim());
                 let snakeKey = this.toSnakeCase(key);
 
                 // Skip empty values, API expects null.
@@ -285,7 +289,7 @@ export class SaveElementCommand {
         if (!data.name) {
             const nameMatch = content.match(/Name<\/span>:\s*(.+)/);
             if (nameMatch && nameMatch[1]) {
-                data.name = nameMatch[1].trim().split('<')[0].trim();
+                data.name = decodeHtmlEntities(nameMatch[1].trim().split('<')[0].trim());
             //    console.log(`  -> Found Name: ${data.name}`);
             }
         }
