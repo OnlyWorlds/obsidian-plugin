@@ -1,6 +1,7 @@
 {
 	"id": "onlyworlds-builder",
 	"name": "OnlyWorlds Builder",
+	"version": "2.2.2",
 	"minAppVersion": "1.4.0",
 	"description": "Build and sync OnlyWorlds worlds from Obsidian.",
 	"author": "Titus",
