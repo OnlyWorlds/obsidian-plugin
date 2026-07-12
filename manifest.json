@@ -1,12 +1,11 @@
 {
-  "id": "onlyworlds-builder",
-  "name": "OnlyWorlds Builder",
-  "version": "2.2.1",
-  "minAppVersion": "1.4.0",
-  "description": "Build and sync OnlyWorlds worlds from Obsidian.",
-  "author": "Titus",
-  "authorUrl": "https://onlyworlds.github.io",
-  "fundingUrl": "https://www.onlyworlds.com",
-  "isDesktopOnly": false,
-  "css": "styles.css"
+	"id": "onlyworlds-builder",
+	"name": "OnlyWorlds Builder",
+	"minAppVersion": "1.4.0",
+	"description": "Build and sync OnlyWorlds worlds from Obsidian.",
+	"author": "Titus",
+	"authorUrl": "https://onlyworlds.github.io",
+	"fundingUrl": "https://www.onlyworlds.com",
+	"isDesktopOnly": false,
+	"css": "styles.css"
 }
