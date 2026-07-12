@@ -1,6 +1,7 @@
 import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement, categoryToResourceKey } from '../vault/element-file';
+import { resolveWorldKey } from '../vault/world-key';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -86,26 +87,16 @@ export class SaveElementCommand {
         // the settings key may belong to a different world, and the API routes a
         // write to whatever world the key names (a save under world B's folder
         // with world A's settings key lands the element in world A — the
-        // wrong-world class, hit live 2026-07-12). Settings key is the fallback
-        // for vaults whose World.md carries no key.
-        let apiKey: string | undefined;
-        const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
-        try {
-            const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
-            if (worldFile instanceof TFile) {
-                const worldFileContent = await this.app.vault.read(worldFile);
-                const worldData = this.parseWorldFile(worldFileContent);
-                apiKey = worldData?.api_key?.trim() || undefined;
-            }
-        } catch (error) {
-            console.error(`Error accessing or parsing World.md for ${worldName}:`, error);
-        }
-        if (!apiKey) {
-            apiKey = this.plugin.settings.apiKey?.trim() || undefined;
-        }
+        // wrong-world class, hit live 2026-07-12). Settings key is fallback ONLY
+        // when the world carries no key of its own; the fallback warns.
+        const resolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
+        const apiKey = resolved.apiKey ?? undefined;
         if (!apiKey) {
             new Notice("Error getting API key: no API key in this world's World.md or in plugin settings.");
             return;
+        }
+        if (!resolved.ownWorld) {
+            new Notice(`This world has no API key of its own; using your default key. Add its key to World.md to be sure edits land in the right world.`, 8000);
         }
 
         // 4. Build SDK client (pulls cached PIN, or prompts once per session)

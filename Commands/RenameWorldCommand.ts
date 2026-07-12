@@ -1,5 +1,6 @@
 import { App, Notice, requestUrl, normalizePath, TFile, TFolder } from 'obsidian';
 import { WorldRenameModal } from 'Modals/WorldRenameModal';
+import { resolveWorldKey } from '../vault/world-key';
 import type OnlyWorldsPlugin from '../main';
 
 
@@ -22,9 +23,9 @@ export class RenameWorldCommand {
                 await this.renameWorldFile(oldWorldName, newWorldName);
                 await this.renameWorldFolder(oldWorldName, newWorldName);
                 await this.checkSettingsFile(oldWorldName, newWorldName);
-                new Notice('All changes applied successfully.');
-                // Local rename succeeded — push the new name to the API if possible.
-                // A failed push must NOT roll back the local rename.
+                // Push to the API BEFORE claiming success — the notice must
+                // reflect what actually happened on onlyworlds.com, not just the
+                // local rename (the false-success class, 2026-07-12).
                 await this.pushRenameToApi(newWorldName);
             } catch (error) {
                 console.error('Error in renaming process:', error);
@@ -34,52 +35,39 @@ export class RenameWorldCommand {
         modal.open();
     }
 
-    // PATCH the world name via the SDK (WorldResource.update → PATCH /world/).
-    // Skips silently (local-only) if there's no API key or the user cancels the PIN prompt.
+    // PATCH the world name via the SDK (WorldResource.update → PATCH /world/),
+    // using THIS world's own key. A local-only rename is stated plainly, never
+    // dressed up as a synced success.
     private async pushRenameToApi(newWorldName: string): Promise<void> {
         if (!this.plugin) {
-            new Notice('Rename applied locally only (no API key set).');
+            new Notice('World renamed in your vault (not synced: no plugin context).');
             return;
         }
 
-        // The key must be THIS world's — in a multi-world vault the settings key
-        // may point at a different world, and /world/ PATCHes whatever world the
-        // key resolves to. The renamed world's own World.md is authoritative
-        // (folder already renamed by the time this runs); settings is fallback.
-        const apiKey = (await this.worldFileApiKey(newWorldName))
-            ?? this.plugin.settings.apiKey?.trim();
-        if (!apiKey) {
-            new Notice('Rename applied locally only (no API key set).');
+        // World.md key wins; settings is fallback ONLY when the world has no key
+        // of its own. Never silently write to whatever world the settings key
+        // names (the wrong-world class).
+        const resolved = await resolveWorldKey(this.app, newWorldName, this.plugin.settings.apiKey);
+        if (!resolved.apiKey) {
+            new Notice('World renamed in your vault. Not synced: no API key for this world.');
             return;
         }
 
-        const client = await this.plugin.buildClient(apiKey);
+        const client = await this.plugin.buildClient(resolved.apiKey);
         if (!client) {
-            new Notice('Rename applied locally only (PIN not provided).');
+            new Notice('World renamed in your vault. Not synced: PIN not provided.');
             return;
         }
 
         try {
             await client.worlds.update({ name: newWorldName });
-            new Notice('World name updated on onlyworlds.com.');
+            new Notice(`World renamed on onlyworlds.com${resolved.ownWorld ? '' : ' (using your default key)'}.`);
         } catch (error) {
             console.error('Failed to push world rename to API:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
-            new Notice(`Rename saved locally, but API update failed: ${msg}`, 10000);
+            // Read-only key or any write failure: say so, do NOT claim success.
+            new Notice(`World renamed in your vault, but onlyworlds.com was not updated: ${msg}`, 12000);
         }
-    }
-
-    // The renamed world's own API key from its World.md, or null.
-    private async worldFileApiKey(worldName: string): Promise<string | null> {
-        const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
-        const worldFile = this.app.vault.getAbstractFileByPath(worldFilePath);
-        if (!(worldFile instanceof TFile)) {
-            return null;
-        }
-        const content = await this.app.vault.read(worldFile);
-        const match = content.match(/^- \*\*API Key:\*\* (.+)$/m);
-        const key = match?.[1]?.trim();
-        return key || null;
     }
 
     async renameWorldFile(oldWorldName: string, newWorldName: string) {
