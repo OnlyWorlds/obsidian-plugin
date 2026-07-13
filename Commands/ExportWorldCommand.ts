@@ -1,10 +1,12 @@
 import { ValidateExportResultModal } from 'Modals/ValidateExportResultModal';
 import { WorldPinSelectionModal } from 'Modals/WorldPinSelectionModal';
-import { App, normalizePath, Notice, PluginManifest, requestUrl } from 'obsidian';
-import { WorldService } from 'Scripts/WorldService';
+import { App, normalizePath, Notice, PluginManifest } from 'obsidian';
+import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
+import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
+import { resolveWorldKey } from '../vault/world-key';
 import type OnlyWorldsPlugin from '../main';
 
 export class ExportWorldCommand {
@@ -12,8 +14,9 @@ export class ExportWorldCommand {
     manifest: PluginManifest;
     worldService: WorldService;
     plugin: OnlyWorldsPlugin | null;
-
-    private apiUrl = 'https://www.onlyworlds.com/api/worldsync/store/';
+    /** Link fields omitted from the current sweep because a link couldn't be
+     *  resolved locally (server values preserved) — surfaced in the summary. */
+    private skippedLinkFields = 0;
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
@@ -49,61 +52,133 @@ export class ExportWorldCommand {
         validationModal.setExportCallback(async () => {
             if (validator.errorCount === 0) {
                 const worldData = await this.collectWorldData(worldFolder);
-
-                const payload = {
-                    pin: pin,
-                    world_data: worldData
-                };
-
-                try {
-                    // throw:false so requestUrl doesn't throw on non-2xx — otherwise the
-                    // server's 400 body (which names the exact failing element/field) is lost.
-                    const response = await requestUrl({
-                        url: this.apiUrl,
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(payload),
-                        throw: false
-                    });
-
-                    if (response.status === 200 || response.status === 201) {
-                        new Notice('Successfully uploaded to onlyworlds.com.');
-                    } else if (response.status === 400) {
-                        // The 400 body names the exact failing element/field. Surface it.
-                        let body: unknown = response.text;
-                        try { body = JSON.parse(response.text); } catch { /* not JSON — keep raw text */ }
-                        // Stringified so the console shows the body, not a collapsed "Object".
-                        console.error('Upload rejected (400):', response.text);
-                        const detail = (body && typeof body === 'object' && 'error' in body
-                            ? String((body as Record<string, unknown>).error)
-                            : response.text) || 'validation failed';
-                        new Notice(`Upload failed: ${detail}`, 15000);
-                    } else if (response.status === 403) {
-                        new Notice('Upload failed: Invalid PIN or insufficient access rights.');
-                    } else if (response.status === 429) {
-                        new Notice('Upload failed: Rate limit exceeded. Please try again later.');
-                    } else {
-                        console.error(`Failed to send world data, status code: ${response.status}`, response.text);
-                        new Notice(`Failed to send world data: ${response.status}`);
-                    }
-                } catch (error) {
-                    console.error('Upload error:', error);
-                    new Notice(`Error during upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
+                if (!worldData || Object.keys(worldData).length === 0) return;
+                await this.uploadViaV2(pin, worldFolder, worldData);
             }
         });
 
         validationModal.open();
     }
+
+    /**
+     * v2 upload sweep (replaces the legacy worldsync/store full-replace).
+     * Per element: exists on server → PATCH; local-only → created via /bulk
+     * (atomic, server-side FK resolution handles cross-links in first pushes).
+     * Elements that exist ONLY on the server are reported, never deleted —
+     * the full-replace delete class is gone by design.
+     */
+    private async uploadViaV2(pin: number, worldFolder: string, worldData: Record<string, unknown>): Promise<void> {
+        const resolved = await resolveWorldKey(this.app, worldFolder, this.plugin?.settings.apiKey);
+        if (!resolved.apiKey) {
+            new Notice('Upload failed: no API key found in World.md or settings.');
+            return;
+        }
+        if (!resolved.ownWorld) {
+            new Notice('Warning: using the plugin settings key (no key in this world\'s World.md). Verify it belongs to this world.', 10000);
+        }
+        const client = new V2Client(resolved.apiKey, String(pin));
+
+        try {
+            // Server element index — ids that exist right now (deletes drop out).
+            const serverIds = new Set<string>();
+            const walk = await client.changesWalk();
+            const latestOp = new Map<string, string>();
+            for (const change of walk.changes) latestOp.set(change.id, change.op);
+            for (const [id, op] of latestOp) if (op === 'upsert') serverIds.add(id);
+
+            // Partition local elements.
+            const toCreate: { type: string; element: Record<string, unknown> }[] = [];
+            const toUpdate: { type: string; id: string; payload: Record<string, unknown> }[] = [];
+            for (const category in worldData) {
+                if (category === 'World') continue;
+                const elements = worldData[category];
+                if (!Array.isArray(elements)) continue;
+                const type = category.toLowerCase();
+                for (const raw of elements) {
+                    const element = toV2Payload(raw as Record<string, unknown>);
+                    const id = element.id ? String(element.id) : null;
+                    if (!id) continue; // no identity — validator should have caught it
+                    if (serverIds.has(id)) {
+                        const { id: _id, ...patchFields } = element;
+                        toUpdate.push({ type, id, payload: patchFields });
+                    } else {
+                        toCreate.push({ type, element });
+                    }
+                }
+            }
+            const localIds = new Set<string>();
+            for (const category in worldData) {
+                if (category === 'World') continue;
+                const elements = worldData[category];
+                if (!Array.isArray(elements)) continue;
+                for (const raw of elements) {
+                    const id = (raw as Record<string, unknown>).id;
+                    if (id) localIds.add(String(id));
+                }
+            }
+            const serverOnly = [...serverIds].filter(id => !localIds.has(id)).length;
+
+            // Progress feedback — the sweep can run for a minute on a big world.
+            new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
+
+            // Creates first (atomic /bulk — FK targets exist before updates run).
+            let created = 0;
+            if (toCreate.length > 0) {
+                await client.bulkCreate(toCreate);
+                created = toCreate.length;
+            }
+
+            // Updates, per element; collect failures instead of aborting the sweep.
+            let updated = 0;
+            const failures: string[] = [];
+            const progressEvery = 50;
+            for (const item of toUpdate) {
+                try {
+                    await client.update(item.type, item.id, item.payload);
+                    updated++;
+                    if (updated % progressEvery === 0) {
+                        new Notice(`Uploading... ${updated}/${toUpdate.length}`);
+                    }
+                } catch (e) {
+                    const name = item.payload.name ? String(item.payload.name) : item.id;
+                    failures.push(`${item.type} "${name}": ${e instanceof Error ? e.message : String(e)}`);
+                }
+            }
+
+            let summary = `Upload complete: ${created} created, ${updated} updated.`;
+            if (serverOnly > 0) {
+                summary += ` ${serverOnly} element${serverOnly === 1 ? '' : 's'} exist only on the server (not deleted).`;
+            }
+            new Notice(summary, 8000);
+            if (this.skippedLinkFields > 0) {
+                new Notice(`${this.skippedLinkFields} link field${this.skippedLinkFields === 1 ? '' : 's'} skipped (unresolvable links) — server values kept. See console for details.`, 10000);
+            }
+            if (failures.length > 0) {
+                console.error('Upload failures:', failures);
+                new Notice(`${failures.length} element${failures.length === 1 ? '' : 's'} failed — first: ${failures[0]}`, 15000);
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            if (error instanceof V2ApiError) {
+                if (error.status === 401 || error.status === 403) {
+                    new Notice('Upload failed: Invalid PIN or API key, or the key lacks write access.');
+                } else {
+                    new Notice(`Upload failed: ${error.message}`, 15000);
+                }
+            } else {
+                new Notice(`Error during upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        }
+    }
+
     
     
     
 
     async collectWorldData(worldFolder: string) {
+        this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         const fs = this.app.vault.adapter;
-        let worldData: Record<string, unknown> = {};   
+        let worldData: Record<string, unknown> = {};
     
         // Path to the 'World' file inside the selected world folder
         const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/World.md`);
@@ -204,7 +279,7 @@ export class ExportWorldCommand {
     
     
     
-    private async extractLinkedIds(linkedText: string, lineText: string, worldFolder: string): Promise<string[]> {
+    private async extractLinkedIds(linkedText: string, lineText: string, worldFolder: string): Promise<string[] | null> {
         const linkPattern = /\[\[(.*?)\]\]/g;
         const ids: string[] = [];
         let match;
@@ -218,16 +293,32 @@ export class ExportWorldCommand {
             return ids;
         }
     
+        let unresolved = 0;
         while ((match = linkPattern.exec(linkedText)) !== null) {
-            const linkedName = match[1]; 
-    
+            const linkedName = match[1];
+
+            // A uuid-shaped link IS the id (download writes [[<id>]] when it
+            // can't resolve a name) — pass it through, identity preserved.
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(linkedName)) {
+                ids.push(linkedName);
+                continue;
+            }
+
             // Search for the element by name content instead of constructing file path
             const elementId = await this.findElementIdByName(linkedName, elementType, worldFolder);
             if (elementId) {
                 ids.push(elementId);
             } else {
+                unresolved++;
                 console.error(`Linked file not found: ${linkedName}`);
             }
+        }
+        // Any unresolved link poisons the whole field: pushing a REDUCED list
+        // would silently strip server-side links (the 2.3.0 smoke test class).
+        // Returning null tells the caller to OMIT the field — server value wins.
+        if (unresolved > 0) {
+            console.warn(`Link field skipped (${unresolved} unresolved) — server value preserved.`);
+            return null;
         }
         return ids;
     }
@@ -240,16 +331,19 @@ export class ExportWorldCommand {
             try {
                 const fileContent = await this.app.vault.read(file);
                 const { name, id } = this.parseElement(fileContent);
-                
-                // Match by name content rather than filename
-                if (name === elementName) {
+
+                // Match by name content rather than filename. Compare sanitized
+                // forms too: wikilinks carry the FILENAME form (illegal chars
+                // replaced), while the note's Name field keeps the exact name.
+                if (name === elementName ||
+                    (name && sanitizeFileName(name) === sanitizeFileName(elementName))) {
                     return id;
                 }
             } catch (error) {
                 console.error(`Error reading file ${file.path}:`, error);
             }
         }
-        
+
         return null;
     }
     
@@ -293,7 +387,11 @@ export class ExportWorldCommand {
                     if (value && !value.includes('[[')) {
                         console.warn(`Link field "${key}" holds a non-wikilink value; nulling instead of shipping a name: "${value}"`);
                     }
-                    if (lowerTooltip.startsWith('single ')) {
+                    if (ids === null) {
+                        // Unresolved link(s) inside the field — OMIT it so the
+                        // PATCH can't strip server-side links.
+                        this.skippedLinkFields++;
+                    } else if (lowerTooltip.startsWith('single ')) {
                         data[`${key}_id`] = ids.length > 0 ? ids[0] : null;
                     } else {
                         data[`${key}_ids`] = ids;

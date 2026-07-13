@@ -1,8 +1,10 @@
 import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { readElement, categoryToResourceKey } from '../vault/element-file';
+import { readElement } from '../vault/element-file';
 import { resolveWorldKey } from '../vault/world-key';
+import { sanitizeFileName } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
+import { toV2Payload, V2ApiError } from '../client-v2';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -100,77 +102,58 @@ export class SaveElementCommand {
             new Notice(`This world has no API key of its own; using your default key. Add its key to World.md to be sure edits land in the right world.`, 8000);
         }
 
-        // 4. Build SDK client (pulls cached PIN, or prompts once per session)
-        const client = await this.plugin.buildClient(apiKey);
+        // 4. Build v2 client (pulls cached PIN, or prompts once per session)
+        const client = await this.plugin.buildV2Client(apiKey);
         if (!client) {
             new Notice("Save cancelled: PIN not provided.");
             return;
         }
 
-        // 5. Choose the SDK resource for this category and call update()
-        const resource = this.getResource(client as unknown as Record<string, unknown>, category);
-        if (!resource) {
-            new Notice(`Unknown OnlyWorlds element category: ${category}`);
-            return;
-        }
-
-        // Strip 'world' field if present — API rejects it on writes (422).
-        // SDK does not strip automatically (see open-improvements.md).
+        // 5. v2 wire payload: bare link names (suffixes stripped), world stripped.
         //
-        // TODO Phase 3: Add proper read-before-PATCH safety.
-        // SDK's update() is PATCH and destructive on text fields and multi-link _ids.
-        // Current behavior matches the legacy PUT (full overwrite from local parse),
-        // so not a regression — but a real fix requires the frontmatter migration
-        // since the span-tag parser already produces a "full" payload from the file.
-        const payload: Record<string, unknown> = { ...elementData };
-        delete payload.world;
-        delete payload.world_id;
+        // TODO Phase B: Add proper read-before-PATCH safety.
+        // PATCH from a full local parse overwrites text fields and multi-links
+        // wholesale. Current behavior matches the legacy path (full overwrite
+        // from local parse), so not a regression — the real fix rides the
+        // frontmatter migration.
+        const type = category.toLowerCase();
+        const payload = toV2Payload(elementData as Record<string, unknown>);
 
         const label = elementData.name || elementUuid;
         try {
             new Notice(`Saving ${category} "${label}"...`);
-            await resource.update(elementUuid, payload as unknown);
+            await client.update(type, elementUuid, payload);
             new Notice(`${category} saved.`);
         } catch (error) {
-            // The SDK's request() throws a plain Error whose message begins
-            // "API Error {status}". A 404 means this id doesn't exist server-side
-            // yet — a locally-created element that was never pushed. The server
-            // preserves client-supplied ids on CREATE, so fall back to create().
+            // 404 means this id doesn't exist server-side yet — a locally-created
+            // element never pushed. The server preserves client-supplied ids on
+            // CREATE, so fall back to create().
             if (this.isNotFound(error)) {
                 try {
                     new Notice(`Creating ${category} "${label}"...`);
-                    await resource.create({ id: elementUuid, ...payload } as unknown);
+                    await client.create(type, { id: elementUuid, ...payload });
                     new Notice(`${category} created.`);
                 } catch (createError) {
-                    console.error('Error during SDK create fallback:', createError);
+                    console.error('Error during v2 create fallback:', createError);
                     const msg = createError instanceof Error ? createError.message : 'Unknown error';
                     new Notice(`Failed to create ${category}: ${msg}`, 10000);
                 }
                 return;
             }
-            console.error('Error during SDK update call:', error);
+            console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
             new Notice(`Failed to save ${category}: ${msg}`, 10000);
         }
     }
 
-    // The SDK surfaces HTTP errors as Error("API Error {status}: ...").
     // Match a genuine 404 so we don't fall back to create() on other failures.
+    // V2ApiError carries the real status; the legacy message check stays as a
+    // safety net for any non-V2ApiError wrapping.
     private isNotFound(error: unknown): boolean {
-        return error instanceof Error && /^API Error 404\b/.test(error.message);
-    }
-
-    /**
-     * Map a category name (e.g. "Character") to the SDK client's resource accessor.
-     * Uses the resource's update()/get()/etc methods. Returns null for unknown categories.
-     */
-    private getResource(client: Record<string, unknown>, category: string): { update: (id: string, data: unknown) => Promise<unknown>; create: (data: unknown) => Promise<unknown> } | null {
-        const accessor = categoryToResourceKey(category);
-        const resource = client[accessor];
-        if (!resource) {
-            return null;
+        if (error instanceof V2ApiError) {
+            return error.status === 404;
         }
-        return resource as { update: (id: string, data: unknown) => Promise<unknown>; create: (data: unknown) => Promise<unknown> };
+        return error instanceof Error && /^API Error 404\b/.test(error.message);
     }
 
     // Helper to extract World Name and Category from path
@@ -327,8 +310,14 @@ export class SaveElementCommand {
 
         while ((match = linkPattern.exec(linkedText)) !== null) {
             const noteName = match[1];
-      //      console.log(`      Found link: [[${noteName}]]`);
-            
+
+            // A uuid-shaped link IS the id (download writes [[<id>]] when it
+            // can't resolve a name) — pass through, identity preserved.
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(noteName)) {
+                ids.push(noteName);
+                continue;
+            }
+
             // Find the actual category folder (which might have count suffix)
             const actualCategoryFolder = await this.findCategoryFolderByBaseName(worldName, linkedCategory);
             if (!actualCategoryFolder) {
@@ -336,7 +325,8 @@ export class SaveElementCommand {
                 continue;
             }
             
-            const linkedFilePath = normalizePath(`${actualCategoryFolder}/${noteName}.md`);
+            // Wikilink text is the filename form; sanitize for the path lookup.
+            const linkedFilePath = normalizePath(`${actualCategoryFolder}/${sanitizeFileName(noteName)}.md`);
         //    console.log(`      Looking for linked file at: ${linkedFilePath}`);
 
             try {

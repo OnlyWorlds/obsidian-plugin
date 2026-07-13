@@ -1,6 +1,22 @@
 import { App, TFolder, TFile, normalizePath } from 'obsidian';
 import { Category } from '../enums';
 
+/**
+ * Element names are exact on the API and inside notes; FILENAMES are
+ * presentation and must be legal. Windows silently mangles a path containing
+ * ':' into an NTFS alternate data stream (a note named "Chapter 1: Into the
+ * Mists.md" became an extensionless file "Chapter 1" — found on the 2.3.0
+ * smoke test), and Obsidian forbids the same set in wikilink targets.
+ * Every filename AND every [[wikilink]] target must pass through this;
+ * lookups compare sanitized forms so exact names in note bodies still resolve.
+ */
+export function sanitizeFileName(name: string): string {
+    return name
+        .replace(/[\\/:*?"<>|\x00-\x1f]/g, '-')
+        .replace(/[. ]+$/, '')
+        .trim() || 'unnamed';
+}
+
 export class WorldService {
     private app: App;
     private defaultWorldName: string = 'DefaultWorld'; // Default world name as a fallback
@@ -202,9 +218,10 @@ export class WorldService {
 
     async generateUniqueFileName(categoryPath: string, elementName: string, elementId: string): Promise<string> {
         const fs = this.app.vault.adapter;
-        
+        const safeName = sanitizeFileName(elementName);
+
         // First, try the base name
-        const baseName = `${elementName}.md`;
+        const baseName = `${safeName}.md`;
         const basePath = normalizePath(`${categoryPath}/${baseName}`);
         
         // Check if file exists with this name
@@ -226,7 +243,7 @@ export class WorldService {
         // Base name exists and is different element, find next available number
         let counter = 1;
         while (true) {
-            const numberedName = `${elementName} (${counter}).md`;
+            const numberedName = `${safeName} (${counter}).md`;
             const numberedPath = normalizePath(`${categoryPath}/${numberedName}`);
             
             if (!await fs.exists(numberedPath)) {
@@ -248,7 +265,7 @@ export class WorldService {
             
             // Safety check to prevent infinite loop
             if (counter > 100) {
-                return `${elementName} (${Date.now()}).md`;
+                return `${safeName} (${Date.now()}).md`;
             }
         }
     }

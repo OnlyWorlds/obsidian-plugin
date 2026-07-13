@@ -1,3 +1,4 @@
+import { V2Client } from './client-v2';
 import { CopyWorldCommand } from 'Commands/CopyWorldCommand';
 import { CreateElementCommand } from 'Commands/CreateElementCommand';
 import { CreateWorldCommand } from 'Commands/CreateWorldCommand';
@@ -6,6 +7,7 @@ import { ExportWorldCommand } from 'Commands/ExportWorldCommand';
 import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
+import { DeleteElementCommand } from './Commands/DeleteElementCommand';
 import { ValidateWorldCommand } from 'Commands/ValidateWorldCommand';
 import { Category } from 'enums';
 import Handlebars from 'handlebars';
@@ -122,11 +124,10 @@ export default class OnlyWorldsPlugin extends Plugin {
     }
 
       setupCommands() {
-        // 2.2.0: Download World restores the pull path retired with the legacy
-        // ImportWorldCommand in 2.1.0 — that retirement claimed the settings flow
-        // covered import, but no pull path actually existed. Same fetch (worldsync
-        // send) and note-builder, prefixed-key-clean modal.
-        const downloadWorldCommand = new DownloadWorldCommand(this.app, this.manifest);
+        // 2.3.0: Download World pulls via the v2 /changes cursor walk —
+        // incremental after the first download (watermark in settings.syncCursors).
+        // 2.2.0 had restored this pull path on the legacy worldsync route.
+        const downloadWorldCommand = new DownloadWorldCommand(this.app, this.manifest, this);
         const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
         const createWorldCommand = new CreateWorldCommand(this.app, this.manifest);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
@@ -201,6 +202,13 @@ export default class OnlyWorldsPlugin extends Plugin {
       // No default hotkey — Obsidian guidelines recommend letting users bind their own
       // to avoid conflicts. Suggest Ctrl/Cmd+Shift+S in the README/docs.
       callback: () => saveElementCommand.execute(),
+  });
+
+    const deleteElementCommand = new DeleteElementCommand(this.app, this);
+    this.addCommand({
+      id: 'delete-element',
+      name: 'Delete Element (server + note)',
+      callback: () => deleteElementCommand.execute(),
   });
 
 
@@ -368,6 +376,19 @@ parseSettingsForDefaultCategory(content: string): string | null {
           return null;
       }
       return new ObsidianOnlyWorldsClient({ apiKey: key, apiPin: pin });
+  }
+
+  /** v2 sibling of buildClient — same key resolution, same PIN prompt/cache. */
+  async buildV2Client(apiKey?: string): Promise<V2Client | null> {
+      const key = apiKey || this.settings.apiKey;
+      if (!key) {
+          return null;
+      }
+      const pin = await this.pinCache.get();
+      if (!pin) {
+          return null;
+      }
+      return new V2Client(key, pin);
   }
 
   onunload(): void {

@@ -32,7 +32,7 @@ To also sync with onlyworlds.com:
 
 Three ways to push edits to onlyworlds.com:
 
-**Upload World.** Push every element in the active world in one go. A full overwrite of the cloud world from your local copy.
+**Upload World.** Push every element in the active world in one go. Since 2.3.0 this is a safe sweep, not an overwrite: new elements are created, existing ones updated, and elements that exist only on the server are reported — never deleted. Link fields that can't be resolved locally are skipped so cloud links are never silently stripped.
 
 **Save Element.** Run the command on the active note to push that single element. Bind a hotkey if you'll use it often (Settings → Hotkeys, search "Save Element", set something like Ctrl/Cmd+Shift+S).
 
@@ -44,7 +44,7 @@ You can set your PIN once in settings so the plugin never asks again.
 
 ## Authentication
 
-The plugin talks to the OnlyWorlds REST API at `https://www.onlyworlds.com/api/worldapi/`. Each API call sends your API-Key and API-Pin as headers, scoped to one world. Your API key identifies which world you're touching, and your PIN authorizes writes. Both stay local. They live in your vault's plugin settings (`data.json`).
+The plugin talks to the OnlyWorlds v2 REST API at `https://www.onlyworlds.com/api/v2/` (since 2.3.0). Each API call sends your API-Key and API-Pin as headers, scoped to one world. Your API key identifies which world you're touching, and your PIN authorizes writes. Both stay local. They live in your vault's plugin settings (`data.json`).
 
 ## Folder structure
 
@@ -64,10 +64,11 @@ OnlyWorlds/
 | Command | What it does |
 |---|---|
 | `Create World` | Create a new world (account-linked) and the local folder structure. |
-| `Download World` | Pull an existing world from onlyworlds.com into your vault (works with 10-digit and `ow_` keys). |
+| `Download World` | Pull a world from onlyworlds.com into your vault (10-digit and `ow_` keys). Incremental since 2.3.0: re-downloads fetch only what changed. |
 | `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
 | `Save Element` | Push the active element note to the API. Bind a hotkey via Settings → Hotkeys. |
-| `Upload World` | Bulk push every element in the active world. |
+| `Upload World` | Bulk push every element in the active world (create + update, never delete). |
+| `Delete Element` | Permanently delete the active note's element from onlyworlds.com and trash the note. Type-the-name confirmation. |
 | `Validate World` | Check element notes for malformed fields. |
 | `Rename World` | Rename a world folder, and sync the new name to onlyworlds.com if the world has a write key. |
 | `Link Elements` | With your cursor in a link field, pick a target element to insert. |
@@ -87,6 +88,20 @@ OnlyWorlds/
 | Auto-sync to OnlyWorlds | off | Push edits automatically after idle period. |
 | Auto-sync debounce | 3000ms | How long to wait after last edit. |
 | Show status bar indicator | on | Desktop status bar icon. |
+
+## Part of the OnlyWorlds ecosystem
+
+Your world is not locked to this plugin — the same world, synced to onlyworlds.com, is readable and writable by every OnlyWorlds tool:
+
+| Surface | What it is |
+|---|---|
+| [onlyworlds.com](https://www.onlyworlds.com) | The platform: hosts worlds, serves the API, account & key management at [/account](https://www.onlyworlds.com/account/). |
+| [Atlas](https://atlas.onlyworlds.com) | Local-first world browser, editor and writing tool — your world as a folder of plain JSON files, with maps, charts and publishing. |
+| [Shared pages](https://show.onlyworlds.com) | Public, frozen pages of your elements, minted from Atlas. |
+| MCP server | Connect Claude (Code, Desktop, or API) directly to your world at `https://www.onlyworlds.com/mcp` — schema questions need no key at all. |
+| [API docs](https://onlyworlds.github.io) | Full API reference, error catalog, and guides for building your own tools. |
+
+A vault and an Atlas folder can hold the same world: both sync against onlyworlds.com, so edits flow between them through the cloud. (Point both at the same world key and take turns — live co-editing of one folder is not a thing.)
 
 ## Get in touch 
 

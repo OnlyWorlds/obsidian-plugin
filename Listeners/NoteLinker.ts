@@ -1,5 +1,5 @@
 import { App, Editor, EditorPosition, MarkdownView, WorkspaceLeaf, PluginManifest } from 'obsidian';
-import { WorldService } from 'Scripts/WorldService';
+import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 
@@ -126,10 +126,12 @@ private handleElementSelection(editor: Editor, cursor: EditorPosition, lineText:
                 : [currentValues.trim()];
         }
 
-        // Check and filter out already existing elements to prevent duplicates
+        // Check and filter out already existing elements to prevent duplicates.
+        // Wikilink targets use the sanitized FILENAME form (raw names with ':'
+        // etc. don't resolve as link targets).
         let newValues = selectedElements
-            .filter(el => !existingValues.includes(`[[${el.name}]]`))
-            .map(el => `[[${el.name}]]`);
+            .filter(el => !existingValues.includes(`[[${sanitizeFileName(el.name)}]]`))
+            .map(el => `[[${sanitizeFileName(el.name)}]]`);
 
         // Combine existing and new values
         let allValues = existingValues.concat(newValues);
@@ -141,7 +143,7 @@ private handleElementSelection(editor: Editor, cursor: EditorPosition, lineText:
         editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + updatedValues);
     } else if (isLink) {
         // Single link field: Replace existing value with the new selection
-        let newValue = selectedElements.length > 0 ? `[[${selectedElements[0].name}]]` : '';
+        let newValue = selectedElements.length > 0 ? `[[${sanitizeFileName(selectedElements[0].name)}]]` : '';
         editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + newValue);
     }
 }
