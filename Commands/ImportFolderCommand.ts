@@ -1,6 +1,7 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { writeElement } from "../vault/element-file";
 import { bodyFieldForCategory, normalizeCategory } from "../vault/element-transform";
+import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import {
 	parseFolderElementBody,
 	owMentionsToWikilinks,
@@ -191,37 +192,14 @@ export class ImportFolderCommand {
 		return ids;
 	}
 
-	// Marker I/O goes through the ADAPTER, never the vault API: Obsidian's vault
-	// index EXCLUDES dot-prefixed files, so getAbstractFileByPath on the marker
-	// returns null forever and vault.create refuses the path — the never-merge
-	// guard would silently never fire (gate finding, 2026-07-16). The adapter is
-	// raw fs and handles dotfiles; unindexed files also emit no vault events, so
-	// no self-write mark is needed.
-	private markerPath(world: string): string {
-		return normalizePath(`OnlyWorlds/Worlds/${world}/.ow-world-id`);
+	// Marker I/O lives in vault/world-id-marker.ts (shared with export — the
+	// stable-identity ruling). Adapter-only for the dotfile reasons documented there.
+	private readWorldIdMarker(world: string): Promise<string | null> {
+		return readWorldIdMarker(this.app, world);
 	}
 
-	/** Read the persisted world-id marker (null if the world is new). */
-	private async readWorldIdMarker(world: string): Promise<string | null> {
-		const path = this.markerPath(world);
-		try {
-			if (!(await this.app.vault.adapter.exists(path))) return null;
-			const m = /world_id:\s*([0-9a-fA-F-]{36})/.exec(await this.app.vault.adapter.read(path));
-			return m ? m[1] : null;
-		} catch {
-			return null;
-		}
-	}
-
-	private async writeWorldIdMarker(world: string, worldId: string): Promise<void> {
-		const folder = normalizePath(`OnlyWorlds/Worlds/${world}`);
-		if (!this.app.vault.getAbstractFileByPath(folder)) return; // writeElement makes it
-		const path = this.markerPath(world);
-		if (await this.app.vault.adapter.exists(path)) return;
-		await this.app.vault.adapter.write(
-			path,
-			`world_id: ${worldId}\nOnlyWorlds folder identity marker (do not edit).\n`
-		);
+	private writeWorldIdMarker(world: string, worldId: string): Promise<void> {
+		return writeWorldIdMarker(this.app, world, worldId);
 	}
 }
 

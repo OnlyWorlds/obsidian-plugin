@@ -2,6 +2,7 @@ import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsi
 import { v7 as uuidv7 } from "uuid";
 import { readElement } from "../vault/element-file";
 import { bodyFieldForCategory } from "../vault/element-transform";
+import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import {
 	worldFolderName,
 	elementRelPath,
@@ -117,7 +118,15 @@ export class ExportFolderCommand {
 
 		// Pass 2 — translate prose, stamp folder bodies, plan paths, write.
 		const stamp = new Date().toISOString();
-		const worldId = uuidv7();
+		// STABLE world identity (keeper ruling, 2026-07-16): read the persisted
+		// per-vault world id, mint only if none exists yet, persist what we mint.
+		// A fresh id per export would make every re-export a NEW world in Atlas
+		// and trip the import guard against this world's own earlier import.
+		let worldId = await readWorldIdMarker(this.app, world);
+		if (!worldId) {
+			worldId = uuidv7();
+			await writeWorldIdMarker(this.app, world, worldId);
+		}
 		const folderName = worldFolderName(world, worldId);
 		const root = normalizePath(`OW-folder-export/${folderName}`);
 		if (this.app.vault.getAbstractFileByPath(root)) {
