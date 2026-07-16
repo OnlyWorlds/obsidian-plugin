@@ -516,6 +516,21 @@ test("S9: apiDataToFrontmatter with a download-style id->name map renders links;
 	assert.deepEqual(fm.objects, ["obj-absent"]); // never [[Unknown]], never dropped
 });
 
+test("S9 colon-name round-trip: a sanitized basename from the map wraps verbatim to a clickable [[link]]", () => {
+	// DownloadWorldCommand's map returns sanitizeFileName(name), so a character
+	// "Snoot: The Bold" (file "Snoot- The Bold.md") enters the resolver already
+	// as "Snoot- The Bold". apiDataToFrontmatter must wrap it verbatim — the
+	// [[target]] must equal the note's real basename or the link dangles.
+	const sanitizedBasename = "Snoot- The Bold"; // what sanitizeFileName(":"->"-") yields
+	const data = { id: "c-1", name: "Admiral Fluffington", friends: ["c-snoot"] };
+	const fm = apiDataToFrontmatter(data, "character", "c-1", {
+		resolveIdToName: (id) => (id === "c-snoot" ? sanitizedBasename : null),
+	});
+	assert.deepEqual(fm.friends, ["[[Snoot- The Bold]]"]); // clickable, matches the file
+	// And the target parses back to the same basename (identity survives).
+	assert.equal(wikilinkTarget((fm.friends as string[])[0]), sanitizedBasename);
+});
+
 test("idempotency: a note already in frontmatter is NOT span format", () => {
 	const fmNote = `---
 id: 018f-1
