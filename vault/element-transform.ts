@@ -349,6 +349,42 @@ export function apiDataToFrontmatter(
 }
 
 /**
+ * Extract requested scalar keys from a raw `---` YAML frontmatter block WITHOUT
+ * any YAML library — a dependency-free line scan. Used by the download resolver's
+ * disk-scan fallback, which must NOT depend on Obsidian's metadataCache (its
+ * cold-cache staleness mid-bulk-write is the S9 bug this fixes).
+ *
+ * Only top-level `key: value` scalar lines are read; a single layer of matching
+ * surrounding quotes is stripped (Obsidian quotes values with YAML-special chars,
+ * e.g. a name containing ':'). Nested/list/multiline values are ignored. Returns
+ * only the keys in `keys` that were found with a non-empty value.
+ */
+export function parseRawFrontmatterScalars(
+	content: string,
+	keys: readonly string[]
+): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!content.startsWith("---")) return out;
+	const end = content.indexOf("\n---", 3);
+	if (end < 0) return out;
+	const block = content.slice(3, end);
+	const wanted = new Set(keys);
+	for (const line of block.split(/\r?\n/)) {
+		const m = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
+		if (!m || !wanted.has(m[1])) continue;
+		let val = m[2].trim();
+		if (
+			(val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
+			(val.startsWith("'") && val.endsWith("'") && val.length >= 2)
+		) {
+			val = val.slice(1, -1);
+		}
+		if (val) out[m[1]] = val;
+	}
+	return out;
+}
+
+/**
  * Read-before-PATCH diff (R7). Given the local payload we intend to write and
  * the current server element, return only the fields whose value actually
  * differs — so a save touches exactly what changed and leaves server-only

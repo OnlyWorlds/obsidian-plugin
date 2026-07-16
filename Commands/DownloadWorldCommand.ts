@@ -8,6 +8,7 @@ import { V2ApiError, V2Change, V2Client } from '../client-v2';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
+import { parseRawFrontmatterScalars } from '../vault/element-transform';
 
 export class DownloadWorldCommand {
     app: App;
@@ -201,7 +202,23 @@ export class DownloadWorldCommand {
     }
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
         const fs = this.app.vault.adapter;
-    
+
+        // Extract the (unique) world name once — used both for the id->name map's
+        // disk fallback and per-category below.
+        const pathParts0 = worldFolderPath.split('/');
+        const worldsIdx0 = pathParts0.findIndex(part => part === 'Worlds');
+        const mapWorldName = worldsIdx0 >= 0 && pathParts0.length > worldsIdx0 + 1
+            ? pathParts0[worldsIdx0 + 1]
+            : pathParts0[pathParts0.length - 1];
+
+        // Build ONE complete id->name map for link rendering (the S9 fix). Built
+        // from the in-memory payload (freshest names) + a raw-disk fallback for
+        // ids outside an incremental pull's changed set. metadataCache is NOT
+        // consulted — its staleness mid-bulk-write IS the bug. The map returns the
+        // NOTE BASENAME form (sanitizeFileName) so the written [[Name]] wikilink
+        // resolves by filename to the actual note on disk.
+        const idToName = await this.buildIdToNameMap(mapWorldName, data);
+
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;
     
@@ -287,6 +304,7 @@ export class DownloadWorldCommand {
                             markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
                             folderPath: categoryDirectory,
                             fileName: notePath.split('/').pop(),
+                            idToName,
                         }
                     );
                 } else {
@@ -296,6 +314,55 @@ export class DownloadWorldCommand {
         } 
     }
     
+    /**
+     * Build the id -> note-basename map used to render link fields as [[Name]]
+     * wikilinks during download (the S9 fix). Two sources, payload wins:
+     *
+     *   1. The in-memory download payload — holds every element's id AND name for
+     *      THIS pull. Complete for a full download.
+     *   2. Raw-disk fallback — an incremental pull carries only CHANGED elements,
+     *      so a link may point at an unchanged element absent from the payload.
+     *      Scan existing element notes for this world by READING each file and
+     *      parsing its `---` frontmatter block (id + name). metadataCache is never
+     *      touched: its cold-cache-mid-write staleness is precisely the bug.
+     *
+     * The returned name is passed through sanitizeFileName so the [[Name]] target
+     * matches the note's on-disk basename and resolves by filename (portability:
+     * a moved vault keeps working, no plugin needed). Collision `(N)` suffixes are
+     * NOT reflected (a pre-existing limitation shared with the old linkifier).
+     * An id in neither source returns null, so writeElement keeps the raw id
+     * (dangling / cross-world links are never lost).
+     */
+    private async buildIdToNameMap(worldName: string, data: any): Promise<(id: string) => string | null> {
+        const map = new Map<string, string>();
+
+        // Source 2 (disk) first, so Source 1 (payload) overwrites with the
+        // freshest names on any id present in both.
+        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+        const files = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(prefix));
+        for (const file of files) {
+            try {
+                const content = await this.app.vault.read(file);
+                const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
+                if (fm.id && fm.name) {
+                    map.set(fm.id, sanitizeFileName(fm.name));
+                }
+            } catch { /* unreadable note — skip */ }
+        }
+
+        // Source 1 (payload) — every downloaded element, all categories.
+        for (const category in Category) {
+            if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
+            for (const element of data[category]) {
+                if (element && typeof element.id === 'string' && typeof element.name === 'string' && element.name) {
+                    map.set(element.id, sanitizeFileName(element.name));
+                }
+            }
+        }
+
+        return (id: string) => map.get(id) ?? null;
+    }
+
     async linkifyContent(noteContent: string, data: any): Promise<string> {
         // Incremental pulls carry only CHANGED elements, so the pulled data
         // alone can't name every linked id — merge in an id→name index built

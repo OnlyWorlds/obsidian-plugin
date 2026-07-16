@@ -19,6 +19,7 @@ import {
 	wikilinkTarget,
 	toWikilink,
 	isEmptyFieldValue,
+	parseRawFrontmatterScalars,
 } from "../vault/element-transform";
 
 // --- A REAL Character span-format note, matching the upstream Handlebars grammar
@@ -449,6 +450,70 @@ test("extension fields never become wikilinks and never get empty-omitted (R1/R3
 	assert.equal(fm.atlas_ref, "loc-1"); // NOT a [[wikilink]] — foreign, verbatim
 	assert.equal(fm.x_empty, ""); // empty extension kept
 	assert.deepEqual(fm.shadow_list, []); // empty extension array kept
+});
+
+// --- S9 download resolver: raw-frontmatter scalar parse (disk-scan fallback) --
+
+test("parseRawFrontmatterScalars: reads id/name from a plain block, ignores body", () => {
+	const note = `---
+name: Ireena Kolyana
+location: "[[Village of Barovia]]"
+image_url: http://img/x.png
+id: 018f4a1b-2c3d-7e4f-8a9b-0c1d2e3f4a5b
+---
+
+A young woman of Barovia.
+`;
+	const out = parseRawFrontmatterScalars(note, ["id", "name"]);
+	assert.equal(out.id, "018f4a1b-2c3d-7e4f-8a9b-0c1d2e3f4a5b");
+	assert.equal(out.name, "Ireena Kolyana");
+});
+
+test("parseRawFrontmatterScalars: strips a single layer of matching quotes (YAML-special names)", () => {
+	// Obsidian quotes a name containing ':' — the disk fallback must unquote it
+	// so the [[Name]] target matches the sanitized basename.
+	const note = `---
+name: "Chapter 1: The Road"
+id: 018f0000-0000-7000-8000-000000000001
+---
+body`;
+	const out = parseRawFrontmatterScalars(note, ["id", "name"]);
+	assert.equal(out.name, "Chapter 1: The Road");
+	assert.equal(out.id, "018f0000-0000-7000-8000-000000000001");
+});
+
+test("parseRawFrontmatterScalars: no frontmatter / missing keys -> empty, never throws", () => {
+	assert.deepEqual(parseRawFrontmatterScalars("no frontmatter here", ["id", "name"]), {});
+	assert.deepEqual(parseRawFrontmatterScalars("", ["id", "name"]), {});
+	const partial = parseRawFrontmatterScalars(`---\nname: Solo\n---\nx`, ["id", "name"]);
+	assert.deepEqual(partial, { name: "Solo" }); // id absent -> omitted, no id key
+});
+
+test("parseRawFrontmatterScalars: an empty value is omitted (not stored as '')", () => {
+	const out = parseRawFrontmatterScalars(`---\nname:\nid: x-1\n---\nb`, ["id", "name"]);
+	assert.deepEqual(out, { id: "x-1" });
+});
+
+test("S9: apiDataToFrontmatter with a download-style id->name map renders links; unknown id stays raw", () => {
+	// Mirrors DownloadWorldCommand's injected map: a complete id->basename map from
+	// the payload. The bug was that ids resolved to null (cold cache) -> raw uuids.
+	const map: Record<string, string> = {
+		"loc-1": "Village of Barovia",
+		"sp-1": "Human",
+	};
+	const data = {
+		id: "c-1",
+		name: "Admiral Fluffington",
+		location: "loc-1", // single_link
+		species: ["sp-1", "sp-missing"], // multi_link, one absent
+		objects: ["obj-absent"], // multi_link, all absent
+	};
+	const fm = apiDataToFrontmatter(data, "character", "c-1", {
+		resolveIdToName: (id) => map[id] ?? null,
+	});
+	assert.equal(fm.location, "[[Village of Barovia]]");
+	assert.deepEqual(fm.species, ["[[Human]]", "sp-missing"]); // known -> link, absent -> raw
+	assert.deepEqual(fm.objects, ["obj-absent"]); // never [[Unknown]], never dropped
 });
 
 test("idempotency: a note already in frontmatter is NOT span format", () => {

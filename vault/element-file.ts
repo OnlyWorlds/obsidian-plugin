@@ -162,6 +162,15 @@ export interface WriteElementOpts {
 	markSelfWrite?: (path: string) => void;
 	folderPath?: string; // e.g. "OnlyWorlds/Worlds/W/Elements/Character (12)"
 	fileName?: string; // e.g. "Ireena (2).md"
+	/**
+	 * Pre-built id -> display-name resolver (R1). When present, link ids render as
+	 * `[[Name]]` wikilinks against THIS map instead of the metadataCache-scanning
+	 * buildIdToNameResolver. A caller mid-bulk-write (DownloadWorldCommand) supplies
+	 * a map built from the in-memory payload (+ raw-disk fallback) because the cache
+	 * is cold for freshly-written sibling notes — that stale cache is the S9 bug.
+	 * Absent -> today's buildIdToNameResolver behavior (back-compat for Create/Import).
+	 */
+	idToName?: (id: string) => string | null;
 }
 
 export async function writeElement(
@@ -206,8 +215,12 @@ export async function writeElement(
 	}
 	if (!(file instanceof TFile)) throw new Error(`Failed to materialize element file at ${filePath}`);
 
+	// R1: render link ids as [[Name]] wikilinks. Prefer a caller-supplied map
+	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
+	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
+	// not yet indexed in metadataCache).
 	const fm = apiDataToFrontmatter(data, cat, elementId, {
-		resolveIdToName: buildIdToNameResolver(app, worldName),
+		resolveIdToName: opts.idToName ?? buildIdToNameResolver(app, worldName),
 	});
 
 	markSelfWrite?.(file.path);
