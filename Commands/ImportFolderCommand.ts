@@ -191,14 +191,22 @@ export class ImportFolderCommand {
 		return ids;
 	}
 
+	// Marker I/O goes through the ADAPTER, never the vault API: Obsidian's vault
+	// index EXCLUDES dot-prefixed files, so getAbstractFileByPath on the marker
+	// returns null forever and vault.create refuses the path — the never-merge
+	// guard would silently never fire (gate finding, 2026-07-16). The adapter is
+	// raw fs and handles dotfiles; unindexed files also emit no vault events, so
+	// no self-write mark is needed.
+	private markerPath(world: string): string {
+		return normalizePath(`OnlyWorlds/Worlds/${world}/.ow-world-id`);
+	}
+
 	/** Read the persisted world-id marker (null if the world is new). */
 	private async readWorldIdMarker(world: string): Promise<string | null> {
-		const file = this.app.vault.getAbstractFileByPath(
-			normalizePath(`OnlyWorlds/Worlds/${world}/.ow-world-id.md`)
-		);
-		if (!(file instanceof TFile)) return null;
+		const path = this.markerPath(world);
 		try {
-			const m = /world_id:\s*([0-9a-fA-F-]{36})/.exec(await this.app.vault.read(file));
+			if (!(await this.app.vault.adapter.exists(path))) return null;
+			const m = /world_id:\s*([0-9a-fA-F-]{36})/.exec(await this.app.vault.adapter.read(path));
 			return m ? m[1] : null;
 		} catch {
 			return null;
@@ -208,12 +216,11 @@ export class ImportFolderCommand {
 	private async writeWorldIdMarker(world: string, worldId: string): Promise<void> {
 		const folder = normalizePath(`OnlyWorlds/Worlds/${world}`);
 		if (!this.app.vault.getAbstractFileByPath(folder)) return; // writeElement makes it
-		const path = normalizePath(`${folder}/.ow-world-id.md`);
-		if (this.app.vault.getAbstractFileByPath(path)) return;
-		this.markSelfWrite(path);
-		await this.app.vault.create(
+		const path = this.markerPath(world);
+		if (await this.app.vault.adapter.exists(path)) return;
+		await this.app.vault.adapter.write(
 			path,
-			`---\nworld_id: ${worldId}\n---\n\nOnlyWorlds folder identity marker (do not edit).\n`
+			`world_id: ${worldId}\nOnlyWorlds folder identity marker (do not edit).\n`
 		);
 	}
 }
