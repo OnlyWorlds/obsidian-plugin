@@ -97,8 +97,8 @@ export class NoteLinker {
 		const worldName = this.extractWorldName(file.path);
 		const selfId = this.app.metadataCache.getFileCache(file)?.frontmatter?.id as string | undefined;
 
-		const fetch = () => this.fetchElementsOfType(worldName, choice.target, selfId);
-		const elements = await fetch();
+		const fetchElements = () => this.fetchElementsOfType(worldName, choice.target, selfId);
+		const elements = await fetchElements();
 
 		const modal = new ElementSelectionModal(
 			this.app,
@@ -108,7 +108,7 @@ export class NoteLinker {
 			(selected) => void this.writeLink(file, choice, selected),
 			this.worldService,
 			this.manifest,
-			fetch
+			fetchElements
 		);
 		modal.open();
 	}
