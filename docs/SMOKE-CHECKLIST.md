@@ -94,3 +94,41 @@ Known limitation to eyeball, not a blocker: **Validate World** is still a span-f
 linter. Run on a migrated (frontmatter) world it will report false "missing Id / Name"
 errors. It performs no writes (diagnostic only). A frontmatter-aware validator against
 the SDK FIELD_SCHEMA is deferred — see the S9 report.
+
+## G. Folder bridge (S9 Phase C — export/import OnlyWorlds folders)
+
+This is THE cross-tool proof: the plugin becomes the OnlyWorlds folder format's
+fourth implementation (after Atlas, Magelet, azgaar-converter). Run on a
+migrated (frontmatter) world for the cleanest result; span notes export too
+(read-tolerant) but frontmatter is the target format.
+
+**G1. Export -> Atlas (the cross-tool proof — Captain runs it).**
+
+18. Run **OnlyWorlds: Export as OnlyWorlds folder**, pick a world. Confirm the
+    report modal shows `N files written (incl. world.json)` with 0 skipped.
+    - [ ] A folder `OW-folder-export/<slug>-<id8>/` now exists in the vault.
+    - [ ] It contains `world.json` (open it: has `id` uuid + `name`), an
+          `elements/<type>/` tree, and — if the world has maps/pins/zones/markers
+          — a `spatial/<type>/` tree.
+    - [ ] Open one element JSON: it carries `type`, `local_updated_at`,
+          `created_at` at the top, plus the element's real `id` and fields.
+    - [ ] Filenames are `<slug>--<8-char-tail>.json`.
+19. Move that folder OUT of the vault and INTO your Atlas root. Open Atlas.
+    - [ ] The world appears with its elements intact (names, descriptions, links).
+    - [ ] A description that referenced another element renders as an Atlas
+          mention (the `[[wikilink]]` became `ow://type/uuid` on export).
+
+**G2. Import -> fresh vault (deterministic inverse).**
+
+20. In a FRESH/throwaway vault with the plugin installed, place the SAME exported
+    folder anywhere inside the vault. Run **OnlyWorlds: Import OnlyWorlds folder**
+    and pick it. Confirm the report shows `N created / 0 skipped / 0 failed`.
+    - [ ] Notes appear under `OnlyWorlds/Worlds/<world name>/Elements/<Type>/` in
+          **frontmatter** format, carrying their original `id`.
+    - [ ] `ow://` mentions in bodies became `[[wikilinks]]` that resolve.
+    - [ ] Extension keys (`atlas_*`/`shadow_*`/`x_*`), if any, survived verbatim.
+21. Run the SAME import AGAIN into the same vault.
+    - [ ] Report shows `0 created / N skipped (id already present) / 0 failed` —
+          existing notes are never overwritten (R5).
+22. Edit `world.json`'s `id` to a different uuid, then import once more.
+    - [ ] Import ABORTS with a "different id — must not merge" message (R5).

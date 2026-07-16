@@ -9,6 +9,8 @@ import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
 import { DeleteElementCommand } from './Commands/DeleteElementCommand';
 import { MigrateWorldCommand } from './Commands/MigrateWorldCommand';
+import { ExportFolderCommand } from './Commands/ExportFolderCommand';
+import { ImportFolderCommand } from './Commands/ImportFolderCommand';
 import { ValidateWorldCommand } from 'Commands/ValidateWorldCommand';
 import { Category } from 'enums';
 import Handlebars from 'handlebars';
@@ -217,6 +219,20 @@ export default class OnlyWorldsPlugin extends Plugin {
       id: 'migrate-world-frontmatter',
       name: 'Migrate world notes to frontmatter',
       callback: () => migrateWorldCommand.execute(),
+  });
+
+    const exportFolderCommand = new ExportFolderCommand(this.app);
+    this.addCommand({
+      id: 'export-onlyworlds-folder',
+      name: 'Export as OnlyWorlds folder',
+      callback: () => exportFolderCommand.execute(),
+  });
+
+    const importFolderCommand = new ImportFolderCommand(this.app, (p) => this.autoSync?.markSelfWrite(p));
+    this.addCommand({
+      id: 'import-onlyworlds-folder',
+      name: 'Import OnlyWorlds folder',
+      callback: () => importFolderCommand.execute(),
   });
 
 
