@@ -48,7 +48,19 @@ export class DownloadWorldCommand {
                     // Incremental pull when we hold a cursor for this world; a
                     // server rewind (head below our stored head) or a rejected
                     // cursor forces a cold re-walk from the epoch.
-                    const stored = this.plugin?.settings.syncCursors?.[worldId];
+                    //
+                    // Watermark vs vault reality (Captain's smoke, 2026-07-16):
+                    // settings/data.json OUTLIVES vault content — after clearing
+                    // the world folder, a stored cursor at head means "changes
+                    // since" = zero, and Download honestly writes NOTHING into an
+                    // empty vault. If the vault holds no element notes for this
+                    // world, the cursor is stale state, not truth: ignore it and
+                    // pull cold.
+                    let stored = this.plugin?.settings.syncCursors?.[worldId];
+                    if (stored && !this.vaultHasElementNotes(worldName)) {
+                        console.log('OnlyWorlds: vault has no notes for this world — ignoring sync cursor, full download.');
+                        stored = undefined;
+                    }
                     let walk: { changes: V2Change[]; cursor: string | null; head: number };
                     try {
                         walk = await client.changesWalk(stored?.cursor);
@@ -301,6 +313,15 @@ export class DownloadWorldCommand {
         });
 
         return noteContent;
+    }
+
+    /** Does the vault hold ANY element note for this world? Used to sanity-check
+     *  the sync-cursor watermark against vault reality: settings outlive vault
+     *  content, and a stored cursor over an empty world folder means an
+     *  incremental download would truthfully write nothing (2026-07-16 smoke). */
+    private vaultHasElementNotes(worldName: string): boolean {
+        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+        return this.app.vault.getMarkdownFiles().some(f => f.path.startsWith(prefix));
     }
 
     /** id→name across every element note in the vault (all worlds' notes are
