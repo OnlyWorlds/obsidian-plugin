@@ -1,4 +1,5 @@
 import { App, TFile, normalizePath, parseYaml } from "obsidian";
+import { sanitizeFileName } from "../Scripts/WorldService";
 import {
 	frontmatterToPayloadFields,
 	apiDataToFrontmatter,
@@ -188,7 +189,11 @@ export async function writeElement(
 	const cat = normalizeCategory(category);
 	const folderName = capitalize(cat);
 	const name = typeof data.name === "string" && data.name ? data.name : "Untitled";
-	const safeName = name.replace(/[\\/:*?"<>|]/g, "-");
+	// MUST be the SAME transform DownloadWorldCommand.buildIdToNameMap applies to
+	// wikilink targets — otherwise a name with a trailing dot/control char names
+	// the file one way and the [[link]] another, and the link dangles (gate
+	// finding, 2026-07-16: safeName was a weaker regex than sanitizeFileName).
+	const safeName = sanitizeFileName(name);
 	const bodyField = bodyFieldForCategory(cat);
 	const bodyValue = typeof data[bodyField] === "string" ? (data[bodyField] as string) : "";
 
