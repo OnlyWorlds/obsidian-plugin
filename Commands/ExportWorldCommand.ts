@@ -212,7 +212,10 @@ export class ExportWorldCommand {
                     const fileContent = await fs.read(file.path);
                     if (!isSpanFormat(fileContent) && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
-                        if (parsed) return parsed.fields;
+                        // id rides OUTSIDE parsed.fields — without it the upload
+                        // sweep's `if (!id) continue` silently skips every
+                        // frontmatter element (gate finding, 2026-07-16).
+                        if (parsed) return { id: parsed.id, ...parsed.fields };
                     }
                     return await this.parseTemplate(fileContent, worldFolder);
                 }));

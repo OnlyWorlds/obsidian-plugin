@@ -84,8 +84,11 @@ a pre-2.4 note).
 
 17. In a world with BOTH migrated (frontmatter) and un-migrated (span) notes:
     - [ ] **Upload World** completes and pushes both correctly (frontmatter via the
-          reader, span via the legacy parser).
-    - [ ] **Copy World to Clipboard** completes without error.
+          reader, span via the legacy parser). **Check the count in the upload
+          notice matches your element count** — a silent skip looks like success
+          (this exact class was caught and fixed at the gate; verify it stays dead).
+    - [ ] **Copy World to Clipboard** completes; paste the clipboard into a text
+          editor and spot-check elements carry their `id`.
 
 Known limitation to eyeball, not a blocker: **Validate World** is still a span-format
 linter. Run on a migrated (frontmatter) world it will report false "missing Id / Name"

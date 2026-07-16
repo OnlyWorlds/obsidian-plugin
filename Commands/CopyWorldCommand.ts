@@ -142,7 +142,12 @@ export class CopyWorldCommand {
                     let parsedElement: Record<string, any>;
                     if (!isSpanFormat(fileContent) && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
-                        parsedElement = parsed ? parsed.fields : await this.parseTemplate(fileContent, worldName);
+                        // id rides OUTSIDE parsed.fields — without it the copied
+                        // JSON loses element identity and paste-dedupe breaks
+                        // (gate finding, 2026-07-16).
+                        parsedElement = parsed
+                            ? { id: parsed.id, ...parsed.fields }
+                            : await this.parseTemplate(fileContent, worldName);
                     } else {
                         parsedElement = await this.parseTemplate(fileContent, worldName);
                     }
