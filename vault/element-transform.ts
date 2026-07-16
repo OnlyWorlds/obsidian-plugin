@@ -41,6 +41,68 @@ export function isExtensionKey(key: string): boolean {
 /** Meta keys that never belong in an outbound API payload. */
 const NON_PAYLOAD_KEYS = new Set(["id", "world", "world_id", "position", "aliases", "tags"]);
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * If `value` is a `[[Name]]` or `[[Name|Alias]]` wikilink string, return the
+ * target Name (the identity part, before any pipe). Otherwise null. Whitespace
+ * inside the brackets is trimmed. Used on READ to turn readable link fields back
+ * into ids (R1).
+ */
+export function wikilinkTarget(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const m = /^\[\[([^\]]+?)\]\]$/.exec(value.trim());
+	if (!m) return null;
+	const inner = m[1];
+	const name = (inner.includes("|") ? inner.slice(0, inner.indexOf("|")) : inner).trim();
+	return name.length ? name : null;
+}
+
+/** Wrap a display name as a `[[Name]]` wikilink string (WRITE side, R1). */
+export function toWikilink(name: string): string {
+	return `[[${name}]]`;
+}
+
+/**
+ * A value is "empty" for R3 omit-purposes when it is null/undefined, an empty
+ * or whitespace-only string, or an empty array. Numbers (incl. 0) and booleans
+ * (incl. false) are NEVER empty — they are real values.
+ */
+export function isEmptyFieldValue(value: unknown): boolean {
+	if (value == null) return true;
+	if (typeof value === "string") return value.trim().length === 0;
+	if (Array.isArray(value)) return value.length === 0;
+	return false;
+}
+
+/**
+ * Resolver injected by the Obsidian layer so the pure transform can render link
+ * fields readably. Maps an element id -> its display name (or null when the id
+ * has no local note — a dangling/cross-world link the raw id must survive as).
+ */
+export type IdToName = (id: string) => string | null;
+
+/**
+ * Resolver injected by the Obsidian layer so the pure transform can turn a
+ * `[[Name]]` link value back into an id. Path-aware resolution (same-name
+ * disambiguation) lives in the caller; this fn just maps a resolved Name -> id,
+ * or null when the name resolves to no element / an element without an id.
+ */
+export type NameToId = (name: string) => string | null;
+
+/**
+ * Render a single already-normalized link id as its readable frontmatter form:
+ * `[[Name]]` when the resolver knows the id, else the raw id (dangling/cross-world
+ * links are never lost). A value that is already a `[[wikilink]]` is passed
+ * through untouched (idempotent re-write).
+ */
+function renderLinkId(id: string, resolve?: IdToName): string {
+	if (!resolve) return id;
+	if (wikilinkTarget(id) != null) return id; // already readable
+	const name = resolve(id);
+	return name ? toWikilink(name) : id;
+}
+
 /** Lowercase, trim a category string ("Character" -> "character"). */
 export function normalizeCategory(category: string): string {
 	return category.toLowerCase().trim();
@@ -118,9 +180,50 @@ export function normalizeLinkValue(
  * The body-derived field (description/story) is NOT injected here — the caller
  * owns the body and layers it on top.
  */
+/**
+ * Options for reading link fields that may carry `[[Name]]` wikilinks (R1).
+ *
+ * `resolveNameToId` turns a resolved wikilink Name into an element id (path-aware
+ * disambiguation is the caller's job — it hands us the winning Name). When
+ * absent, wikilink values cannot be resolved and are treated as unresolvable
+ * (reported, not guessed) — but raw-uuid link values always pass through, so a
+ * vault-less unit test still round-trips id-shaped notes.
+ *
+ * `unresolved` (optional) collects `[[Name]]` targets that resolved to no id, so
+ * the caller can surface the loss (never silently drop a link).
+ */
+export interface ReadLinkOptions {
+	resolveNameToId?: NameToId;
+	unresolved?: string[];
+}
+
+/**
+ * Resolve one link value to an id, tolerating both shapes (R1):
+ *   - `[[Name]]` / `[[Name|Alias]]` -> resolved id (or null + reported unresolved)
+ *   - a bare id string (uuid or otherwise) -> itself (dangling/unmigrated tolerance)
+ */
+function linkValueToId(value: unknown, opts: ReadLinkOptions): string | null {
+	const target = wikilinkTarget(value);
+	if (target != null) {
+		const id = opts.resolveNameToId?.(target) ?? null;
+		if (!id) {
+			opts.unresolved?.push(target);
+			return null;
+		}
+		return id;
+	}
+	// Not a wikilink — a raw id string (or empty). Keep as-is.
+	if (typeof value === "string") {
+		const t = value.trim();
+		return t.length ? t : null;
+	}
+	return null;
+}
+
 export function frontmatterToPayloadFields(
 	frontmatter: Record<string, unknown>,
-	category: string
+	category: string,
+	opts: ReadLinkOptions = {}
 ): Record<string, unknown> {
 	const schema = getCategorySchema(category);
 	const out: Record<string, unknown> = {};
@@ -139,8 +242,16 @@ export function frontmatterToPayloadFields(
 		}
 		const field = schema[key];
 		if (!field) continue; // unknown non-extension key on a known type — not an API field
-		if (field.type === "single_link" || field.type === "multi_link") {
-			out[key] = normalizeLinkValue(value, field.type);
+		if (field.type === "single_link") {
+			// Normalize first (collapses stub objects / arrays / empties to a single
+			// value), then resolve the wikilink-or-id to a bare id.
+			const norm = normalizeLinkValue(value, "single_link");
+			out[key] = norm == null ? null : linkValueToId(norm, opts);
+		} else if (field.type === "multi_link") {
+			const arr = normalizeLinkValue(value, "multi_link") as string[];
+			out[key] = arr
+				.map((v) => linkValueToId(v, opts))
+				.filter((v): v is string => v != null);
 		} else {
 			out[key] = value;
 		}
@@ -149,49 +260,91 @@ export function frontmatterToPayloadFields(
 }
 
 /**
- * Build the frontmatter object to persist for an element, given API data.
- * Link fields are normalized to id shape (single string / multi array).
- * Extension keys in `data` are preserved verbatim. The body-derived field
- * (description/story) is excluded — it lives in the note body, not frontmatter.
+ * Options for building frontmatter (R1 readability).
  *
- * `id` and `name` are always placed first (callers rely on stable head keys).
+ * `resolveIdToName` renders link ids as `[[Name]]` wikilinks (raw id kept when
+ * the id has no local note — dangling/cross-world links are never lost). When
+ * absent, link fields stay raw ids (today's behavior) so vault-less unit tests
+ * still pass.
+ */
+export interface WriteFrontmatterOptions {
+	resolveIdToName?: IdToName;
+}
+
+/**
+ * Build the frontmatter object to persist for an element, given API data.
+ *
+ * Layout (R2/R4): `name` first, then real content fields in schema order, then
+ * `image_url`, then `id` LAST — Obsidian renders Properties in object-key order,
+ * so machine fields sink to the bottom and the readable fields lead. `name` and
+ * `id` are always present.
+ *
+ * Link fields (R1): rendered as `[[Name]]` wikilinks when a resolver is given
+ * (single_link -> one string, multi_link -> array of strings), else raw ids.
+ *
+ * Empty omit (R3): a field whose value is null / "" / [] is dropped — a note
+ * carries only fields that have values. NEVER dropped: `id`, `name`, and
+ * extension keys (atlas_/shadow_/x_ round-trip verbatim even when empty).
+ *
+ * The body-derived field (description/story) is excluded — it lives in the body.
  */
 export function apiDataToFrontmatter(
 	data: Record<string, unknown>,
 	category: string,
-	elementId: string
+	elementId: string,
+	opts: WriteFrontmatterOptions = {}
 ): Record<string, unknown> {
 	const schema = getCategorySchema(category);
 	const bodyField = bodyFieldForCategory(category);
-	const fm: Record<string, unknown> = {};
-	fm.id = elementId;
-	if (typeof data.name === "string") fm.name = data.name;
+	const resolve = opts.resolveIdToName;
+
+	// Collect content fields first, then assemble in R4 order at the end.
+	const content: Record<string, unknown> = {};
+	let imageUrl: unknown = undefined;
 
 	for (const [key, value] of Object.entries(data)) {
 		if (key === "id" || key === "name") continue;
 		if (key === bodyField) continue; // description/story goes to the body
 		if (key === "world" || key === "world_id") continue;
 		if (isExtensionKey(key)) {
-			fm[key] = value; // verbatim
+			content[key] = value; // verbatim, kept even when empty (R3 exception)
 			continue;
 		}
 		if (!schema) {
-			fm[key] = value;
+			// Unknown category — pass through, but still apply the empty-omit rule.
+			if (!isEmptyFieldValue(value)) content[key] = value;
 			continue;
 		}
 		const field = schema[key];
 		if (!field) {
 			// Not a known field and not an extension key. Drop from frontmatter to
-			// keep notes clean — but this branch only fires for genuinely foreign
-			// non-namespaced keys, which the API would not have returned anyway.
+			// keep notes clean — the API would not have returned it anyway.
 			continue;
 		}
-		if (field.type === "single_link" || field.type === "multi_link") {
-			fm[key] = normalizeLinkValue(value, field.type);
+		let out: unknown;
+		if (field.type === "single_link") {
+			const norm = normalizeLinkValue(value, "single_link");
+			out = typeof norm === "string" ? renderLinkId(norm, resolve) : null;
+		} else if (field.type === "multi_link") {
+			const arr = normalizeLinkValue(value, "multi_link") as string[];
+			out = arr.map((id) => renderLinkId(id, resolve));
 		} else {
-			fm[key] = value;
+			out = value;
+		}
+		if (isEmptyFieldValue(out)) continue; // R3 omit — but id/name/ext handled above
+		if (key === "image_url") {
+			imageUrl = out;
+		} else {
+			content[key] = out;
 		}
 	}
+
+	// R4 assembly: name, then content (schema order), then image_url, then id last.
+	const fm: Record<string, unknown> = {};
+	fm.name = typeof data.name === "string" ? data.name : "";
+	for (const [k, v] of Object.entries(content)) fm[k] = v;
+	if (imageUrl !== undefined) fm.image_url = imageUrl;
+	fm.id = elementId;
 	return fm;
 }
 
@@ -270,7 +423,7 @@ export interface ParsedSpanNote {
 
 const SPAN_LINE = /^-\s*<span class="([^"]+)"\s+data-tooltip="([^"]+)">([^<]+)<\/span>:\s*(.*)$/;
 const WIKILINK = /\[\[(.*?)\]\]/g;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// UUID_RE is declared near the top of the module (shared with the wikilink helpers).
 
 const TTRPG_STATS = new Set(["STR", "DEX", "CON", "INT", "WIS", "CHA"]);
 

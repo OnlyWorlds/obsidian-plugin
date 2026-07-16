@@ -90,7 +90,22 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 
 	if (fm && typeof fm.id === "string") {
 		const body = stripFrontmatter(content).trim();
-		const fields = frontmatterToPayloadFields(fm, category);
+		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
+		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
+		// A bare-id link value passes through untouched (dangling/unmigrated).
+		const unresolved: string[] = [];
+		const fields = frontmatterToPayloadFields(fm, category, {
+			resolveNameToId: buildWikilinkResolver(app, file.path),
+			unresolved,
+		});
+		if (unresolved.length > 0) {
+			// Never silent (round-trip law): a `[[Name]]` link that resolves to no
+			// note is dropped from the outbound id list, but we log which ones so the
+			// loss is visible in the console rather than vanishing.
+			console.warn(
+				`[OnlyWorlds] ${file.path}: ${unresolved.length} unresolved link(s) dropped on read: ${unresolved.join(", ")}`
+			);
+		}
 		const bodyField = bodyFieldForCategory(category);
 		if (body) fields[bodyField] = body;
 		if (!fields.name) {
@@ -191,18 +206,22 @@ export async function writeElement(
 	}
 	if (!(file instanceof TFile)) throw new Error(`Failed to materialize element file at ${filePath}`);
 
-	const fm = apiDataToFrontmatter(data, cat, elementId);
+	const fm = apiDataToFrontmatter(data, cat, elementId, {
+		resolveIdToName: buildIdToNameResolver(app, worldName),
+	});
 
 	markSelfWrite?.(file.path);
 	await app.fileManager.processFrontMatter(file, (frontmatter) => {
 		const target = frontmatter as Record<string, unknown>;
-		// Clear stale keys we own, then write the fresh set. Extension keys and
-		// any user-added frontmatter NOT in `fm` are left untouched.
+		// Rewrite the fields we own from scratch so their ORDER matches `fm`
+		// (name first, image_url/id last — R4). Delete every owned key first
+		// (including ones now empty/omitted — R3), then re-insert in fm order.
+		// Extension keys and any user-added frontmatter NOT owned are left in place.
 		const schema = getCategorySchema(cat);
 		const ownedKeys = new Set<string>(["id", "name"]);
 		if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 		for (const k of Object.keys(target)) {
-			if (ownedKeys.has(k) && !(k in fm)) delete target[k];
+			if (ownedKeys.has(k)) delete target[k];
 		}
 		for (const [k, v] of Object.entries(fm)) {
 			target[k] = v;
@@ -273,6 +292,43 @@ function buildVaultLinkResolver(app: App, worldName: string): (name: string) => 
 		}
 	}
 	return (name: string) => index.get(name) ?? null;
+}
+
+/**
+ * Build an id -> display-name resolver over a world's element notes (the INVERSE
+ * of buildVaultLinkResolver). Used on WRITE to render link ids as `[[Name]]`
+ * wikilinks (R1). An id with no local note returns null, so the raw id is kept
+ * (dangling/cross-world links never lost).
+ */
+function buildIdToNameResolver(app: App, worldName: string): (id: string) => string | null {
+	const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+	const index = new Map<string, string>();
+	const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
+	for (const f of files) {
+		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
+		if (fm && typeof fm.id === "string") {
+			const name = typeof fm.name === "string" && fm.name ? fm.name : f.basename;
+			index.set(fm.id, name);
+		}
+	}
+	return (id: string) => index.get(id) ?? null;
+}
+
+/**
+ * Build a path-aware `[[Name]]` -> id resolver for READ (R1). Uses Obsidian's
+ * own link resolution (getFirstLinkpathDest) from the SOURCE note's path, so a
+ * link to "Ireena" resolves the same way Obsidian's graph would — same-name
+ * notes disambiguate by proximity, exactly as the probe proved. The target
+ * file's frontmatter `id` is the resolved value; a target with no id (or no
+ * target) yields null (reported unresolved, never guessed).
+ */
+function buildWikilinkResolver(app: App, sourcePath: string): (name: string) => string | null {
+	return (name: string) => {
+		const dest = app.metadataCache.getFirstLinkpathDest(name, sourcePath);
+		if (!dest) return null;
+		const fm = app.metadataCache.getFileCache(dest)?.frontmatter;
+		return fm && typeof fm.id === "string" ? fm.id : null;
+	};
 }
 
 function stripFrontmatter(content: string): string {
