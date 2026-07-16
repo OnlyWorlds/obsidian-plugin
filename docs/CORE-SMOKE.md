@@ -27,7 +27,8 @@ What Skeld already verified by execution (you don't need to re-run these):
    - [ ] Run again → all "skipped" (idempotent).
 
 4. **Folder bridge → Atlas** (3 min — THE cross-tool proof).
-   - [ ] Export as OnlyWorlds folder. *(New: you can now pick the destination — point it at your `…/onlyworlds-atlas/` root for a one-step handoff, or use the vault default and move it.)*
+   - [ ] Export as OnlyWorlds folder → pick a destination. **Test both**: (i) vault default lands in `OW-folder-export/`; (ii) "Choose a folder…" → pick your `…/onlyworlds-atlas/` root → the folder lands there directly. **Watch which dialog path fires** — if the native OS picker doesn't open, you get a paste-absolute-path modal (the fallback); note which, so we know what this Obsidian build exposes (the one unverified-from-outside piece).
+     - [ ] Refusal check: try exporting into a folder that already holds that world folder → refused, not overwritten.
    - [ ] Open Atlas → the world appears with elements, descriptions, links intact.
    - [ ] Import the same folder into a fresh vault → frontmatter notes with original ids; re-import → all "skipped" (never overwrites); different world.json id, same name → aborts.
 
