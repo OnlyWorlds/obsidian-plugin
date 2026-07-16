@@ -1,12 +1,14 @@
 import { ValidateExportResultModal } from 'Modals/ValidateExportResultModal';
 import { WorldPinSelectionModal } from 'Modals/WorldPinSelectionModal';
-import { App, normalizePath, Notice, PluginManifest } from 'obsidian';
+import { App, normalizePath, Notice, PluginManifest, TFile } from 'obsidian';
 import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { resolveWorldKey } from '../vault/world-key';
+import { readElement } from '../vault/element-file';
+import { isSpanFormat } from '../vault/element-transform';
 import type OnlyWorldsPlugin from '../main';
 
 export class ExportWorldCommand {
@@ -203,7 +205,15 @@ export class ExportWorldCommand {
                 const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
      
                 const categoryData = await Promise.all(files.map(async (file) => {
-                    const fileContent = await fs.read(file.path); 
+                    // Phase B: frontmatter notes read via the shared element reader
+                    // (id + typed fields + extension namespaces preserved); legacy
+                    // span notes still fall through to the span parser so a mixed,
+                    // partly-migrated world uploads correctly either way.
+                    const fileContent = await fs.read(file.path);
+                    if (!isSpanFormat(fileContent) && file instanceof TFile) {
+                        const parsed = await readElement(this.app, file);
+                        if (parsed) return parsed.fields;
+                    }
                     return await this.parseTemplate(fileContent, worldFolder);
                 }));
     

@@ -5,6 +5,7 @@ import { resolveWorldKey } from '../vault/world-key';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
+import { diffPayload } from '../vault/element-transform';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -110,24 +111,19 @@ export class SaveElementCommand {
         }
 
         // 5. v2 wire payload: bare link names (suffixes stripped), world stripped.
-        //
-        // TODO Phase B: Add proper read-before-PATCH safety.
-        // PATCH from a full local parse overwrites text fields and multi-links
-        // wholesale. Current behavior matches the legacy path (full overwrite
-        // from local parse), so not a regression — the real fix rides the
-        // frontmatter migration.
         const type = category.toLowerCase();
         const payload = toV2Payload(elementData as Record<string, unknown>);
-
         const label = elementData.name || elementUuid;
+
+        // 6. Read-before-PATCH (R7): fetch current server state, send only the
+        // fields that actually changed. This leaves server-only fields (incl.
+        // extension namespaces the note may not carry) untouched, instead of a
+        // wholesale overwrite from the local parse. A GET 404 means the element
+        // was never pushed — create it (the server preserves client-supplied ids).
+        let current: Record<string, unknown> | null = null;
         try {
-            new Notice(`Saving ${category} "${label}"...`);
-            await client.update(type, elementUuid, payload);
-            new Notice(`${category} saved.`);
+            current = await client.get(type, elementUuid);
         } catch (error) {
-            // 404 means this id doesn't exist server-side yet — a locally-created
-            // element never pushed. The server preserves client-supplied ids on
-            // CREATE, so fall back to create().
             if (this.isNotFound(error)) {
                 try {
                     new Notice(`Creating ${category} "${label}"...`);
@@ -140,6 +136,23 @@ export class SaveElementCommand {
                 }
                 return;
             }
+            console.error('Error during v2 GET (read-before-PATCH):', error);
+            const msg = error instanceof Error ? error.message : 'Unknown error';
+            new Notice(`Failed to save ${category}: ${msg}`, 10000);
+            return;
+        }
+
+        const changed = diffPayload(payload, current ?? {});
+        if (Object.keys(changed).length === 0) {
+            new Notice(`${category} "${label}" already up to date.`);
+            return;
+        }
+
+        try {
+            new Notice(`Saving ${category} "${label}"...`);
+            await client.update(type, elementUuid, changed);
+            new Notice(`${category} saved.`);
+        } catch (error) {
             console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
             new Notice(`Failed to save ${category}: ${msg}`, 10000);

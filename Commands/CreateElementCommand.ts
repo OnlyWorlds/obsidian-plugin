@@ -1,6 +1,7 @@
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { v7 as uuidv7 } from 'uuid';
+import { writeElement } from '../vault/element-file';
 
 export class CreateElementCommand {
     app: App;
@@ -15,90 +16,30 @@ export class CreateElementCommand {
 
     async execute(category: string, name: string, worldName?: string, openFile: boolean = true): Promise<void> {
         const uuid = uuidv7();
-        const templateContent = await this.getTemplateContent(category);
-        if (!templateContent) {
-            new Notice(`Template for ${category} not found.`);
-            return;
-        } 
-        await this.createNoteInCorrectFolder(templateContent, category, uuid, name, worldName, openFile);
-    }
-    
-
-    async getTemplateContent(category: string): Promise<string | null> {
-        const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Templates/${category}.md`);
-        const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
-        if (templateFile instanceof TFile) {
-            return this.app.vault.read(templateFile);
-        }
-        return null;
-    }
-    insertNameInTemplate(content: string, name: string): string {
-        const lines = content.split('\n');
-        const nameLineIndex = lines.findIndex(line => line.includes('Name</span>:'));
-        if (nameLineIndex !== -1) {
-            lines[nameLineIndex] = lines[nameLineIndex].replace('Name</span>:', `Name</span>: ${name}`);
-        }
-        return lines.join('\n');
-    }
-
-    insertIdInTemplate(content: string, id: string): string {
-        const lines = content.split('\n');
-        const idLineIndex = lines.findIndex(line => line.includes('Id</span>:')); 
-        if (idLineIndex !== -1) {
-            lines[idLineIndex] = lines[idLineIndex].replace('Id</span>:', `Id</span>: ${id}`);
-        }
-        return lines.join('\n');
-    }
-
-
-    async createNoteInCorrectFolder(content: string, category: string, id: string, name: string, worldName?: string, openFile: boolean = true): Promise<void> {
+        // Phase B: new elements are created directly as frontmatter notes via
+        // writeElement — no Handlebars template fetch. A fresh element carries
+        // only id + name; the user fills in fields (as Properties) and body.
         const topWorld = worldName || await this.worldService.getWorldName();
-        
-        // Find the category folder (might have count in name)
-        const existingFolder = await this.worldService.findCategoryFolderByBaseName(topWorld, category);
-        let worldFolder: string;
-        
-        if (existingFolder) {
-            worldFolder = existingFolder.path;
-        } else {
-            // Create new folder with base name initially
-            worldFolder = normalizePath(`OnlyWorlds/Worlds/${topWorld}/Elements/${category}`);
-            await this.createFolderIfNeeded(worldFolder);
-        }
-    
-        // Generate unique filename for element
-        const uniqueFileName = await this.worldService.generateUniqueFileName(worldFolder, name, id);
-        let newNotePath = normalizePath(`${worldFolder}/${uniqueFileName}`);
-    
-        // Insert the name and ID into the template content
-        content = this.insertNameInTemplate(content, name);
-        content = this.insertIdInTemplate(content, id);
-    
         try {
-            const createdFile = await this.app.vault.create(newNotePath, content);
+            // Resolve the (possibly count-suffixed) category folder + a collision-free
+            // filename, so we write into the same folder the vault already uses.
+            const existingFolder = await this.worldService.findCategoryFolderByBaseName(topWorld, category);
+            const folderPath = existingFolder
+                ? existingFolder.path
+                : normalizePath(`OnlyWorlds/Worlds/${topWorld}/Elements/${category}`);
+            const fileName = await this.worldService.generateUniqueFileName(folderPath, name, uuid);
+            const file = await writeElement(this.app, topWorld, category, uuid, { name }, { folderPath, fileName });
             new Notice(`New ${category.toLowerCase()} created: ${name}`);
-            if (openFile) {
-                this.openNoteInNewPane(createdFile);
-            }
-            
-            // Update the category folder name to reflect new count (after the file is created)
             await this.worldService.updateCategoryFolderName(topWorld, category);
+            if (openFile) {
+                await this.openNoteInNewPane(file);
+            }
         } catch (error) {
-            console.error(`Failed to create note: ${newNotePath}`, error);
-            new Notice(`Failed to create note: ${newNotePath}`);
+            console.error(`Failed to create ${category} note`, error);
+            new Notice(`Failed to create ${category}: ${error instanceof Error ? error.message : 'unknown error'}`);
         }
     }
-    
-    
-    async generateUniqueFilename(folderPath: string, baseName: string, index: number): Promise<string> {
-        let testPath = normalizePath(`${folderPath}/${baseName}${index ? ` ${index}` : ''}.md`);
-        while (await this.app.vault.adapter.exists(testPath)) {
-            index++;
-            testPath = normalizePath(`${folderPath}/${baseName} ${index}.md`);
-        }
-        
-        return testPath;
-    }
+
 
     async openNoteInNewPane(file: TFile) {
         const leaf = this.app.workspace.getLeaf(true);

@@ -22,4 +22,7 @@ data.json
 .DS_Store
 
 # AI tooling
-CLAUDE.mdTEST-CHECKLIST.md
+CLAUDE.md
+
+# Test build output (npm test compiles here)
+test-dist/

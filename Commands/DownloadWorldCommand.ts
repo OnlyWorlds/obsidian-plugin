@@ -7,7 +7,7 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client } from '../client-v2';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { CreateHandlebarsCommand } from './CreateHandlebarsCommand';
+import { writeElement } from '../vault/element-file';
 
 export class DownloadWorldCommand {
     app: App;
@@ -115,12 +115,8 @@ export class DownloadWorldCommand {
                     const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest );
                     await createCoreFilesCommand.execute();
 
-                    // Guarantee a handlebar template exists for EVERY category (incl.
-                    // Map/Pin/Marker) before rendering notes — a missing template
-                    // silently skips those elements. Idempotent: only creates missing.
-                    await new CreateHandlebarsCommand(this.app, this.manifest).ensureAllHandlebars();
-
                     // Generate element notes in the correct category folders under Elements
+                    // (Phase B: frontmatter via writeElement — no Handlebars templates)
                     await this.generateElementNotes(elementsFolderPath, worldData, overwrite);
 
                     // Update all category folder names with counts
@@ -263,29 +259,24 @@ export class DownloadWorldCommand {
                     var notePath = `${categoryDirectory}/${uniqueFileName}`; 
                 }
     
-                if (overwrite || existingElementPath || !await fs.exists(notePath)) { 
-                    
-                    // Fetch the template from the user's vault
-                    const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Handlebars/${category}Handlebar.md`);
-                    let templateText: string;
-    
-                    if (await fs.exists(templatePath)) {
-                        templateText = await fs.read(templatePath);
-                    } else {
-                        // If the template doesn't exist, log an error and skip the note creation
-                        console.error(`Handlebars not found: ${templatePath}`);
-                        new Notice(`Handlebars not found for ${category}, skipping note creation.`);
-                        continue;
-                    }
-    
-                    const template = Handlebars.compile(templateText, { noEscape: true });
-                    let noteContent = template(element);
-    
-                    // Process the content to replace links with proper IDs
-                    noteContent = await this.linkifyContent(noteContent, data);
-    
-                    // Write the note content to the appropriate file path
-                    await fs.write(notePath, noteContent);  
+                if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                    // v2 frontmatter format (Phase B). writeElement owns the file
+                    // placement (it re-finds by embedded id), preserves extension
+                    // fields verbatim, normalizes link ids, and maps the body to
+                    // description (or story for Narrative). The raw v2 element body
+                    // (bare link ids, extension namespaces intact) goes straight in.
+                    await writeElement(
+                        this.app,
+                        worldName,
+                        category,
+                        element.id,
+                        element,
+                        {
+                            markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
+                            folderPath: categoryDirectory,
+                            fileName: notePath.split('/').pop(),
+                        }
+                    );
                 } else {
                   //  console.log(`[DownloadWorldCommand] Skipping element (already exists and not overwriting): ${notePath}`);
                 }

@@ -8,6 +8,7 @@ import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
 import { SaveElementCommand } from './Commands/SaveElementCommand';
 import { DeleteElementCommand } from './Commands/DeleteElementCommand';
+import { MigrateWorldCommand } from './Commands/MigrateWorldCommand';
 import { ValidateWorldCommand } from 'Commands/ValidateWorldCommand';
 import { Category } from 'enums';
 import Handlebars from 'handlebars';
@@ -211,6 +212,13 @@ export default class OnlyWorldsPlugin extends Plugin {
       callback: () => deleteElementCommand.execute(),
   });
 
+    const migrateWorldCommand = new MigrateWorldCommand(this.app);
+    this.addCommand({
+      id: 'migrate-world-frontmatter',
+      name: 'Migrate world notes to frontmatter',
+      callback: () => migrateWorldCommand.execute(),
+  });
+
 
     // Update Category Counts command removed - handled automatically by other operations
 
@@ -228,16 +236,7 @@ export default class OnlyWorldsPlugin extends Plugin {
   this.addCommand({
       id: 'link-elements',
       name: 'Link Elements',
-      callback: () => { 
-          let editor = this.noteLinker.currentEditor;
-          if (editor) {
-              const cursor = editor.getCursor();
-              const lineText = editor.getLine(cursor.line);
-              if (this.noteLinker.isLineLinkField(lineText)) {
-                  this.noteLinker.linkElement(editor, cursor, lineText);
-              }
-          }
-      }
+      callback: () => { void this.noteLinker.linkActiveNote(); }
   });
 
     }

@@ -1,158 +1,170 @@
-import { App, Editor, EditorPosition, MarkdownView, WorkspaceLeaf, PluginManifest } from 'obsidian';
-import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
+import { App, Editor, MarkdownView, Notice, PluginManifest, TFile, WorkspaceLeaf } from 'obsidian';
+import { FIELD_SCHEMA } from '@onlyworlds/sdk';
+import { WorldService } from 'Scripts/WorldService';
 import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
-import { decodeHtmlEntities } from '../Scripts/htmlEntities';
+import { FieldSelectionModal, LinkFieldChoice } from '../Modals/FieldSelectionModal';
+import { normalizeCategory } from '../vault/element-transform';
 
-
+/**
+ * NoteLinker (Phase B — frontmatter).
+ *
+ * The link system now reads structured frontmatter via metadataCache and the
+ * SDK FIELD_SCHEMA, not rendered-HTML span markup (which killed the four
+ * archaeology brittleness classes at the root: HTML-regex detection, span id
+ * scraping, filename-collision link resolution, comma-joined multi values).
+ *
+ * "Link Elements" on an element note:
+ *   1. resolves the element's category from its path,
+ *   2. offers its single_link / multi_link fields (from FIELD_SCHEMA),
+ *   3. shows a picker of target-type elements (by name, storing id),
+ *   4. writes ids into frontmatter — single_link as a string, multi_link as a
+ *      YAML list (unioned with existing), never a comma-joined string (R4).
+ *
+ * Body [[wikilinks]] are left untouched — they remain prose cross-references.
+ */
 export class NoteLinker {
-    private worldService: WorldService;
-    public  currentEditor: Editor | null = null;
-    private app: App;
-    private manifest: PluginManifest;
+	public currentEditor: Editor | null = null;
+	private app: App;
+	private worldService: WorldService;
+	private manifest: PluginManifest;
 
-    constructor(app: App, worldService: WorldService, manifest: PluginManifest) {  // Specify the type here
-        this.app = app;
-        this.worldService = worldService;
-        this.manifest = manifest;
-    }
-  
+	constructor(app: App, worldService: WorldService, manifest: PluginManifest) {
+		this.app = app;
+		this.worldService = worldService;
+		this.manifest = manifest;
+	}
 
-    handleLeafChange(leaf: WorkspaceLeaf | null) {
-        if (leaf && leaf.view instanceof MarkdownView) {
-            this.currentEditor = leaf.view.editor;
-        } else {
-            this.currentEditor = null;
-        }
-    }
+	handleLeafChange(leaf: WorkspaceLeaf | null) {
+		if (leaf && leaf.view instanceof MarkdownView) {
+			this.currentEditor = leaf.view.editor;
+		} else {
+			this.currentEditor = null;
+		}
+	}
 
-    public  isLineLinkField(line: string): boolean {
-        return /<span class="(link-field|multi-link-field)"[^>]*>/.test(line);
-    }
+	/** Category (lowercase singular) for a path, or null if not an element note. */
+	private categoryForPath(path: string): string | null {
+		const m = /^OnlyWorlds\/Worlds\/([^/]+)\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
+		if (!m) return null;
+		return normalizeCategory(m[2].replace(/\s*\(\d+\)$/, ''));
+	}
 
-    public  async linkElement(editor: Editor, cursor: EditorPosition, lineText: string) {
-        const currentFile = this.app.workspace.getActiveFile();
-        if (currentFile) {
-            const currentContent = await this.app.vault.read(currentFile);
-            const { id: currentId } = this.parseElement(currentContent);
-            
-            const worldName = this.extractWorldName(currentFile.path);
-            
-            const tooltipMatch = /data-tooltip="(Single|Multi) (.*?)">/.exec(lineText);
-            const fieldNameMatch = /data-tooltip="[^"]*">([^<]+)<\/span>/.exec(lineText);
-            
-            if (tooltipMatch && fieldNameMatch) {
-                const elementType = tooltipMatch[2];
-                const fieldName = fieldNameMatch[1].trim();
-                const elements = await this.fetchElements(elementType, currentId);
-                
-                const modal = new ElementSelectionModal(
-                    this.app, 
-                    elements, 
-                    elementType, 
-                    fieldName, 
-                    (selectedElements) => {
-                        this.handleElementSelection(editor, cursor, lineText, selectedElements);
-                    },
-                    this.worldService,
-                    this.manifest,
-                    () => this.fetchElements(elementType, currentId)
-                );
-                modal.open();
-            }
-        }
-    }
-    
-    
-    private async fetchElements(elementType: string, currentId: string): Promise<{ name: string; id: string }[]> {
-        const topWorldName = await this.worldService.getWorldName();
-        const elementsPath = `OnlyWorlds/Worlds/${topWorldName}/Elements/${elementType}`; 
-    
-        const files = this.app.vault.getMarkdownFiles().filter(file => file.path.startsWith(elementsPath)); 
-    
-        const elements = [];
-        for (const file of files) {
-            const content = await this.app.vault.read(file);
-            const { name, id } = this.parseElement(content);
-        //    console.log(`Checking file: ${file.path}, Found Id: ${id}, Name: ${name}`); // Detailed log for each file
-    
-            if (id !== currentId) {
-                elements.push({ name, id }); 
-            }
-        }
-     
-        return elements;
-    }
- 
+	/** The link fields (single/multi) for a category, derived from FIELD_SCHEMA. */
+	private linkFieldsFor(category: string): LinkFieldChoice[] {
+		const schema = (FIELD_SCHEMA as Record<string, Record<string, { type: string; target?: string }>>)[category];
+		if (!schema) return [];
+		const out: LinkFieldChoice[] = [];
+		for (const [key, def] of Object.entries(schema)) {
+			if (def.type === 'single_link' || def.type === 'multi_link') {
+				out.push({
+					key,
+					label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
+					multi: def.type === 'multi_link',
+					target: def.target ?? key,
+				});
+			}
+		}
+		return out;
+	}
 
-    private extractWorldName(filePath: string): string { 
-        const pathParts = filePath.split('/');
-        const worldIndex = pathParts.indexOf('Worlds');
-        if (worldIndex !== -1 && pathParts.length > worldIndex + 1) {
-            return pathParts[worldIndex + 1];
-        }
-        return "Unknown World";  
-    }
-   
+	/**
+	 * Entry point for the "Link Elements" command. Opens the field picker, then
+	 * the element picker, then writes ids into frontmatter.
+	 */
+	public async linkActiveNote(): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		if (!(file instanceof TFile)) {
+			new Notice('Open an element note first.');
+			return;
+		}
+		const category = this.categoryForPath(file.path);
+		if (!category) {
+			new Notice('This note is not an OnlyWorlds element.');
+			return;
+		}
+		const fields = this.linkFieldsFor(category);
+		if (fields.length === 0) {
+			new Notice(`No link fields for ${category}.`);
+			return;
+		}
 
-  private parseElement(content: string): { name: string, id: string } { 
-    // Adjust the regex to capture the full ID including dashes and potential special characters
-    const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([\w-]+)/);
-    const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*(.+)/);
+		new FieldSelectionModal(this.app, category, fields, (choice) => {
+			void this.pickAndLink(file, choice);
+		}).open();
+	}
 
-    const id = idMatch ? idMatch[1].trim() : "Unknown Id";
-    // Decode so a [[wikilink]] written from an escaped target note carries the
-    // raw name (which then matches the real filename and the API name).
-    const name = nameMatch ? decodeHtmlEntities(nameMatch[1].trim()) : "Unnamed Element";
+	private async pickAndLink(file: TFile, choice: LinkFieldChoice): Promise<void> {
+		const worldName = this.extractWorldName(file.path);
+		const selfId = this.app.metadataCache.getFileCache(file)?.frontmatter?.id as string | undefined;
 
-    return { id, name };
+		const fetch = () => this.fetchElementsOfType(worldName, choice.target, selfId);
+		const elements = await fetch();
+
+		const modal = new ElementSelectionModal(
+			this.app,
+			elements,
+			choice.target,
+			choice.label,
+			(selected) => void this.writeLink(file, choice, selected),
+			this.worldService,
+			this.manifest,
+			fetch
+		);
+		modal.open();
+	}
+
+	/** Write the chosen ids into the note's frontmatter (single string / multi list). */
+	private async writeLink(
+		file: TFile,
+		choice: LinkFieldChoice,
+		selected: { name: string; id: string }[]
+	): Promise<void> {
+		const ids = selected.map((e) => e.id);
+		await this.app.fileManager.processFrontMatter(file, (fm) => {
+			const target = fm as Record<string, unknown>;
+			if (choice.multi) {
+				const existing = Array.isArray(target[choice.key]) ? (target[choice.key] as unknown[]) : [];
+				const merged = [...existing.map(String)];
+				for (const id of ids) if (!merged.includes(id)) merged.push(id);
+				target[choice.key] = merged; // YAML list — never comma-joined (R4)
+			} else {
+				target[choice.key] = ids.length ? ids[0] : null; // single id string
+			}
+		});
+		const label = selected.map((e) => e.name).join(', ');
+		new Notice(`Linked ${choice.label}: ${label}`);
+	}
+
+	/** id+name of every element of `target` type in the world (excludes self). */
+	private async fetchElementsOfType(
+		worldName: string,
+		target: string,
+		selfId?: string
+	): Promise<{ name: string; id: string }[]> {
+		const folder = capitalize(target);
+		const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/${folder}`;
+		const files = this.app.vault
+			.getMarkdownFiles()
+			.filter((f) => f.path.startsWith(prefix + '/') || f.path.startsWith(prefix + ' ('));
+		const out: { name: string; id: string }[] = [];
+		for (const f of files) {
+			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+			const id = fm?.id;
+			if (typeof id !== 'string' || id === selfId) continue;
+			const name = typeof fm?.name === 'string' ? fm.name : f.basename;
+			out.push({ name, id });
+		}
+		out.sort((a, b) => a.name.localeCompare(b.name));
+		return out;
+	}
+
+	private extractWorldName(filePath: string): string {
+		const parts = filePath.split('/');
+		const i = parts.indexOf('Worlds');
+		return i !== -1 && parts.length > i + 1 ? parts[i + 1] : 'Unknown World';
+	}
 }
 
-
-private handleElementSelection(editor: Editor, cursor: EditorPosition, lineText: string, selectedElements: { name: string; id: string }[]) {
-    const isMultiLink = /class="multi-link-field"/.test(lineText);
-    const isLink = /class="link-field"/.test(lineText);
-
-    let lineContent = editor.getLine(cursor.line);
-    const insertionPoint = lineContent.indexOf('</span>:') + '</span>:'.length;
-    let currentValues = lineContent.substring(insertionPoint).trim();
-
-    if (isMultiLink) {
-        // Parse existing values as links
-        let existingValues: string[] = [];
-        if (currentValues) {
-            // Handle both comma-separated format and existing array format
-            existingValues = currentValues.includes(',') 
-                ? currentValues.split(',').map(v => v.trim()) 
-                : [currentValues.trim()];
-        }
-
-        // Check and filter out already existing elements to prevent duplicates.
-        // Wikilink targets use the sanitized FILENAME form (raw names with ':'
-        // etc. don't resolve as link targets).
-        let newValues = selectedElements
-            .filter(el => !existingValues.includes(`[[${sanitizeFileName(el.name)}]]`))
-            .map(el => `[[${sanitizeFileName(el.name)}]]`);
-
-        // Combine existing and new values
-        let allValues = existingValues.concat(newValues);
-        
-        // Join with commas for display in the note
-        let updatedValues = allValues.join(',');
-
-        // Update the editor content with the new values
-        editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + updatedValues);
-    } else if (isLink) {
-        // Single link field: Replace existing value with the new selection
-        let newValue = selectedElements.length > 0 ? `[[${sanitizeFileName(selectedElements[0].name)}]]` : '';
-        editor.setLine(cursor.line, lineContent.substring(0, insertionPoint) + ' ' + newValue);
-    }
-}
-
-
-
-    
-    
-    
-    
-    
+function capitalize(s: string): string {
+	return s.charAt(0).toUpperCase() + s.slice(1);
 }

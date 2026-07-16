@@ -8,7 +8,9 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "pretest": "tsc -p tsconfig.test.json --skipLibCheck && node -e \"require('fs').writeFileSync('test-dist/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "test": "node --test \"test-dist/test/*.test.js\""
   },
   "keywords": [],
   "author": "Titus",

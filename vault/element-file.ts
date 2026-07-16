@@ -1,16 +1,31 @@
-import { App, TFile, normalizePath } from "obsidian";
-import { FIELD_SCHEMA } from "@onlyworlds/sdk";
+import { App, TFile, normalizePath, parseYaml } from "obsidian";
+import {
+	frontmatterToPayloadFields,
+	apiDataToFrontmatter,
+	bodyFieldForCategory,
+	normalizeCategory,
+	getCategorySchema,
+	isSpanFormat,
+	parseSpanNote,
+	spanFieldsToFrontmatter,
+} from "./element-transform";
 
 /**
  * Element file format (v2 / frontmatter).
  *
  * Each element note has:
- *   - YAML frontmatter holding structured fields (id, name, supertype, plus
- *     element-type-specific fields per FIELD_SCHEMA).
- *   - Body containing the long-form description (markdown).
+ *   - YAML frontmatter holding structured fields (id, name, plus element-type
+ *     fields per FIELD_SCHEMA) AND any extension-namespaced keys
+ *     (atlas_, shadow_, x_ prefixes) preserved verbatim.
+ *   - Body containing the long-form text: `description` for all types EXCEPT
+ *     Narrative, where the body is `story` (R5).
  *
- * The body is treated as the canonical `description` field. Other text fields
- * (physicality, mentality, etc.) live in frontmatter only.
+ * This module is the Obsidian-facing wiring; the pure serialization logic lives
+ * in element-transform.ts (unit-tested under `npm test`).
+ *
+ * READ tolerance: a note not yet migrated (still in the legacy <span> body
+ * format) is parsed by the span reader so it is never data loss (R1). New
+ * writes are always frontmatter.
  */
 
 export interface ParsedElement {
@@ -18,10 +33,10 @@ export interface ParsedElement {
 	name: string;
 	category: string; // lowercase singular, e.g. "character"
 	worldName: string;
-	fields: Record<string, unknown>; // snake_case, ready for SDK
+	fields: Record<string, unknown>; // snake_case, ready for the v2 payload builder
 }
 
-/** Map a vault path to (worldName, category, ext). Returns null if not an element. */
+/** Map a vault path to (worldName, category). Returns null if not an element. */
 export function parseElementPath(path: string): { worldName: string; category: string } | null {
 	const m = /^OnlyWorlds\/Worlds\/([^/]+)\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
 	if (!m) return null;
@@ -30,13 +45,10 @@ export function parseElementPath(path: string): { worldName: string; category: s
 	return { worldName: m[1], category: baseCat };
 }
 
-/** Lowercase, normalize a category string ("Character" -> "character"). */
-export function normalizeCategory(category: string): string {
-	return category.toLowerCase().trim();
-}
+export { normalizeCategory };
 
 /**
- * Schema-driven plural map used to derive SDK resource accessor name.
+ * Schema-driven plural map used to derive SDK/v2 resource accessor name.
  * (Character -> characters, Species -> species, etc.)
  */
 const PLURAL_OVERRIDES: Record<string, string> = {
@@ -52,123 +64,215 @@ export function categoryToResourceKey(category: string): string {
 }
 
 /**
- * Read an element note via Obsidian's metadata cache (frontmatter) + vault (body).
- * Returns null if the file doesn't have an `id` field — likely not a v2 element note.
+ * Read an element note. Prefers frontmatter (v2); falls back to the legacy span
+ * body format so pre-migration notes still round-trip (R1). Returns null if the
+ * note carries no recoverable id.
+ *
+ * Extension-namespaced frontmatter keys (atlas_/shadow_/x_) are preserved into
+ * `fields` verbatim (R3). The body becomes description (or story for Narrative).
+ *
+ * Note: reliable frontmatter needs metadataCache to have indexed the file. When
+ * a caller writes then immediately re-reads, the cache may lag; we fall back to
+ * parsing the raw YAML block so reads are not cache-timing-dependent.
  */
 export async function readElement(app: App, file: TFile): Promise<ParsedElement | null> {
 	const pathInfo = parseElementPath(file.path);
 	if (!pathInfo) return null;
-
-	const cache = app.metadataCache.getFileCache(file);
-	const fm = cache?.frontmatter;
-	if (!fm || typeof fm.id !== "string") return null;
-
 	const category = normalizeCategory(pathInfo.category);
-	const schema = (FIELD_SCHEMA as Record<string, Record<string, { type: string }>>)[category];
-	if (!schema) {
-		// Unknown category — return basic data and let the API reject if invalid
+	const content = await app.vault.read(file);
+
+	// Frontmatter path: cache first, raw YAML fallback (cache-timing safety).
+	let fm = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+	if (!fm || typeof fm.id !== "string") {
+		const raw = parseRawFrontmatter(content);
+		if (raw && typeof raw.id === "string") fm = raw;
+	}
+
+	if (fm && typeof fm.id === "string") {
+		const body = stripFrontmatter(content).trim();
+		const fields = frontmatterToPayloadFields(fm, category);
+		const bodyField = bodyFieldForCategory(category);
+		if (body) fields[bodyField] = body;
+		if (!fields.name) {
+			fields.name = typeof fm.name === "string" ? fm.name : file.basename;
+		}
 		return {
 			id: fm.id,
-			name: typeof fm.name === "string" ? fm.name : file.basename,
+			name: String(fields.name),
 			category,
 			worldName: pathInfo.worldName,
-			fields: stripMeta(fm),
+			fields,
 		};
 	}
 
-	// Read the body (markdown after frontmatter) — used as the canonical `description`
-	const content = await app.vault.read(file);
-	const body = stripFrontmatter(content).trim();
+	// Legacy span-format fallback (pre-migration notes).
+	if (isSpanFormat(content)) {
+		const parsed = parseSpanNote(content);
+		if (!parsed.id) return null;
+		const resolver = buildVaultLinkResolver(app, pathInfo.worldName);
+		const { frontmatter, bodyValue } = spanFieldsToFrontmatter(parsed, category, resolver);
+		const fields = frontmatterToPayloadFields(frontmatter, category);
+		const bodyField = bodyFieldForCategory(category);
+		if (bodyValue) fields[bodyField] = bodyValue;
+		if (!fields.name) fields.name = parsed.name ?? file.basename;
+		return {
+			id: parsed.id,
+			name: String(fields.name),
+			category,
+			worldName: pathInfo.worldName,
+			fields,
+		};
+	}
 
-	const fields: Record<string, unknown> = {};
-	for (const key of Object.keys(schema)) {
-		if (key in fm) {
-			fields[key] = fm[key];
-		}
-	}
-	// Body overrides description if present
-	if (body) {
-		fields.description = body;
-	}
-	// Ensure name is present (frontmatter or fallback to file basename)
-	if (!fields.name) {
-		fields.name = typeof fm.name === "string" ? fm.name : file.basename;
-	}
-
-	return {
-		id: fm.id,
-		name: String(fields.name),
-		category,
-		worldName: pathInfo.worldName,
-		fields,
-	};
+	return null;
 }
 
 /**
- * Write/update an element note in v2 format.
- * Atomic via processFrontMatter; body holds description.
+ * Write/update an element note in v2 frontmatter format.
+ *
+ * `data` is API-shaped (snake_case fields, link fields as ids). Extension keys
+ * in `data` round-trip verbatim (R3). The body holds description/story (R5).
+ * Atomic frontmatter via processFrontMatter; body written separately.
+ *
+ * Returns the file. `markSelfWrite` (if provided) is called with the path before
+ * each disk write so the auto-sync modify listener skips our own writes.
+ *
+ * `opts.folderPath` lets a caller pass a pre-resolved category folder (which in
+ * a real world carries a count suffix, e.g. "Character (12)") so writes don't
+ * split off a bare "Character" folder. `opts.fileName` overrides the leaf name
+ * (used for collision-suffixed unique names). Both are optional; without them
+ * writeElement targets the bare-named folder / sanitized element name.
  */
+export interface WriteElementOpts {
+	markSelfWrite?: (path: string) => void;
+	folderPath?: string; // e.g. "OnlyWorlds/Worlds/W/Elements/Character (12)"
+	fileName?: string; // e.g. "Ireena (2).md"
+}
+
 export async function writeElement(
 	app: App,
 	worldName: string,
 	category: string,
 	elementId: string,
-	data: Record<string, unknown>
+	data: Record<string, unknown>,
+	optsOrMark?: WriteElementOpts | ((path: string) => void)
 ): Promise<TFile> {
+	// Back-compat: a bare function arg is markSelfWrite.
+	const opts: WriteElementOpts =
+		typeof optsOrMark === "function" ? { markSelfWrite: optsOrMark } : optsOrMark ?? {};
+	const markSelfWrite = opts.markSelfWrite;
 	const cat = normalizeCategory(category);
 	const folderName = capitalize(cat);
 	const name = typeof data.name === "string" && data.name ? data.name : "Untitled";
 	const safeName = name.replace(/[\\/:*?"<>|]/g, "-");
-	const filePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${folderName}/${safeName}.md`);
+	const bodyField = bodyFieldForCategory(cat);
+	const bodyValue = typeof data[bodyField] === "string" ? (data[bodyField] as string) : "";
+
+	const folder = opts.folderPath
+		? normalizePath(opts.folderPath)
+		: `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
+	const leaf = opts.fileName ? opts.fileName.replace(/\.md$/i, "") + ".md" : `${safeName}.md`;
+
+	// Resolve target path: reuse an existing note with this id if present (so a
+	// rename on the server moves the file rather than orphaning it).
+	let filePath = normalizePath(`${folder}/${leaf}`);
+	const existing = await findNoteById(app, worldName, folderName, elementId);
+	if (existing && existing.path !== filePath) {
+		filePath = existing.path; // keep the existing file; rename is a separate concern
+	}
 
 	let file = app.vault.getAbstractFileByPath(filePath);
 	if (!(file instanceof TFile)) {
-		// Ensure folder exists
-		const folder = `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
 		if (!app.vault.getAbstractFileByPath(folder)) {
 			await app.vault.createFolder(folder);
 		}
-		const body = typeof data.description === "string" ? data.description : "";
-		file = await app.vault.create(filePath, `---\nid: ${elementId}\nname: ${safeName}\n---\n\n${body}\n`);
+		markSelfWrite?.(filePath);
+		file = await app.vault.create(filePath, `---\nid: ${elementId}\n---\n\n`);
 	}
 	if (!(file instanceof TFile)) throw new Error(`Failed to materialize element file at ${filePath}`);
 
+	const fm = apiDataToFrontmatter(data, cat, elementId);
+
+	markSelfWrite?.(file.path);
 	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		const fm = frontmatter as Record<string, unknown>;
-		fm.id = elementId;
-		fm.name = name;
-		const schema = (FIELD_SCHEMA as Record<string, Record<string, { type: string }>>)[cat];
-		if (schema) {
-			for (const key of Object.keys(schema)) {
-				if (key === "description") continue; // body holds description
-				if (key in data) {
-					fm[key] = data[key];
-				}
-			}
-		} else {
-			for (const [k, v] of Object.entries(data)) {
-				if (k === "description") continue;
-				fm[k] = v;
-			}
+		const target = frontmatter as Record<string, unknown>;
+		// Clear stale keys we own, then write the fresh set. Extension keys and
+		// any user-added frontmatter NOT in `fm` are left untouched.
+		const schema = getCategorySchema(cat);
+		const ownedKeys = new Set<string>(["id", "name"]);
+		if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
+		for (const k of Object.keys(target)) {
+			if (ownedKeys.has(k) && !(k in fm)) delete target[k];
+		}
+		for (const [k, v] of Object.entries(fm)) {
+			target[k] = v;
 		}
 	});
 
-	if (typeof data.description === "string") {
-		const content = await app.vault.read(file);
-		const fmBlock = extractFrontmatterBlock(content);
-		const newContent = `${fmBlock}\n${data.description.trim()}\n`;
+	// Write the body (description/story). processFrontMatter preserved the body,
+	// so re-read, swap the body, keep the frontmatter block intact.
+	const content = await app.vault.read(file);
+	const fmBlock = extractFrontmatterBlock(content);
+	const newContent = fmBlock ? `${fmBlock}\n${bodyValue}\n` : `${bodyValue}\n`;
+	if (newContent !== content) {
+		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);
 	}
 
 	return file;
 }
 
-function stripMeta(fm: Record<string, unknown>): Record<string, unknown> {
-	const out: Record<string, unknown> = { ...fm };
-	delete out.id;
-	delete out.world;
-	delete out.world_id;
-	return out;
+// --- helpers -----------------------------------------------------------------
+
+/** Parse a raw `---\n...\n---` YAML block (cache-independent read fallback). */
+function parseRawFrontmatter(content: string): Record<string, unknown> | null {
+	if (!content.startsWith("---")) return null;
+	const end = content.indexOf("\n---", 3);
+	if (end < 0) return null;
+	const yaml = content.slice(3, end + 1);
+	try {
+		const parsed = parseYaml(yaml);
+		return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Find an element note by embedded frontmatter id within a category folder. */
+async function findNoteById(
+	app: App,
+	worldName: string,
+	folderName: string,
+	id: string
+): Promise<TFile | null> {
+	const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
+	const files = app.vault
+		.getMarkdownFiles()
+		.filter((f) => f.path.startsWith(prefix + "/") || f.path.startsWith(prefix + " ("));
+	for (const f of files) {
+		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
+		if (fm && fm.id === id) return f;
+	}
+	return null;
+}
+
+/**
+ * Build a link-name -> id resolver over the vault's notes for a world. Reads
+ * frontmatter id (falling back to a span id scrape for unmigrated notes).
+ * Used when reading a legacy span note whose links are [[names]].
+ */
+function buildVaultLinkResolver(app: App, worldName: string): (name: string) => string | null {
+	const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+	const index = new Map<string, string>();
+	const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
+	for (const f of files) {
+		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
+		if (fm && typeof fm.id === "string" && typeof fm.name === "string") {
+			index.set(fm.name, fm.id);
+			index.set(f.basename, fm.id);
+		}
+	}
+	return (name: string) => index.get(name) ?? null;
 }
 
 function stripFrontmatter(content: string): string {

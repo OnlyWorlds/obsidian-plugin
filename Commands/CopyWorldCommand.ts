@@ -5,6 +5,8 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
+import { readElement } from '../vault/element-file';
+import { isSpanFormat } from '../vault/element-transform';
 
 export class CopyWorldCommand {
     app: App;
@@ -133,8 +135,17 @@ export class CopyWorldCommand {
                 const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
      
                 const categoryData = await Promise.all(files.map(async (file) => {
-                    const fileContent = await fs.read(file.path); 
-                    const parsedElement = await this.parseTemplate(fileContent, worldName);
+                    const fileContent = await fs.read(file.path);
+                    // Phase B: frontmatter notes read via the shared reader; legacy
+                    // span notes fall through to the span parser (mixed worlds copy
+                    // correctly either way).
+                    let parsedElement: Record<string, any>;
+                    if (!isSpanFormat(fileContent) && file instanceof TFile) {
+                        const parsed = await readElement(this.app, file);
+                        parsedElement = parsed ? parsed.fields : await this.parseTemplate(fileContent, worldName);
+                    } else {
+                        parsedElement = await this.parseTemplate(fileContent, worldName);
+                    }
                     return this.addMissingElementFields(parsedElement, category);
                 }));
     

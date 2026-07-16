@@ -1,0 +1,16 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmit": false,
+		"outDir": "test-dist",
+		"module": "CommonJS",
+		"moduleResolution": "node",
+		"target": "ES2022",
+		"inlineSourceMap": false,
+		"inlineSources": false,
+		"sourceMap": false,
+		"esModuleInterop": true,
+		"rootDir": "."
+	},
+	"include": ["vault/element-transform.ts", "test/**/*.ts"]
+}
