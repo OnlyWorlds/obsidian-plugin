@@ -11,6 +11,9 @@ interface MigrationResult {
 	converted: string[];
 	skipped: string[]; // already frontmatter
 	failed: { path: string; reason: string }[];
+	/** Links whose [[name]] resolved to no element — dropped from the migrated
+	 * id lists but preserved in the backup. Surfaced so the loss is never silent. */
+	unresolvedLinks: { path: string; names: string[] }[];
 	backupFolder: string;
 }
 
@@ -30,9 +33,17 @@ interface MigrationResult {
  */
 export class MigrateWorldCommand {
 	private app: App;
+	private markSelfWrite: (path: string) => void;
 
-	constructor(app: App) {
+	/**
+	 * markSelfWrite: auto-sync's self-write guard. Migration MUST be local-only —
+	 * without this, a user with auto-sync enabled would mass-PATCH every migrated
+	 * note to the server, and a mis-migrated note would ship upstream where the
+	 * backup folder can't undo it (the server write breaks reversibility).
+	 */
+	constructor(app: App, markSelfWrite: (path: string) => void = () => {}) {
 		this.app = app;
+		this.markSelfWrite = markSelfWrite;
 	}
 
 	async execute(): Promise<void> {
@@ -103,7 +114,9 @@ export class MigrateWorldCommand {
 		const spanIndex = await this.scrapeSpanIndex(files);
 		const resolve = (name: string) => spanIndex.get(name) ?? null;
 
-		const result: MigrationResult = { converted: [], skipped: [], failed: [], backupFolder };
+		const result: MigrationResult = {
+			converted: [], skipped: [], failed: [], unresolvedLinks: [], backupFolder,
+		};
 
 		for (const file of files) {
 			try {
@@ -122,9 +135,12 @@ export class MigrateWorldCommand {
 					result.failed.push({ path: file.path, reason: 'no id found in span note' });
 					continue;
 				}
-				const { frontmatter, bodyValue } = spanFieldsToFrontmatter(parsed, category, resolve);
+				const { frontmatter, bodyValue, unresolved } = spanFieldsToFrontmatter(parsed, category, resolve);
 				await this.writeFrontmatterNote(file, category, parsed.id, frontmatter, bodyValue);
 				result.converted.push(file.path);
+				if (unresolved.length > 0) {
+					result.unresolvedLinks.push({ path: file.path, names: unresolved });
+				}
 			} catch (e) {
 				result.failed.push({ path: file.path, reason: e instanceof Error ? e.message : String(e) });
 			}
@@ -176,8 +192,12 @@ export class MigrateWorldCommand {
 		// values. `frontmatter` already excludes the body field (span parse split
 		// it into bodyValue), and apiDataToFrontmatter normalizes link ids and
 		// preserves extension keys.
+		// The guard is one-shot per path and BOTH calls below fire a 'modify'
+		// event — mark before each so auto-sync never sees migration writes.
+		this.markSelfWrite(file.path);
 		await this.app.vault.modify(file, `---\nid: ${id}\n---\n\n${bodyValue}\n`);
 		const fm = apiDataToFrontmatter(frontmatter, category, id);
+		this.markSelfWrite(file.path);
 		await this.app.fileManager.processFrontMatter(file, (target) => {
 			const t = target as Record<string, unknown>;
 			for (const [k, v] of Object.entries(fm)) t[k] = v;
@@ -255,6 +275,14 @@ class MigrationReportModal extends Modal {
 			const list = contentEl.createEl('ul');
 			for (const f of this.result.failed) {
 				list.createEl('li', { text: `${f.path} — ${f.reason}` });
+			}
+		}
+
+		if (this.result.unresolvedLinks.length > 0) {
+			contentEl.createEl('h3', { text: 'Unresolved links (dropped — originals in backup)' });
+			const list = contentEl.createEl('ul');
+			for (const u of this.result.unresolvedLinks) {
+				list.createEl('li', { text: `${u.path} — ${u.names.join(', ')}` });
 			}
 		}
 

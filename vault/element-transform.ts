@@ -15,6 +15,7 @@
  */
 
 import { FIELD_SCHEMA } from "@onlyworlds/sdk";
+import { decodeHtmlEntities } from "../Scripts/htmlEntities";
 
 /** Field descriptor shape as exported by the SDK's FIELD_SCHEMA. */
 export interface SchemaField {
@@ -326,7 +327,12 @@ export function parseSpanNote(content: string): ParsedSpanNote {
 		sawSpan = true;
 		const label = m[3].trim();
 		const tooltip = m[2].trim();
-		const raw = m[4].trim();
+		// Decode HTML entities: pre-2.2.2 notes were written through Handlebars'
+		// default escaping, so "The Kid's Family" landed on disk as
+		// "The Kid&#x27;s Family". Every text/name/link value must decode or the
+		// escaped form migrates verbatim (the corruption this phase must not carry
+		// forward). Matches SaveElementCommand/ExportWorldCommand's decode.
+		const raw = decodeHtmlEntities(m[4].trim());
 		const key = spanLabelToKey(label);
 
 		if (key === "id") {

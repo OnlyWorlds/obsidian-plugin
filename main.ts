@@ -212,7 +212,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       callback: () => deleteElementCommand.execute(),
   });
 
-    const migrateWorldCommand = new MigrateWorldCommand(this.app);
+    const migrateWorldCommand = new MigrateWorldCommand(this.app, (p) => this.autoSync?.markSelfWrite(p));
     this.addCommand({
       id: 'migrate-world-frontmatter',
       name: 'Migrate world notes to frontmatter',

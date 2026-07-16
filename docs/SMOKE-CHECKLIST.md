@@ -1,5 +1,9 @@
 # Smoke checklist — S9 Phase B (frontmatter flip)
 
+> **Run this on a COPY of your vault or a throwaway vault FIRST, your real vault SECOND.**
+> The migration writes a backup, but the whole point of this phase is that it broke last
+> time — verify on a disposable copy before you trust it with a world you care about.
+
 The unit tests (`npm test`) cover the pure serialization logic. The vault/Obsidian
 wiring can only be verified by hand on a real vault. This is the exact click-path
 to run before release. Do it on a THROWAWAY copy of a real world first (the
