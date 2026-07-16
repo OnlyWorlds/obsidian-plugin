@@ -12,5 +12,10 @@
 		"esModuleInterop": true,
 		"rootDir": "."
 	},
-	"include": ["vault/element-transform.ts", "vault/folder-format.ts", "test/**/*.ts"]
+	"include": [
+		"vault/element-transform.ts",
+		"vault/folder-format.ts",
+		"Commands/export-plan.ts",
+		"test/**/*.ts"
+	]
 }
