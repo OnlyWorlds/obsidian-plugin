@@ -48,7 +48,8 @@ export class PasteWorldCommand {
                 await this.generateWorldFile(worldData, worldFolderPath);
             }
 
-            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
+            // 3.0.0: no legacy template fetch (see CreateWorldCommand). Readme + Settings only.
+            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, false);
             await createCoreFilesCommand.execute();
 
             // Generate element notes in the correct category folders under Elements
@@ -203,7 +204,7 @@ export class PasteWorldCommand {
                 //    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
                 //    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
-                    // Match the id in either format: frontmatter `id:` (2.4.0)
+                    // Match the id in either format: frontmatter `id:` (3.0.0)
                     // or the legacy span/bold forms (older notes not yet migrated).
                     const idMatch = content.match(/^id:\s*(\S+)/m) ||
                                   content.match(/^- \*\*ID:\*\* (.+)$/m) ||

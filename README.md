@@ -8,7 +8,7 @@ Obsidian plugin for building and syncing with OnlyWorlds.
 
 ## What this plugin does
 
-Manages OnlyWorlds elements as Obsidian notes: one note per element, organized into folders per category, inside an `OnlyWorlds/` folder in a vault. Notes are plain markdown, editable like any other. Since 2.4.0 each element's fields live in the note's Properties (YAML frontmatter), and link fields are clickable `[[wikilinks]]` — so relationships show up in Obsidian's graph and backlinks, and the note reads as prose with structured data attached.
+Manages OnlyWorlds elements as Obsidian notes: one note per element, organized into folders per category, inside an `OnlyWorlds/` folder in a vault. Notes are plain markdown, editable like any other. Since 3.0.0 each element's fields live in the note's Properties (YAML frontmatter), and link fields are clickable `[[wikilinks]]` — so relationships show up in Obsidian's graph and backlinks, and the note reads as prose with structured data attached.
 
 Optional: connect the plugin to an onlyworlds.com account, and edits can be pushed to the cloud on demand or automatically. That makes the same world available to other OnlyWorlds tools and accessible via the API.
 
@@ -20,7 +20,7 @@ Local-only setup:
 2. Run **Create World** from the command palette (Ctrl/Cmd+P). The plugin creates the `OnlyWorlds/` folder structure in your vault.
 3. Use `Create Element` to add elements. Edit them like any Obsidian note.
 
-If you already have a world on onlyworlds.com, run **Download World** instead of step 2: enter the world's API key (a classic 10-digit key or an `ow_` key from your account page) and your PIN, and the plugin sets up the folder structure and pulls your existing elements into the vault. You can also just set your key in **Settings → OnlyWorlds** to sync on demand.
+If you already have a world on onlyworlds.com, run **Download World** instead of step 2: enter the world's API key (a classic 10-digit key or an `ow_` key from your account page) and your PIN, and the plugin sets up the folder structure and pulls your existing elements into the vault. A **read-only key** (`ow_r_`) needs no PIN — handy for opening a world someone shared with you. You can also just set your key in **Settings → OnlyWorlds** to sync on demand.
 
 To also sync with onlyworlds.com:
 
@@ -44,7 +44,7 @@ You can set your PIN once in settings so the plugin never asks again.
 
 ## Note format and migrating from an older version
 
-Since 2.4.0 elements are stored as **YAML frontmatter** (fields in the Properties panel) with link fields as clickable `[[Name]]` wikilinks. Earlier versions stored fields as inline `<span>` lines in the note body.
+Since 3.0.0 elements are stored as **YAML frontmatter** (fields in the Properties panel) with link fields as clickable `[[Name]]` wikilinks. Earlier versions stored fields as inline `<span>` lines in the note body.
 
 Updating the plugin does **not** change your existing notes. The new version reads both formats, so an old vault keeps working — sync, save, and download all function on span-format notes. When you want the new readable format, run **Migrate world notes to frontmatter** from the command palette. It backs up every note first (into `OW-backup-<world>-<timestamp>/`), aborts if the backup fails, and is safe to run twice (already-migrated notes are skipped). The backup folder is your undo. Run it on a copy of a vault you care about the first time.
 
@@ -78,7 +78,7 @@ The filename is presentation; the element's identity is the `id` in its frontmat
 | `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
 | `Save Element` | Push the active element note to the API. Reads current server state first and sends only what changed. Bind a hotkey via Settings → Hotkeys. |
 | `Upload World` | Bulk push every element in the active world (create + update, never delete). |
-| `Delete Element` | Permanently delete the active note's element from onlyworlds.com and trash the note. Type-the-name confirmation. |
+| `Delete Element (server + note)` | Permanently delete the active note's element from onlyworlds.com and trash the note. Type-the-name confirmation. |
 | `Migrate world notes to frontmatter` | Convert a world's notes from the legacy `<span>` format to frontmatter. Backs up first; idempotent. See *Note format* above. |
 | `Export as OnlyWorlds folder` | Write the active world as a portable OnlyWorlds folder (`world.json` + per-element JSON). Choose the vault or any folder — point it at your Atlas root to open the world in [Atlas](https://atlas.onlyworlds.com) directly. |
 | `Import OnlyWorlds folder` | Read an OnlyWorlds folder (from Atlas or any tool) placed in your vault into frontmatter notes. Never overwrites existing notes; never merges two different worlds. |
@@ -86,7 +86,7 @@ The filename is presentation; the element's identity is the `id` in its frontmat
 | `Rename World` | Rename a world folder, and sync the new name to onlyworlds.com if the world has a write key. |
 | `Link Elements` | Pick a link field, then a target element by name; the plugin writes the link. |
 | `Copy World to Clipboard` | Serialize the active world as JSON and copy to clipboard. |
-| `Paste World from Clipboard` | Build a world from JSON in clipboard. |
+| `Paste World from Clipboard` | Build a world from JSON in clipboard (writes frontmatter notes; round-trips with Copy). |
 
 ## Settings
 

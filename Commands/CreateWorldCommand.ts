@@ -279,7 +279,9 @@ export class CreateWorldCommand {
         await this.app.vault.create(`${worldBasePath}/World.md`, worldNoteContent);
 
         // Create core files (templates, handlebars, etc.)
-        const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
+        // 3.0.0: no legacy template fetch — nothing reads those templates (all
+        // note writes go through writeElement / frontmatter). Readme + Settings only.
+        const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, false);
         await createCoreFilesCommand.execute();
     }
 

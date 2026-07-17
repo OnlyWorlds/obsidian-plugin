@@ -125,7 +125,10 @@ export class DownloadWorldCommand {
                         await this.generateWorldFile(worldData.World, worldFolderPath);
                     }
 
-                    const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest );
+                    // 3.0.0: skip the legacy template fetch — nothing reads those
+                    // templates anymore (writeElement builds frontmatter directly).
+                    // Readme + Settings notes still created.
+                    const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, false);
                     await createCoreFilesCommand.execute();
 
                     // Generate element notes in the correct category folders under Elements

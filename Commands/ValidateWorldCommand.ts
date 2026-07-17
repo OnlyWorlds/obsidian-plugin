@@ -88,7 +88,7 @@ export class ValidateWorldCommand {
     }
     
     validateElement(category: string, fileName: string, content: string) {
-        // 2.4.0: this validator only understands the legacy <span> format. A
+        // 3.0.0: this validator only understands the legacy <span> format. A
         // migrated (frontmatter) note is valid by a different standard it can't
         // check, so validating it here produces FALSE "missing Id/Name" errors.
         // Skip frontmatter notes entirely rather than mislead. A frontmatter-aware
