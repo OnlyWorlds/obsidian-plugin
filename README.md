@@ -32,7 +32,7 @@ To also sync with onlyworlds.com:
 
 Three ways to push edits to onlyworlds.com:
 
-**Upload World.** Push every element in the active world in one go. Since 2.3.0 this is a safe sweep, not an overwrite: new elements are created, existing ones updated, and elements that exist only on the server are reported — never deleted. Link fields that can't be resolved locally are skipped so cloud links are never silently stripped.
+**Upload World.** Push every element in the active world in one go. Since 2.3.0 this is a safe sweep, not an overwrite: new elements are created, existing ones updated, and elements that exist only on the server are reported — never deleted. If a link points to an element that isn't in your vault, that whole link field is left untouched on the server rather than sent short — so cloud links are never silently stripped.
 
 **Save Element.** Run the command on the active note to push that single element. Bind a hotkey if you'll use it often (Settings → Hotkeys, search "Save Element", set something like Ctrl/Cmd+Shift+S).
 
@@ -63,7 +63,7 @@ OnlyWorlds/
 ├── Worlds/<World name>/
 │   ├── World.md
 │   └── Elements/<Category>/<element>.md
-└── PluginFiles/   (managed automatically)
+└── PluginFiles/   (a README + settings note)
 ```
 
 The filename is presentation; the element's identity is the `id` in its frontmatter, so renaming a note is safe.
