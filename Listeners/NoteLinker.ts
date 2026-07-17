@@ -168,8 +168,28 @@ export class NoteLinker {
 				target[choice.key] = links.length ? links[0] : null;
 			}
 		});
+		await this.refreshPropertiesView(file);
 		const label = selected.length ? selected.map((e) => e.name).join(', ') : '(none)';
 		new Notice(`${choice.label}: ${label}`);
+	}
+
+	/**
+	 * Nudge the Properties panel to repaint after a frontmatter write.
+	 * processFrontMatter updates the file, but the open editor's Properties view
+	 * lags until metadataCache re-indexes — so a just-linked/unlinked value doesn't
+	 * show until you leave and return. If the file is open in the active view,
+	 * re-set its view state, which forces a clean re-render of the properties.
+	 */
+	private async refreshPropertiesView(file: TFile): Promise<void> {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view || view.file?.path !== file.path) return;
+		try {
+			const leaf = view.leaf;
+			const state = leaf.getViewState();
+			await leaf.setViewState({ ...state, active: true });
+		} catch {
+			/* refresh is best-effort — the write already succeeded */
+		}
 	}
 
 	/** id+name of every element of `target` type in the world (excludes self). */
