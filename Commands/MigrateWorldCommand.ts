@@ -6,6 +6,7 @@ import {
 	normalizeCategory,
 	apiDataToFrontmatter,
 } from '../vault/element-transform';
+import { sanitizeFileName } from '../Scripts/WorldService';
 
 interface MigrationResult {
 	converted: string[];
@@ -92,6 +93,22 @@ export class MigrateWorldCommand {
 		return index;
 	}
 
+	/** id -> sanitized display name, so migrated link fields render as clickable
+	 *  `[[Name]]` wikilinks. Sanitized to match the note's on-disk basename. */
+	private async scrapeIdToName(files: TFile[]): Promise<(id: string) => string | null> {
+		const map = new Map<string, string>();
+		for (const f of files) {
+			try {
+				const parsed = parseSpanNote(await this.app.vault.read(f));
+				const name = parsed.name ?? f.basename;
+				if (parsed.id && name) map.set(parsed.id, sanitizeFileName(name));
+			} catch {
+				/* skip unreadable */
+			}
+		}
+		return (id: string) => map.get(id) ?? null;
+	}
+
 	private async migrateWorld(world: string): Promise<void> {
 		const files = this.elementFilesFor(world);
 		if (files.length === 0) {
@@ -110,9 +127,13 @@ export class MigrateWorldCommand {
 			return;
 		}
 
-		// Build the link resolver from the span notes (pre-migration).
+		// Build the link resolvers from the span notes (pre-migration): name->id
+		// for resolving span [[names]], and id->name so migrated link fields
+		// render as readable [[Name]] wikilinks instead of raw ids (audit polish
+		// 2026-07-17 — migration is the one write path that skipped this).
 		const spanIndex = await this.scrapeSpanIndex(files);
 		const resolve = (name: string) => spanIndex.get(name) ?? null;
+		const idToName = await this.scrapeIdToName(files);
 
 		const result: MigrationResult = {
 			converted: [], skipped: [], failed: [], unresolvedLinks: [], backupFolder,
@@ -136,7 +157,7 @@ export class MigrateWorldCommand {
 					continue;
 				}
 				const { frontmatter, bodyValue, unresolved } = spanFieldsToFrontmatter(parsed, category, resolve);
-				await this.writeFrontmatterNote(file, category, parsed.id, frontmatter, bodyValue);
+				await this.writeFrontmatterNote(file, category, parsed.id, frontmatter, bodyValue, idToName);
 				result.converted.push(file.path);
 				if (unresolved.length > 0) {
 					result.unresolvedLinks.push({ path: file.path, names: unresolved });
@@ -186,7 +207,8 @@ export class MigrateWorldCommand {
 		category: string,
 		id: string,
 		frontmatter: Record<string, unknown>,
-		bodyValue: string
+		bodyValue: string,
+		idToName: (id: string) => string | null
 	): Promise<void> {
 		// Seed the frontmatter block + body, then let processFrontMatter type the
 		// values. `frontmatter` already excludes the body field (span parse split
@@ -196,7 +218,7 @@ export class MigrateWorldCommand {
 		// event — mark before each so auto-sync never sees migration writes.
 		this.markSelfWrite(file.path);
 		await this.app.vault.modify(file, `---\nid: ${id}\n---\n\n${bodyValue}\n`);
-		const fm = apiDataToFrontmatter(frontmatter, category, id);
+		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
 		this.markSelfWrite(file.path);
 		await this.app.fileManager.processFrontMatter(file, (target) => {
 			const t = target as Record<string, unknown>;

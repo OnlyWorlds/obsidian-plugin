@@ -553,3 +553,48 @@ A young woman of Barovia.
 	assert.equal(out.atlas_flag, "keep");
 	assert.deepEqual(out.species, ["sp-human"]);
 });
+
+// --- upload safety: omit-field-on-unresolved (audit finding, 2026-07-17) -----
+
+test("frontmatterToPayloadFields: omitFieldOnUnresolved drops the whole field (multi)", () => {
+	// A multi-link with one resolvable + one dangling [[Name]]. Without the omit,
+	// the payload would carry a SHORTENED list, and a full-field PATCH would strip
+	// the server's copy of the dropped link. With omit, the field is absent so the
+	// server value wins.
+	const fm = { id: "x", name: "N", traits: ["[[Brave]]", "[[Ghost]]"] };
+	const resolve = (n: string) => (n === "Brave" ? "id-brave" : null);
+	const unresolved: string[] = [];
+	const out = frontmatterToPayloadFields(fm, "character", {
+		resolveNameToId: resolve,
+		unresolved,
+		omitFieldOnUnresolved: true,
+	});
+	assert.equal("traits" in out, false, "field omitted, not shortened");
+	assert.deepEqual(unresolved, ["Ghost"]);
+});
+
+test("frontmatterToPayloadFields: without omit, unresolved multi is shortened (download-context)", () => {
+	const fm = { id: "x", name: "N", traits: ["[[Brave]]", "[[Ghost]]"] };
+	const resolve = (n: string) => (n === "Brave" ? "id-brave" : null);
+	const out = frontmatterToPayloadFields(fm, "character", { resolveNameToId: resolve });
+	assert.deepEqual(out.traits, ["id-brave"]); // shortened, field present
+});
+
+test("frontmatterToPayloadFields: omit drops an unresolved single link's field", () => {
+	const fm = { id: "x", name: "N", location: "[[Nowhere]]" };
+	const out = frontmatterToPayloadFields(fm, "character", {
+		resolveNameToId: () => null,
+		omitFieldOnUnresolved: true,
+	});
+	assert.equal("location" in out, false);
+});
+
+test("frontmatterToPayloadFields: omit keeps a fully-resolvable field intact", () => {
+	const fm = { id: "x", name: "N", traits: ["[[Brave]]", "[[Bold]]"] };
+	const resolve = (n: string) => (n === "Brave" ? "id-1" : n === "Bold" ? "id-2" : null);
+	const out = frontmatterToPayloadFields(fm, "character", {
+		resolveNameToId: resolve,
+		omitFieldOnUnresolved: true,
+	});
+	assert.deepEqual(out.traits, ["id-1", "id-2"]);
+});

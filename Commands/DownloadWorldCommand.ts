@@ -444,9 +444,14 @@ export class DownloadWorldCommand {
                     const content = await this.app.vault.read(child);
                   //  console.log(`[DownloadWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
-                    // Look for ID in the content - this regex looks for the ID field in the element
-                    // Look for ID in various possible formats
-                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m) || 
+                    // Match the id in either format: frontmatter `id:` (3.0.0)
+                    // first, then the legacy span/bold forms. Without the
+                    // frontmatter form, a re-download never matches an existing
+                    // migrated note here, so its rename branch can't fire (stale
+                    // filename after a server rename). writeElement still redirects
+                    // the write by embedded id, so no dup/loss — but match it.
+                    const idMatch = content.match(/^id:\s*(\S+)/m) ||
+                                  content.match(/^- \*\*ID:\*\* (.+)$/m) ||
                                   content.match(/^- .*Id.*: (.+)$/m) ||
                                   content.match(/Id.*: (.+)$/m);
                     

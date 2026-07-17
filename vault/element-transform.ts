@@ -195,6 +195,14 @@ export function normalizeLinkValue(
 export interface ReadLinkOptions {
 	resolveNameToId?: NameToId;
 	unresolved?: string[];
+	/**
+	 * When true, a link field with ANY unresolvable `[[Name]]` is OMITTED from
+	 * the output entirely (not shortened). This matches the span-format upload
+	 * guard: a full-field PATCH built from a REDUCED id list would silently strip
+	 * the server's copy of the dropped link (the "2.3.0 smoke test class"). Set
+	 * on the upload/read path; leave off where a partial list is acceptable.
+	 */
+	omitFieldOnUnresolved?: boolean;
 }
 
 /**
@@ -246,12 +254,23 @@ export function frontmatterToPayloadFields(
 			// Normalize first (collapses stub objects / arrays / empties to a single
 			// value), then resolve the wikilink-or-id to a bare id.
 			const norm = normalizeLinkValue(value, "single_link");
-			out[key] = norm == null ? null : linkValueToId(norm, opts);
+			if (norm == null) { out[key] = null; continue; }
+			const id = linkValueToId(norm, opts);
+			// A non-null input that resolved to null is unresolved. On the upload
+			// path, OMIT the field rather than write null — a null single-link on a
+			// full-field PATCH would clear the server's value.
+			if (id == null && opts.omitFieldOnUnresolved) continue;
+			out[key] = id;
 		} else if (field.type === "multi_link") {
 			const arr = normalizeLinkValue(value, "multi_link") as string[];
-			out[key] = arr
+			const ids = arr
 				.map((v) => linkValueToId(v, opts))
 				.filter((v): v is string => v != null);
+			// If any input entry didn't resolve, the list is SHORTENED — and a
+			// full-field PATCH from a shortened list strips server links. Omit the
+			// whole field instead so the server value wins (matches the span guard).
+			if (ids.length < arr.length && opts.omitFieldOnUnresolved) continue;
+			out[key] = ids;
 		} else {
 			out[key] = value;
 		}

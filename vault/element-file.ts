@@ -98,13 +98,19 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		const fields = frontmatterToPayloadFields(fm, category, {
 			resolveNameToId: buildWikilinkResolver(app, file.path),
 			unresolved,
+			// Upload safety: a field with any unresolvable [[Name]] is OMITTED, not
+			// shortened — a full-field bulk PATCH built from a reduced id list would
+			// strip the server's copy of the dropped link (the 2.3.0 smoke class,
+			// audit finding 2026-07-17). The server value wins until the link
+			// resolves locally.
+			omitFieldOnUnresolved: true,
 		});
 		if (unresolved.length > 0) {
 			// Never silent (round-trip law): a `[[Name]]` link that resolves to no
-			// note is dropped from the outbound id list, but we log which ones so the
-			// loss is visible in the console rather than vanishing.
+			// note is dropped from THIS read's field set (the field is omitted so the
+			// server value is preserved), logged so the loss is visible.
 			console.warn(
-				`[OnlyWorlds] ${file.path}: ${unresolved.length} unresolved link(s) dropped on read: ${unresolved.join(", ")}`
+				`[OnlyWorlds] ${file.path}: ${unresolved.length} unresolved link(s); their fields omitted from upload to preserve server values: ${unresolved.join(", ")}`
 			);
 		}
 		const bodyField = bodyFieldForCategory(category);
