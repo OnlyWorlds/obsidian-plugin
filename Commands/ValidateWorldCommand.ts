@@ -88,6 +88,14 @@ export class ValidateWorldCommand {
     }
     
     validateElement(category: string, fileName: string, content: string) {
+        // 2.4.0: this validator only understands the legacy <span> format. A
+        // migrated (frontmatter) note is valid by a different standard it can't
+        // check, so validating it here produces FALSE "missing Id/Name" errors.
+        // Skip frontmatter notes entirely rather than mislead. A frontmatter-aware
+        // validator (against the SDK FIELD_SCHEMA) is a separate, future command.
+        const isFrontmatter = content.startsWith('---') && /^---\r?\n[\s\S]*?\bid:/.test(content);
+        if (isFrontmatter) return;
+
         let idFound = false;
         let nameFound = false;
         const lines = content.split('\n');

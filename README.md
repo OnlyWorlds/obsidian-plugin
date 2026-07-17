@@ -8,7 +8,7 @@ Obsidian plugin for building and syncing with OnlyWorlds.
 
 ## What this plugin does
 
-Manages OnlyWorlds elements as Obsidian notes: one note per element, organized into folders per category, inside an `OnlyWorlds/` folder in a vault. Notes are plain markdown, editable like any other.
+Manages OnlyWorlds elements as Obsidian notes: one note per element, organized into folders per category, inside an `OnlyWorlds/` folder in a vault. Notes are plain markdown, editable like any other. Since 2.4.0 each element's fields live in the note's Properties (YAML frontmatter), and link fields are clickable `[[wikilinks]]` — so relationships show up in Obsidian's graph and backlinks, and the note reads as prose with structured data attached.
 
 Optional: connect the plugin to an onlyworlds.com account, and edits can be pushed to the cloud on demand or automatically. That makes the same world available to other OnlyWorlds tools and accessible via the API.
 
@@ -40,7 +40,15 @@ Three ways to push edits to onlyworlds.com:
 
 The ribbon icon and desktop status bar reflect the current state: `idle`, `dirty` (unsaved local changes), `syncing`, `synced`, or `error`. 
 
-You can set your PIN once in settings so the plugin never asks again.  
+You can set your PIN once in settings so the plugin never asks again.
+
+## Note format and migrating from an older version
+
+Since 2.4.0 elements are stored as **YAML frontmatter** (fields in the Properties panel) with link fields as clickable `[[Name]]` wikilinks. Earlier versions stored fields as inline `<span>` lines in the note body.
+
+Updating the plugin does **not** change your existing notes. The new version reads both formats, so an old vault keeps working — sync, save, and download all function on span-format notes. When you want the new readable format, run **Migrate world notes to frontmatter** from the command palette. It backs up every note first (into `OW-backup-<world>-<timestamp>/`), aborts if the backup fails, and is safe to run twice (already-migrated notes are skipped). The backup folder is your undo. Run it on a copy of a vault you care about the first time.
+
+Downloading a world always writes the new frontmatter format.
 
 ## Authentication
 
@@ -55,8 +63,10 @@ OnlyWorlds/
 ├── Worlds/<World name>/
 │   ├── World.md
 │   └── Elements/<Category>/<element>.md
-└── PluginFiles/   (templates, managed automatically)
+└── PluginFiles/   (managed automatically)
 ```
+
+The filename is presentation; the element's identity is the `id` in its frontmatter, so renaming a note is safe.
  
 
 ## Commands
@@ -66,12 +76,15 @@ OnlyWorlds/
 | `Create World` | Create a new world (account-linked) and the local folder structure. |
 | `Download World` | Pull a world from onlyworlds.com into your vault (10-digit and `ow_` keys). Incremental since 2.3.0: re-downloads fetch only what changed. |
 | `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
-| `Save Element` | Push the active element note to the API. Bind a hotkey via Settings → Hotkeys. |
+| `Save Element` | Push the active element note to the API. Reads current server state first and sends only what changed. Bind a hotkey via Settings → Hotkeys. |
 | `Upload World` | Bulk push every element in the active world (create + update, never delete). |
 | `Delete Element` | Permanently delete the active note's element from onlyworlds.com and trash the note. Type-the-name confirmation. |
-| `Validate World` | Check element notes for malformed fields. |
+| `Migrate world notes to frontmatter` | Convert a world's notes from the legacy `<span>` format to frontmatter. Backs up first; idempotent. See *Note format* above. |
+| `Export as OnlyWorlds folder` | Write the active world as a portable OnlyWorlds folder (`world.json` + per-element JSON). Choose the vault or any folder — point it at your Atlas root to open the world in [Atlas](https://atlas.onlyworlds.com) directly. |
+| `Import OnlyWorlds folder` | Read an OnlyWorlds folder (from Atlas or any tool) placed in your vault into frontmatter notes. Never overwrites existing notes; never merges two different worlds. |
+| `Validate World` | Check legacy `<span>`-format notes for malformed fields. (Frontmatter notes are skipped — a frontmatter-aware check is planned.) |
 | `Rename World` | Rename a world folder, and sync the new name to onlyworlds.com if the world has a write key. |
-| `Link Elements` | With your cursor in a link field, pick a target element to insert. |
+| `Link Elements` | Pick a link field, then a target element by name; the plugin writes the link. |
 | `Copy World to Clipboard` | Serialize the active world as JSON and copy to clipboard. |
 | `Paste World from Clipboard` | Build a world from JSON in clipboard. |
 
@@ -101,7 +114,7 @@ Your world is not locked to this plugin — the same world, synced to onlyworlds
 | MCP server | Connect Claude (Code, Desktop, or API) directly to your world at `https://www.onlyworlds.com/mcp` — schema questions need no key at all. |
 | [API docs](https://onlyworlds.github.io) | Full API reference, error catalog, and guides for building your own tools. |
 
-A vault and an Atlas folder can hold the same world: both sync against onlyworlds.com, so edits flow between them through the cloud. (Point both at the same world key and take turns — live co-editing of one folder is not a thing.)
+A vault and an Atlas folder can hold the same world, two ways. Through the **cloud**: both sync against onlyworlds.com, so edits flow between them via the API (point both at the same world key and take turns — live co-editing of one folder is not a thing). Or through a **folder**, no account needed: `Export as OnlyWorlds folder` writes a portable OnlyWorlds folder you can open straight in Atlas, and `Import OnlyWorlds folder` reads one back in. The OnlyWorlds folder is an open format — filename is presentation, `id` is identity — so any tool that speaks it can hand a world to any other.
 
 ## Get in touch 
 
