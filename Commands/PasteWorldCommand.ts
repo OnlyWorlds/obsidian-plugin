@@ -2,9 +2,10 @@ import Handlebars from 'handlebars';
 import { WorldPasteModal } from 'Modals/WorldPasteModal';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
-import { WorldService } from 'Scripts/WorldService';
+import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
+import { writeElement } from '../vault/element-file';
 
 export class PasteWorldCommand {
     app: App;
@@ -96,125 +97,65 @@ export class PasteWorldCommand {
     }
 
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
-        const fs = this.app.vault.adapter;
-    
+        // Extract the world name from the elements folder path.
+        const pathParts = worldFolderPath.split('/');
+        const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
+        const worldName = worldsIndex >= 0 && pathParts.length > worldsIndex + 1
+            ? pathParts[worldsIndex + 1]
+            : pathParts[pathParts.length - 1];
+
+        // Build the id -> name map from the pasted payload (every element's id +
+        // name), so link fields render as [[Name]] wikilinks. Sanitized to match
+        // the on-disk basename writeElement produces (same rule as download).
+        const idToName = this.buildIdToNameMap(data);
+
         for (const category in Category) {
-            if (!isNaN(Number(category)) || !data[category]) continue;
-    
+            if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
+
             const elements = data[category];
-     //      console.log(`[PasteWorldCommand] Processing category: ${category} with ${elements.length} elements`);
-            
-            // Find existing category folder or create new one
-            // Extract world name more reliably
-            const pathParts = worldFolderPath.split('/');
-            const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
-            const worldName = worldsIndex >= 0 && pathParts.length > worldsIndex + 1 ? pathParts[worldsIndex + 1] : pathParts[pathParts.length - 1];
-            
-         //   console.log(`[PasteWorldCommand] Extracted world name: ${worldName} from path: ${worldFolderPath}`);
-            
             const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
-            let categoryDirectory: string;
-            
-            if (existingFolder) {
-                categoryDirectory = existingFolder.path;
-            //    console.log(`[PasteWorldCommand] Using existing folder: ${existingFolder.path}`);
-            } else {
-                // Create folder with base name initially (count will be added later)
-                categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
-            //    console.log(`[PasteWorldCommand] Creating new folder: ${categoryDirectory}`);
-                await this.createFolderIfNeeded(categoryDirectory);
-            }
-    
+            const categoryDirectory = existingFolder
+                ? existingFolder.path
+                : normalizePath(`${worldFolderPath}/${category}`);
+            if (!existingFolder) await this.createFolderIfNeeded(categoryDirectory);
+
             for (const element of elements) {
-            //    console.log(`[PasteWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
-                
-                // First check if an element with this ID already exists
+                if (!element || typeof element.id !== 'string') continue;
+
+                // Reuse an existing note for this id, else mint a unique filename.
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
-            //    console.log(`[PasteWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
-                
-                if (existingElementPath) {
-                    // Element already exists, check if filename needs to be updated
-                    const currentFileName = existingElementPath.split('/').pop()?.replace('.md', '') || '';
-                    const expectedFileName = element.name;
-                    
-                    if (currentFileName !== expectedFileName && !currentFileName.startsWith(expectedFileName + ' (')) {
-                        // Name has changed, rename the file
-                    //    console.log(`[PasteWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
-                        const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
-                        const newPath = `${categoryDirectory}/${newFileName}`;
-                        
-                        try {
-                            const existingFile = this.app.vault.getAbstractFileByPath(existingElementPath);
-                            if (existingFile) {
-                                await this.app.fileManager.renameFile(existingFile, newPath);
-                                var notePath = newPath;
-                            //    console.log(`[PasteWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
-                            } else {
-                                var notePath = existingElementPath;
-                            //    console.log(`[PasteWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
-                            }
-                        } catch (error) {
-                            console.error(`[PasteWorldCommand] Error renaming file: ${error}`);
-                            var notePath = existingElementPath; // Fall back to existing path
-                        }
-                    } else {
-                        var notePath = existingElementPath;
-                        
-                    }
-                } else {
-                    // Generate unique filename for new element
-                    const uniqueFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
-                    var notePath = `${categoryDirectory}/${uniqueFileName}`;
-                //    console.log(`[PasteWorldCommand] Creating new element: ${notePath}`);
-                }
-    
-                if (overwrite || existingElementPath || !await fs.exists(notePath)) {
-                    // Use the Handlebars templates from the user's vault
-                    const templatePath = normalizePath(`OnlyWorlds/PluginFiles/Handlebars/${category}Handlebar.md`);
-                    let templateText: string;
-    
-                    if (await fs.exists(templatePath)) {
-                        templateText = await fs.read(templatePath);
-                    } else {
-                        // Log an error if the template doesn't exist and skip note creation for this category
-                        console.error(`Handlebars not found: ${templatePath}`);
-                        new Notice(`Handlebars not found for ${category}, skipping note creation.`);
-                        continue;
-                    }
-    
-                    const template = Handlebars.compile(templateText, { noEscape: true });
-                    let noteContent = template(element);
-    
-                    // Replace links with proper IDs
-                    noteContent = await this.linkifyContent(noteContent, data);
-    
-                    // Write the note content to the appropriate file path
-                    await fs.write(notePath, noteContent); 
-                }
+                const fileName = existingElementPath
+                    ? existingElementPath.split('/').pop()
+                    : await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
+
+                // Same frontmatter writer as Download (Phase B). writeElement owns
+                // placement (re-finds by embedded id), preserves extension fields,
+                // renders link ids as [[Name]] wikilinks, maps body to
+                // description/story. No Handlebars templates, no span format.
+                await writeElement(
+                    this.app,
+                    worldName,
+                    category,
+                    element.id,
+                    element,
+                    { folderPath: categoryDirectory, fileName, idToName }
+                );
             }
         }
     }
-    
 
-    async linkifyContent(noteContent: string, data: any): Promise<string> {
-        noteContent = noteContent.replace(/\[\[(.*?)\]\]/g, (match, id) => {
-            const name = this.findNameById(id, data); 
-            return name ? `[[${name}]]` : `[[Unknown]]`;
-        });
-     
-        return noteContent;
-    }
-
-    findNameById(id: string, data: any): string | undefined { 
+    /** id -> sanitized display name over every element in the pasted payload. */
+    private buildIdToNameMap(data: any): (id: string) => string | null {
+        const map = new Map<string, string>();
         for (const category in Category) {
-            if (Array.isArray(data[category])) {
-                const found = data[category].find((item: any) => item.id === id);
-                if (found) { 
-                    return found.name;
+            if (!Array.isArray(data[category])) continue;
+            for (const element of data[category]) {
+                if (element && typeof element.id === 'string' && typeof element.name === 'string' && element.name) {
+                    map.set(element.id, sanitizeFileName(element.name));
                 }
             }
-        } 
-        return undefined;
+        }
+        return (id: string) => map.get(id) ?? null;
     }
 
     async findWorldByApiKey(apiKey: string): Promise<string | null> {
@@ -262,12 +203,13 @@ export class PasteWorldCommand {
                 //    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
                 //    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
-                    // Look for ID in the content - this regex looks for the ID field in the element
-                    // Look for ID in various possible formats
-                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m) || 
+                    // Match the id in either format: frontmatter `id:` (2.4.0)
+                    // or the legacy span/bold forms (older notes not yet migrated).
+                    const idMatch = content.match(/^id:\s*(\S+)/m) ||
+                                  content.match(/^- \*\*ID:\*\* (.+)$/m) ||
                                   content.match(/^- .*Id.*: (.+)$/m) ||
                                   content.match(/Id.*: (.+)$/m);
-                    
+
                     if (idMatch) {
                     //    console.log(`[PasteWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
                         if (idMatch[1].trim() === elementId) {
