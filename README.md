@@ -84,7 +84,7 @@ The filename is presentation; the element's identity is the `id` in its frontmat
 | `Import OnlyWorlds folder` | Read an OnlyWorlds folder (from Atlas or any tool) placed in your vault into frontmatter notes. Never overwrites existing notes; never merges two different worlds. |
 | `Validate World` | Check legacy `<span>`-format notes for malformed fields. (Frontmatter notes are skipped — a frontmatter-aware check is planned.) |
 | `Rename World` | Rename a world folder, and sync the new name to onlyworlds.com if the world has a write key. |
-| `Link Elements` | Pick a link field, then a target element by name; the plugin writes the link. |
+| `Link Elements` | Pick a link field (empty fields shown first, single links on top), then a target element by name; the plugin writes it as a clickable `[[wikilink]]`. You can also just edit a link Property directly — Obsidian autocompletes note names natively. |
 | `Copy World to Clipboard` | Serialize the active world as JSON and copy to clipboard. |
 | `Paste World from Clipboard` | Build a world from JSON in clipboard (writes frontmatter notes; round-trips with Copy). |
 

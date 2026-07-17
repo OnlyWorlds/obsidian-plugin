@@ -9,6 +9,8 @@ export interface LinkFieldChoice {
 	multi: boolean;
 	/** target element type (lowercase singular), e.g. "location" */
 	target: string;
+	/** how many links this field currently holds on the note (0 = empty) */
+	count: number;
 }
 
 /**
@@ -36,16 +38,31 @@ export class FieldSelectionModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl('h2', { text: `Link a field on this ${this.category}` });
-		for (const field of this.fields) {
-			new Setting(contentEl)
+
+		// Single links first, then multi; within each, empty fields before filled
+		// (you usually want to fill a gap), then alphabetical.
+		const sorted = [...this.fields].sort((a, b) => {
+			if (a.multi !== b.multi) return a.multi ? 1 : -1;
+			if ((a.count === 0) !== (b.count === 0)) return a.count === 0 ? -1 : 1;
+			return a.label.localeCompare(b.label);
+		});
+
+		for (const field of sorted) {
+			const kind = field.multi ? 'Multi' : 'Single';
+			const state = field.count > 0
+				? `${field.count} linked`
+				: 'empty';
+			const setting = new Setting(contentEl)
 				.setName(field.label)
-				.setDesc(`${field.multi ? 'Multi' : 'Single'} link -> ${field.target}`)
+				.setDesc(`${kind} → ${field.target}  ·  ${state}`)
 				.addButton((b) =>
-					b.setButtonText('Choose').onClick(() => {
+					b.setButtonText(field.count > 0 ? 'Edit' : 'Add').onClick(() => {
 						this.close();
 						this.onChoose(field);
 					})
 				);
+			// Dim fields that already have links so empty ones stand out.
+			if (field.count > 0) setting.nameEl.style.opacity = '0.7';
 		}
 	}
 

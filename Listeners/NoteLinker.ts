@@ -3,7 +3,8 @@ import { FIELD_SCHEMA } from '@onlyworlds/sdk';
 import { WorldService } from 'Scripts/WorldService';
 import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 import { FieldSelectionModal, LinkFieldChoice } from '../Modals/FieldSelectionModal';
-import { normalizeCategory } from '../vault/element-transform';
+import { normalizeCategory, toWikilink, wikilinkTarget } from '../vault/element-transform';
+import { sanitizeFileName } from 'Scripts/WorldService';
 
 /**
  * NoteLinker (Phase B — frontmatter).
@@ -50,17 +51,24 @@ export class NoteLinker {
 	}
 
 	/** The link fields (single/multi) for a category, derived from FIELD_SCHEMA. */
-	private linkFieldsFor(category: string): LinkFieldChoice[] {
+	private linkFieldsFor(category: string, file: TFile): LinkFieldChoice[] {
 		const schema = (FIELD_SCHEMA as Record<string, Record<string, { type: string; target?: string }>>)[category];
 		if (!schema) return [];
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
 		const out: LinkFieldChoice[] = [];
 		for (const [key, def] of Object.entries(schema)) {
 			if (def.type === 'single_link' || def.type === 'multi_link') {
+				// Count current links so the modal can show empty vs filled.
+				const v = (fm as Record<string, unknown>)[key];
+				const count = Array.isArray(v)
+					? v.filter((x) => x != null && x !== '').length
+					: (v != null && v !== '' ? 1 : 0);
 				out.push({
 					key,
 					label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
 					multi: def.type === 'multi_link',
 					target: def.target ?? key,
+					count,
 				});
 			}
 		}
@@ -82,7 +90,7 @@ export class NoteLinker {
 			new Notice('This note is not an OnlyWorlds element.');
 			return;
 		}
-		const fields = this.linkFieldsFor(category);
+		const fields = this.linkFieldsFor(category, file);
 		if (fields.length === 0) {
 			new Notice(`No link fields for ${category}.`);
 			return;
@@ -113,22 +121,35 @@ export class NoteLinker {
 		modal.open();
 	}
 
-	/** Write the chosen ids into the note's frontmatter (single string / multi list). */
+	/** Write the chosen links into frontmatter as clickable `[[Name]]` wikilinks
+	 *  (single string / multi list). 3.0.0: was writing raw ids — the whole
+	 *  readability point is that link fields render as names. The wikilink target
+	 *  is the sanitized name (matches the element note's on-disk basename so it
+	 *  resolves). Merge dedups by both name and id, so an existing raw-id entry or
+	 *  an existing wikilink isn't double-added. */
 	private async writeLink(
 		file: TFile,
 		choice: LinkFieldChoice,
 		selected: { name: string; id: string }[]
 	): Promise<void> {
-		const ids = selected.map((e) => e.id);
+		const links = selected.map((e) => toWikilink(sanitizeFileName(e.name)));
+		const selectedIds = new Set(selected.map((e) => e.id));
 		await this.app.fileManager.processFrontMatter(file, (fm) => {
 			const target = fm as Record<string, unknown>;
 			if (choice.multi) {
 				const existing = Array.isArray(target[choice.key]) ? (target[choice.key] as unknown[]) : [];
-				const merged = [...existing.map(String)];
-				for (const id of ids) if (!merged.includes(id)) merged.push(id);
-				target[choice.key] = merged; // YAML list — never comma-joined (R4)
+				// Keep existing entries except ones we're re-adding (dedup by the
+				// wikilink target name OR a raw id that matches a selection).
+				const kept = existing
+					.map(String)
+					.filter((v) => {
+						const name = wikilinkTarget(v);
+						if (name != null) return !links.includes(toWikilink(name));
+						return !selectedIds.has(v); // a raw-id entry we're replacing
+					});
+				target[choice.key] = [...kept, ...links];
 			} else {
-				target[choice.key] = ids.length ? ids[0] : null; // single id string
+				target[choice.key] = links.length ? links[0] : null;
 			}
 		});
 		const label = selected.map((e) => e.name).join(', ');
