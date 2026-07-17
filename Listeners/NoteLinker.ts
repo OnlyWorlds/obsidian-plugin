@@ -108,11 +108,18 @@ export class NoteLinker {
 		const fetchElements = () => this.fetchElementsOfType(worldName, choice.target, selfId);
 		const elements = await fetchElements();
 
+		// The field's CURRENT links, resolved to ids, so the picker can pre-check
+		// them and offer removal. Values are [[Name]] wikilinks or raw ids.
+		const preselectedIds = this.currentLinkedIds(file, choice.key);
+
 		const modal = new ElementSelectionModal(
 			this.app,
 			elements,
 			choice.target,
 			choice.label,
+			choice.multi,
+			preselectedIds,
+			// The picker returns the FULL desired set; writeLink replaces the field.
 			(selected) => void this.writeLink(file, choice, selected),
 			this.worldService,
 			this.manifest,
@@ -121,39 +128,48 @@ export class NoteLinker {
 		modal.open();
 	}
 
-	/** Write the chosen links into frontmatter as clickable `[[Name]]` wikilinks
-	 *  (single string / multi list). 3.0.0: was writing raw ids — the whole
-	 *  readability point is that link fields render as names. The wikilink target
-	 *  is the sanitized name (matches the element note's on-disk basename so it
-	 *  resolves). Merge dedups by both name and id, so an existing raw-id entry or
-	 *  an existing wikilink isn't double-added. */
+	/** The ids currently linked in `key` on `file`. Resolves [[Name]] wikilinks
+	 *  via Obsidian's path-aware resolver; keeps bare ids as-is. */
+	private currentLinkedIds(file: TFile, key: string): Set<string> {
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+		const raw = (fm as Record<string, unknown>)[key];
+		const values = Array.isArray(raw) ? raw : (raw == null || raw === '' ? [] : [raw]);
+		const ids = new Set<string>();
+		for (const v of values) {
+			const s = String(v);
+			const name = wikilinkTarget(s);
+			if (name != null) {
+				const dest = this.app.metadataCache.getFirstLinkpathDest(name, file.path);
+				const id = dest ? this.app.metadataCache.getFileCache(dest)?.frontmatter?.id : undefined;
+				if (typeof id === 'string') ids.add(id);
+			} else if (s) {
+				ids.add(s); // bare id
+			}
+		}
+		return ids;
+	}
+
+	/** Set the field to EXACTLY the selected links, as clickable `[[Name]]`
+	 *  wikilinks (single string / multi list). The picker returns the full
+	 *  desired set (add + remove), so this replaces rather than merges. Wikilink
+	 *  target = sanitized name (matches the element note's on-disk basename so it
+	 *  resolves). 3.0.0: link fields render as names, not raw ids. */
 	private async writeLink(
 		file: TFile,
 		choice: LinkFieldChoice,
 		selected: { name: string; id: string }[]
 	): Promise<void> {
 		const links = selected.map((e) => toWikilink(sanitizeFileName(e.name)));
-		const selectedIds = new Set(selected.map((e) => e.id));
 		await this.app.fileManager.processFrontMatter(file, (fm) => {
 			const target = fm as Record<string, unknown>;
 			if (choice.multi) {
-				const existing = Array.isArray(target[choice.key]) ? (target[choice.key] as unknown[]) : [];
-				// Keep existing entries except ones we're re-adding (dedup by the
-				// wikilink target name OR a raw id that matches a selection).
-				const kept = existing
-					.map(String)
-					.filter((v) => {
-						const name = wikilinkTarget(v);
-						if (name != null) return !links.includes(toWikilink(name));
-						return !selectedIds.has(v); // a raw-id entry we're replacing
-					});
-				target[choice.key] = [...kept, ...links];
+				target[choice.key] = links; // exactly the chosen set (may be empty)
 			} else {
 				target[choice.key] = links.length ? links[0] : null;
 			}
 		});
-		const label = selected.map((e) => e.name).join(', ');
-		new Notice(`Linked ${choice.label}: ${label}`);
+		const label = selected.length ? selected.map((e) => e.name).join(', ') : '(none)';
+		new Notice(`${choice.label}: ${label}`);
 	}
 
 	/** id+name of every element of `target` type in the world (excludes self). */

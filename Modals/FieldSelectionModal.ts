@@ -56,7 +56,9 @@ export class FieldSelectionModal extends Modal {
 				.setName(field.label)
 				.setDesc(`${kind} → ${field.target}  ·  ${state}`)
 				.addButton((b) =>
-					b.setButtonText(field.count > 0 ? 'Edit' : 'Add').onClick(() => {
+					b.setButtonText(field.count > 0 ? 'Edit' : 'Add').setTooltip(
+						field.count > 0 ? 'Add or remove links' : 'Add links'
+					).onClick(() => {
 						this.close();
 						this.onChoose(field);
 					})
