@@ -15,6 +15,7 @@
 	"include": [
 		"vault/element-transform.ts",
 		"vault/folder-format.ts",
+		"vault/world-key-core.ts",
 		"Commands/export-plan.ts",
 		"test/**/*.ts"
 	]

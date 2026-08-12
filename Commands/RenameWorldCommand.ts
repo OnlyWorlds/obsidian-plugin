@@ -48,6 +48,10 @@ export class RenameWorldCommand {
         // of its own. Never silently write to whatever world the settings key
         // names (the wrong-world class).
         const resolved = await resolveWorldKey(this.app, newWorldName, this.plugin.settings.apiKey);
+        if (resolved.source === 'local-world') {
+            new Notice('World renamed in your vault (local-only world — nothing to update on onlyworlds.com).');
+            return;
+        }
         if (!resolved.apiKey) {
             new Notice('World renamed in your vault. Not synced: no API key for this world.');
             return;

@@ -1,7 +1,7 @@
 import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
-import { resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
@@ -94,6 +94,12 @@ export class SaveElementCommand {
         // wrong-world class, hit live 2026-07-12). Settings key is fallback ONLY
         // when the world carries no key of its own; the fallback warns.
         const resolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
+        if (resolved.source === 'local-world') {
+            // Explicit local-only world: the note is already saved in the vault;
+            // never fall through to the settings key (wrong-world class).
+            new Notice(LOCAL_WORLD_SYNC_MESSAGE, 8000);
+            return;
+        }
         const apiKey = resolved.apiKey ?? undefined;
         if (!apiKey) {
             new Notice("Error getting API key: no API key in this world's World.md or in plugin settings.");

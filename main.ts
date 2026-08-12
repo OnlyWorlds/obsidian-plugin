@@ -132,7 +132,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         // 2.2.0 had restored this pull path on the legacy worldsync route.
         const downloadWorldCommand = new DownloadWorldCommand(this.app, this.manifest, this);
         const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
-        const createWorldCommand = new CreateWorldCommand(this.app, this.manifest);
+        const createWorldCommand = new CreateWorldCommand(this.app, this.manifest, sendWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);

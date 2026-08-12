@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
-import { resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { V2ApiError } from '../client-v2';
 
 /**
@@ -52,8 +52,19 @@ export class DeleteElementCommand {
             return;
         }
 
-        new DeleteConfirmModal(this.app, elementName, category, async () => {
+        // Resolve BEFORE the modal so its wording tells the truth: a local-only
+        // world's delete touches nothing on onlyworlds.com.
+        const preResolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
+        const isLocalWorld = preResolved.source === 'local-world';
+
+        new DeleteConfirmModal(this.app, elementName, category, isLocalWorld, async () => {
             const resolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
+            if (resolved.source === 'local-world') {
+                // Local-only world: nothing exists server-side; just trash the note.
+                await this.app.fileManager.trashFile(activeFile as TFile);
+                new Notice('Note moved to trash (local-only world — nothing to delete on onlyworlds.com).');
+                return;
+            }
             if (!resolved.apiKey) {
                 new Notice('Delete failed: no API key found in World.md or settings.');
                 return;
@@ -99,19 +110,23 @@ export class DeleteElementCommand {
 class DeleteConfirmModal extends Modal {
     private elementName: string;
     private category: string;
+    private isLocalWorld: boolean;
     private onConfirm: () => void;
 
-    constructor(app: App, elementName: string, category: string, onConfirm: () => void) {
+    constructor(app: App, elementName: string, category: string, isLocalWorld: boolean, onConfirm: () => void) {
         super(app);
         this.elementName = elementName;
         this.category = category;
+        this.isLocalWorld = isLocalWorld;
         this.onConfirm = onConfirm;
     }
 
     onOpen() {
         const { contentEl } = this;
         contentEl.createEl('h3', { text: `Delete ${this.category} "${this.elementName}"?` });
-        contentEl.createEl('p', { text: 'This permanently deletes the element from onlyworlds.com and moves this note to trash. Links from other elements to it will dangle.' });
+        contentEl.createEl('p', { text: this.isLocalWorld
+            ? 'This moves the note to trash (local-only world — nothing exists on onlyworlds.com). Links from other elements to it will dangle.'
+            : 'This permanently deletes the element from onlyworlds.com and moves this note to trash. Links from other elements to it will dangle.' });
         contentEl.createEl('p', { text: `Type the element name to confirm:` });
         const input = contentEl.createEl('input', { type: 'text' });
         input.style.width = '100%';

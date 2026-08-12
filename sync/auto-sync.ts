@@ -1,6 +1,7 @@
 import { App, TFile, Notice } from "obsidian";
 import type OnlyWorldsPlugin from "../main";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
+import { resolveWorldKey } from "../vault/world-key";
 
 /**
  * Auto-sync engine.
@@ -84,6 +85,18 @@ export class AutoSyncEngine {
 	 * Wraps in status-bar transitions and error reporting.
 	 */
 	private async syncFile(file: TFile): Promise<void> {
+		// Local-only worlds: skip SILENTLY, and before any workspace side effects.
+		// Going through SaveElementCommand would pop the file open and raise a
+		// notice on every debounced edit — auto-sync in a local world is simply
+		// "there is nothing to do", not an error worth telling the user about.
+		const worldMatch = /^OnlyWorlds\/Worlds\/([^/]+)\//i.exec(file.path);
+		if (worldMatch) {
+			const resolved = await resolveWorldKey(this.app, worldMatch[1], this.plugin.settings.apiKey);
+			if (resolved.source === "local-world") {
+				this.plugin.setSyncStatus("idle");
+				return;
+			}
+		}
 		this.plugin.setSyncStatus("syncing");
 		try {
 			// Reuse the migrated SDK-based SaveElementCommand. It already handles

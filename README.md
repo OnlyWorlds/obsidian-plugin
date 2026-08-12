@@ -14,11 +14,13 @@ Optional: connect the plugin to an onlyworlds.com account, and edits can be push
 
 ## Getting started
 
-Local-only setup:
+Local-only setup — no account needed:
 
 1. Install the plugin from Community Plugins.
-2. Run **Create World** from the command palette (Ctrl/Cmd+P). The plugin creates the `OnlyWorlds/` folder structure in your vault.
+2. Run **Create World** from the command palette (Ctrl/Cmd+P) and choose **Create local-only**. The plugin creates the `OnlyWorlds/` folder structure in your vault; nothing leaves your disk.
 3. Use `Create Element` to add elements. Edit them like any Obsidian note.
+
+A local-only world's `World.md` shows `API Key: local`. To enable sync later, create a world at onlyworlds.com and replace `local` with its API key — everything else stays as it is.
 
 If you already have a world on onlyworlds.com, run **Download World** instead of step 2: enter the world's API key (a classic 10-digit key or an `ow_` key from your account page) and your PIN, and the plugin sets up the folder structure and pulls your existing elements into the vault. A **read-only key** (`ow_r_`) needs no PIN — handy for opening a world someone shared with you. You can also just set your key in **Settings → OnlyWorlds** to sync on demand.
 
@@ -41,6 +43,13 @@ Three ways to push edits to onlyworlds.com:
 The ribbon icon and desktop status bar reflect the current state: `idle`, `dirty` (unsaved local changes), `syncing`, `synced`, or `error`. 
 
 You can set your PIN once in settings so the plugin never asks again.
+
+**Taking a local-only world online.** Two ways:
+
+- Run **Create World**, enter your account email and PIN, pick the world under *"Or take a local world online"*, and hit **Take online**. The plugin creates the world on onlyworlds.com under your account, links your vault's copy to it, and uploads your elements (with the usual validation preview) — one flow, no site visit needed.
+- Or do it by hand: create a world at [onlyworlds.com](https://www.onlyworlds.com), copy its API key, replace the word `local` in the world's `World.md` API Key line, and run **Upload World**.
+
+Either way the world keeps its element IDs and links, and from then on it syncs like any other world.
 
 ## Note format and migrating from an older version
 
@@ -73,12 +82,12 @@ The filename is presentation; the element's identity is the `id` in its frontmat
 
 | Command | What it does |
 |---|---|
-| `Create World` | Create a new world (account-linked) and the local folder structure. |
+| `Create World` | Create a new world and the local folder structure. Three paths: account-linked, **local-only** (no account, nothing leaves your vault), or **Take online** (publish an existing local-only world to your account and upload its elements). |
 | `Download World` | Pull a world from onlyworlds.com into your vault (10-digit and `ow_` keys). Incremental since 2.3.0: re-downloads fetch only what changed. |
 | `Create Element` | Pick a category and name. Generates a new note with a fresh UUID. |
 | `Save Element` | Push the active element note to the API. Reads current server state first and sends only what changed. Bind a hotkey via Settings → Hotkeys. |
 | `Upload World` | Bulk push every element in the active world (create + update, never delete). |
-| `Delete Element (server + note)` | Permanently delete the active note's element from onlyworlds.com and trash the note. Type-the-name confirmation. |
+| `Delete Element (server + note)` | Permanently delete the active note's element from onlyworlds.com and trash the note. Type-the-name confirmation. In a local-only world, just trashes the note. |
 | `Migrate world notes to frontmatter` | Convert a world's notes from the legacy `<span>` format to frontmatter. Backs up first; idempotent. See *Note format* above. |
 | `Export as OnlyWorlds folder` | Write the active world as a portable OnlyWorlds folder (`world.json` + per-element JSON). Choose the vault or any folder — point it at your Atlas root to open the world in [Atlas](https://atlas.onlyworlds.com) directly. |
 | `Import OnlyWorlds folder` | Read an OnlyWorlds folder (from Atlas or any tool) placed in your vault into frontmatter notes. Never overwrites existing notes; never merges two different worlds. |

@@ -16,14 +16,16 @@ import { App, TFile, normalizePath } from 'obsidian';
  * source won, so it can warn before writing to a possibly-different world.
  */
 
-export type KeySource = 'world-file' | 'settings' | 'none';
-
-export interface ResolvedWorldKey {
-    apiKey: string | null;
-    source: KeySource;
-    /** True when the key came from the world's own World.md (unambiguous). */
-    ownWorld: boolean;
-}
+// Pure decision core + shared constants live in world-key-core.ts (obsidian-free,
+// so the test build can compile it). Re-exported here so import sites are unchanged.
+export {
+    classifyWorldKey,
+    LOCAL_WORLD_KEY_TOKEN,
+    LOCAL_WORLD_SYNC_MESSAGE,
+} from './world-key-core';
+export type { KeySource, ResolvedWorldKey } from './world-key-core';
+import { classifyWorldKey } from './world-key-core';
+import type { ResolvedWorldKey } from './world-key-core';
 
 /** The world's own API key from its World.md, or null. */
 export async function worldFileApiKey(app: App, worldName: string): Promise<string | null> {
@@ -40,6 +42,23 @@ export async function worldFileApiKey(app: App, worldName: string): Promise<stri
 }
 
 /**
+ * Overwrite the API Key value in a world's World.md (e.g. replacing the 'local'
+ * token with a freshly-minted server key when a local world goes online).
+ * Same-line value replacement only — no lines inserted, so the file's ending
+ * convention is untouched. Returns false if World.md or its key line is missing.
+ */
+export async function writeWorldFileApiKey(app: App, worldName: string, newKey: string): Promise<boolean> {
+    const worldFilePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/World.md`);
+    const worldFile = app.vault.getAbstractFileByPath(worldFilePath);
+    if (!(worldFile instanceof TFile)) return false;
+    const content = await app.vault.read(worldFile);
+    const line = /^- \*\*API Key:\*\* .+$/m;
+    if (!line.test(content)) return false;
+    await app.vault.modify(worldFile, content.replace(line, `- **API Key:** ${newKey}`));
+    return true;
+}
+
+/**
  * Resolve the key to use for a per-world write. World.md wins; settings is the
  * fallback ONLY when the world carries no key of its own.
  */
@@ -49,12 +68,5 @@ export async function resolveWorldKey(
     settingsKey: string | undefined,
 ): Promise<ResolvedWorldKey> {
     const own = await worldFileApiKey(app, worldName);
-    if (own) {
-        return { apiKey: own, source: 'world-file', ownWorld: true };
-    }
-    const fallback = settingsKey?.trim();
-    if (fallback) {
-        return { apiKey: fallback, source: 'settings', ownWorld: false };
-    }
-    return { apiKey: null, source: 'none', ownWorld: false };
+    return classifyWorldKey(own, settingsKey);
 }

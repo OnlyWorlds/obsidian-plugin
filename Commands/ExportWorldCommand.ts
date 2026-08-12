@@ -6,7 +6,7 @@ import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
-import { resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import type OnlyWorldsPlugin from '../main';
@@ -45,6 +45,33 @@ export class ExportWorldCommand {
         }, activeWorldName).open();
     }
 
+    /** Validate a world and, on errors, show them. Returns true when clean.
+     *  Lets the take-online flow gate BEFORE creating anything server-side. */
+    async validateFor(worldFolder: string): Promise<boolean> {
+        const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
+        await validator.execute(worldFolder);
+        if (validator.errorCount > 0) {
+            new ValidateExportResultModal(this.app, validator.errors, validator.elementCount, validator.errorCount, worldFolder).open();
+            return false;
+        }
+        return true;
+    }
+
+    /** Public entry with a known PIN + world — used by the take-a-local-world-online
+     *  flow to chain the upload right after linking. skipPreview uploads directly
+     *  after a silent re-validation: the user already confirmed via TAKE ONLINE,
+     *  and the preview's overwrite warning is meaningless for a just-born world. */
+    async executeFor(pin: number, worldFolder: string, opts?: { skipPreview?: boolean }): Promise<void> {
+        if (opts?.skipPreview) {
+            if (!(await this.validateFor(worldFolder))) return;
+            const worldData = await this.collectWorldData(worldFolder);
+            if (!worldData || Object.keys(worldData).length === 0) return;
+            await this.uploadViaV2(pin, worldFolder, worldData);
+            return;
+        }
+        await this.runExport(pin, worldFolder);
+    }
+
     private async runExport(pin: number, worldFolder: string): Promise<void> {
         const validator = new ValidateWorldCommand(this.app, this.manifest, this.worldService, false);
         await validator.execute(worldFolder);
@@ -71,6 +98,10 @@ export class ExportWorldCommand {
      */
     private async uploadViaV2(pin: number, worldFolder: string, worldData: Record<string, unknown>): Promise<void> {
         const resolved = await resolveWorldKey(this.app, worldFolder, this.plugin?.settings.apiKey);
+        if (resolved.source === 'local-world') {
+            new Notice(LOCAL_WORLD_SYNC_MESSAGE, 8000);
+            return;
+        }
         if (!resolved.apiKey) {
             new Notice('Upload failed: no API key found in World.md or settings.');
             return;
