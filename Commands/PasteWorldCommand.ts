@@ -3,6 +3,7 @@ import { WorldPasteModal } from 'Modals/WorldPasteModal';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
+import { LOCAL_WORLD_KEY_TOKEN } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
@@ -160,6 +161,13 @@ export class PasteWorldCommand {
     }
 
     async findWorldByApiKey(apiKey: string): Promise<string | null> {
+        // The 'local' token marks EVERY local-only world — it is a state, not an
+        // identity. Matching on it would let a pasted local world overwrite a
+        // DIFFERENT local world (the wrong-world class, vault edition). Local
+        // pastes always land as a new (uniquely-named) world instead.
+        if (apiKey.trim().toLowerCase() === LOCAL_WORLD_KEY_TOKEN) {
+            return null;
+        }
         const worldsPath = normalizePath('OnlyWorlds/Worlds');
         const worldsFolder = this.app.vault.getAbstractFileByPath(worldsPath);
         
