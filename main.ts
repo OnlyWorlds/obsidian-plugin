@@ -1,5 +1,7 @@
 import { V2Client } from './client-v2';
 import { CopyWorldCommand } from 'Commands/CopyWorldCommand';
+import { ManageFieldsCommand } from 'Commands/ManageFieldsCommand';
+import { UpdateWorldFormatCommand } from 'Commands/UpdateWorldFormatCommand';
 import { CreateElementCommand } from 'Commands/CreateElementCommand';
 import { CreateWorldCommand } from 'Commands/CreateWorldCommand';
 import { DownloadWorldCommand } from 'Commands/DownloadWorldCommand';
@@ -17,7 +19,7 @@ import Handlebars from 'handlebars';
 import { NameChanger } from 'Listeners/NameChanger';
 import { NoteLinker } from './Listeners/NoteLinker';
 import { CreateElementModal } from 'Modals/CreateElementModal';
-import { Platform, Plugin, TFile, normalizePath } from 'obsidian';
+import { Platform, Plugin, TFile, normalizePath, Notice } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { PinCache } from './auth/pin-cache';
 import { ObsidianOnlyWorldsClient } from './client';
@@ -221,6 +223,20 @@ export default class OnlyWorldsPlugin extends Plugin {
       callback: () => migrateWorldCommand.execute(),
   });
 
+    // v3.2: bring a world's notes up to the current format — adds whatever
+    // fields are missing and moves text fields into body sections. Dry-run
+    // first; nothing is written until the user confirms.
+    const updateWorldFormatCommand = new UpdateWorldFormatCommand(this.app, (p) => this.autoSync?.markSelfWrite(p));
+    this.addCommand({
+      id: 'update-world-format',
+      name: 'Update World to Latest Format',
+      callback: async () => {
+          const worldName = await this.worldService.getActiveWorldName();
+          if (!worldName) { new Notice('No world found.'); return; }
+          void updateWorldFormatCommand.execute(worldName);
+      },
+  });
+
     const exportFolderCommand = new ExportFolderCommand(this.app);
     this.addCommand({
       id: 'export-onlyworlds-folder',
@@ -253,6 +269,24 @@ export default class OnlyWorldsPlugin extends Plugin {
       id: 'link-elements',
       name: 'Link Elements',
       callback: () => { void this.noteLinker.linkActiveNote(); }
+  });
+
+  // v3.2: text fields live in the body as `## Heading` sections, so which
+  // fields a note carries is editable — both directions, plus custom fields.
+  this.addCommand({
+      id: 'manage-fields',
+      name: 'Manage Fields',
+      callback: () => {
+          void new ManageFieldsCommand(this.app, (p) => this.autoSync?.markSelfWrite(p)).execute();
+      }
+  });
+
+  this.addCommand({
+      id: 'add-custom-field',
+      name: 'Add Custom Field',
+      callback: () => {
+          void new ManageFieldsCommand(this.app, (p) => this.autoSync?.markSelfWrite(p)).addCustomField();
+      }
   });
 
     }

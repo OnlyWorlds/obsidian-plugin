@@ -26,7 +26,23 @@ export class WorldService {
         this.app = app;
     }
 
-    async getWorldName(): Promise<string> { 
+    /**
+     * The world the user is actually working in: the one owning the ACTIVE note
+     * if there is one, else the configured/top-folder world.
+     *
+     * `getWorldName()` answers "which world is primary", which is the wrong
+     * question whenever a note is open — with several worlds in a vault it kept
+     * preselecting the top one while the user was editing something else
+     * (Captain, 2026-08-22). Any command acting ON a note should call this.
+     */
+    async getActiveWorldName(): Promise<string> {
+        const file = this.app.workspace.getActiveFile();
+        const m = file ? /^OnlyWorlds\/Worlds\/([^/]+)\//.exec(file.path) : null;
+        if (m) return m[1];
+        return this.getWorldName();
+    }
+
+    async getWorldName(): Promise<string> {
         const settingsWorldName = await this.getWorldNameFromSettings();
         if (settingsWorldName && await this.verifyWorldExists(settingsWorldName)) { 
             return settingsWorldName;
@@ -270,32 +286,54 @@ export class WorldService {
         }
     }
 
+    /**
+     * Find the world folder already holding this API key, if any. The key is the
+     * world's IDENTITY; the folder name is just a label the user picked.
+     *
+     * ⚑ This is the fix for a real duplication bug (2026-08-22): a world created
+     * locally as "NewWorld" and then given the key of a differently-named server
+     * world downloaded into a SECOND folder, because the key check only ever
+     * looked at a folder whose name already matched. Same key = same world,
+     * whatever it is called on disk.
+     */
+    async findWorldFolderByApiKey(worldApiKey: string): Promise<string | null> {
+        if (!worldApiKey) return null;
+        const worldsFolder = this.app.vault.getAbstractFileByPath(normalizePath('OnlyWorlds/Worlds'));
+        if (!(worldsFolder instanceof TFolder)) return null;
+        for (const child of worldsFolder.children) {
+            if (!(child instanceof TFolder)) continue;
+            try {
+                const worldFile = this.app.vault.getAbstractFileByPath(
+                    normalizePath(`${child.path}/World.md`)
+                );
+                if (!(worldFile instanceof TFile)) continue;
+                const content = await this.app.vault.read(worldFile);
+                const match = content.match(/^- \*\*API Key:\*\* (.+)$/m);
+                if (match && match[1].trim() === worldApiKey) return child.name;
+            } catch {
+                // unreadable World.md — skip this folder, keep looking
+            }
+        }
+        return null;
+    }
+
     async generateUniqueWorldName(worldName: string, worldApiKey?: string): Promise<string> {
         const fs = this.app.vault.adapter;
         const worldsBasePath = normalizePath('OnlyWorlds/Worlds');
-        
+
+        // ★ Identity first: if ANY folder already holds this API key, that folder
+        // IS this world — reuse it regardless of what it is named on disk.
+        if (worldApiKey) {
+            const owning = await this.findWorldFolderByApiKey(worldApiKey);
+            if (owning) return owning;
+        }
+
         // First, try the base name
         const basePath = normalizePath(`${worldsBasePath}/${worldName}`);
-        
+
         // Check if folder exists with this name
         if (!await fs.exists(basePath)) {
             return worldName; // Use base name if available
-        }
-        
-        // If base name exists, check if it's the same world (by API key if provided)
-        if (worldApiKey) {
-            try {
-                const worldFilePath = normalizePath(`${basePath}/World.md`);
-                if (await fs.exists(worldFilePath)) {
-                    const existingContent = await fs.read(worldFilePath);
-                    const apiKeyMatch = existingContent.match(/^- \*\*API Key:\*\* (.+)$/m);
-                    if (apiKeyMatch && apiKeyMatch[1].trim() === worldApiKey) {
-                        return worldName; // Same world, use same name
-                    }
-                }
-            } catch (error) {
-                // If can't read existing file, continue with numbering
-            }
         }
         
         // Base name exists and is different world, find next available number

@@ -117,6 +117,309 @@ export function bodyFieldForCategory(category: string): "story" | "description" 
 	return normalizeCategory(category) === "narrative" ? "story" : "description";
 }
 
+// --- body sections (v3.2 format) ---------------------------------------------
+//
+// TEXT fields live in the BODY under `## Heading` sections; frontmatter carries
+// base + numbers + links only. Rationale (2026-08-22): Obsidian's Properties
+// panel cannot group or collapse (its docs list nested YAML as unsupported), and
+// a one-line property input is the wrong instrument for prose. Markdown headings
+// fold natively — which is what the 1.x span format got right and 3.0 lost.
+//
+// This is a PLUGIN-LOCAL layout choice, not a format change: the OnlyWorlds
+// folder format is JSON per element, and Atlas never reads markdown. What
+// crosses any boundary is field VALUES, unchanged.
+
+/**
+ * The heading level field sections are WRITTEN at. `###` rather than `##`:
+ * a note is 3-7 sections of usually-short prose, and h2 renders large enough
+ * to dominate the content it labels (Captain, 2026-08-22).
+ *
+ * ⚑ READING accepts `##` OR `###` — notes written by earlier 3.2 builds use
+ * `##`, and a user may type either. Changing what we WRITE must never change
+ * what we can READ, or every existing note silently loses its sections.
+ */
+const SECTION_HEADING = "###";
+
+/** `political_climate` -> `Political Climate`. The heading a text field gets. */
+export function fieldToHeading(key: string): string {
+	return key
+		.split("_")
+		.map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+		.join(" ");
+}
+
+/** `## Political Climate` / `political climate` / `Political_Climate` -> `political_climate`. */
+export function headingToFieldKey(heading: string): string {
+	return heading.trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+/**
+ * Base identity keys that stay in FRONTMATTER even though the schema types them
+ * `text` (§2 ordering ruling). They are short classifiers and a URL, not prose:
+ * `supertype`/`subtype` are one-word categories, `image_url` is a link, and
+ * `name`/`id` are identity. A `## Supertype` section holding the word "noble"
+ * would be absurd, and these are the fields a reader scans first.
+ *
+ * NOTE this is NOT the rejected "scalar-ish text field" exception list (Q2 ruled
+ * all text fields to the body, including map.background_color). This is the base
+ * block, which §2 already places in frontmatter by name.
+ */
+const BASE_FRONTMATTER_KEYS = new Set(["name", "id", "supertype", "subtype", "image_url"]);
+
+/**
+ * The text fields of a category, in schema order — these are the body sections.
+ * The body field (description/story) is FIRST and always present, then the rest
+ * in schema order. Custom `x_` text fields are appended by the caller.
+ */
+export function bodyTextFields(category: string): string[] {
+	const schema = getCategorySchema(category);
+	const bodyField = bodyFieldForCategory(category);
+	if (!schema) return [bodyField];
+	const rest = Object.entries(schema)
+		.filter(([k, def]) => def.type === "text" && k !== bodyField && !BASE_FRONTMATTER_KEYS.has(k))
+		.map(([k]) => k);
+	return [bodyField, ...rest];
+}
+
+/**
+ * Render an element's body: one `## Heading` section per text field, in schema
+ * order, INCLUDING empty ones — the empty section IS the scaffold, and is the
+ * whole reason a user can discover a field exists.
+ *
+ * `extraTextFields` carries custom `x_` text fields (rendered without the
+ * prefix: `x_looks` -> `## Looks`).
+ */
+export function buildElementBody(
+	values: Record<string, unknown>,
+	category: string,
+	extraTextFields: string[] = [],
+	/**
+	 * Restrict the schema fields rendered (Manage-fields). Order still comes from
+	 * the schema, never from this list — a note added to and removed from many
+	 * times still reads canonically. Omit for the full scaffold.
+	 */
+	onlyFields?: string[]
+): string {
+	const schemaKeys = onlyFields
+		? bodyTextFields(category).filter((k) => onlyFields.includes(k))
+		: bodyTextFields(category);
+	const keys = [...schemaKeys, ...extraTextFields];
+	const parts: string[] = [];
+	for (const key of keys) {
+		const label = fieldToHeading(isExtensionKey(key) ? stripExtensionPrefix(key) : key);
+		const raw = values[key];
+		const text = typeof raw === "string" ? raw.trim() : raw == null ? "" : String(raw);
+		// An EMPTY section still gets its blank line: the gap is where the user
+		// types, and without it the cursor lands against the next heading.
+		parts.push(`${SECTION_HEADING} ${label}\n\n${text ? `${text}\n` : ""}`);
+	}
+	return parts.join("\n");
+}
+
+/**
+ * Split a note into its frontmatter block and its body — the ONE place that
+ * decides where one ends and the other begins.
+ *
+ * ⚑ Tolerant of leading whitespace on READ, strict on WRITE. A note whose
+ * `---` is preceded by blank lines is not valid frontmatter to Obsidian (it
+ * renders the YAML as plain text), and a naive `content.startsWith("---")`
+ * check reports "no frontmatter" — so the next rewrite writes the whole thing
+ * as BODY and the corruption becomes permanent and self-perpetuating. Found
+ * 2026-08-22 on a real note (`first char`) that had acquired three leading
+ * newlines: every later edit pushed the frontmatter further into the body.
+ *
+ * So: recognise the block wherever it starts, and always re-emit it at byte 0.
+ */
+export function splitNote(content: string): { frontmatter: string; body: string } {
+	const lead = /^\s*/.exec(content)?.[0].length ?? 0;
+	const rest = content.slice(lead);
+	if (!rest.startsWith("---")) return { frontmatter: "", body: content };
+	const end = rest.indexOf("\n---", 3);
+	if (end < 0) return { frontmatter: "", body: content };
+	// The block ends at the closing `---`; the body is what follows it, with the
+	// blank line(s) that separate them consumed so callers get the body itself
+	// rather than the gap. joinNote re-inserts exactly one separator.
+	// `end` indexes the "\n" before the closing "---", so the block runs to
+	// end+4 and the body starts after the newline that terminates that line.
+	const body = rest.slice(end + 4).replace(/^\r?\n/, "").replace(/^[ \t]*\r?\n/, "");
+	return { frontmatter: rest.slice(0, end + 4), body };
+}
+
+/**
+ * Serialize a frontmatter object to a `---` block, in key order.
+ *
+ * We emit this ourselves rather than going through Obsidian's
+ * `processFrontMatter` because that call is async, owns the whole file, and on
+ * a note with an empty body left blank lines above the `---` — which stops it
+ * being frontmatter at all. Owning the bytes removes the failure class.
+ *
+ * Covers exactly the value shapes the schema produces: string, number, null,
+ * boolean, and arrays of strings (link lists). Anything else — a nested object
+ * from an `x_` extension key — is emitted as JSON on one line, which is valid
+ * YAML and round-trips through every reader.
+ */
+export function serializeFrontmatter(fm: Record<string, unknown>): string {
+	const lines: string[] = ["---"];
+	for (const [key, value] of Object.entries(fm)) {
+		if (value === null || value === undefined) {
+			lines.push(`${key}:`);
+		} else if (Array.isArray(value)) {
+			if (value.length === 0) lines.push(`${key}: []`);
+			else {
+				lines.push(`${key}:`);
+				for (const item of value) lines.push(`  - ${yamlScalar(item)}`);
+			}
+		} else if (typeof value === "object") {
+			lines.push(`${key}: ${JSON.stringify(value)}`);
+		} else {
+			lines.push(`${key}: ${yamlScalar(value)}`);
+		}
+	}
+	lines.push("---");
+	return lines.join("\n");
+}
+
+/** Quote a scalar only when YAML would otherwise misread it. */
+function yamlScalar(value: unknown): string {
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	const s = String(value ?? "");
+	if (s === "") return '""';
+	// Quote anything that could parse as another type or break the line.
+	if (
+		/^[\s]|[\s]$/.test(s) ||
+		/^[-?:,[\]{}#&*!|>'"%@`]/.test(s) ||
+		/: |\n|\r/.test(s) ||
+		/^(true|false|null|yes|no|on|off|~)$/i.test(s) ||
+		/^-?\d+(\.\d+)?$/.test(s)
+	) {
+		return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+	}
+	return s;
+}
+
+/**
+ * Reassemble a note. The frontmatter block ALWAYS lands at byte 0 with exactly
+ * one newline after it — never leading blank lines, whatever the input had.
+ */
+export function joinNote(frontmatter: string, body: string): string {
+	const fm = frontmatter.trim();
+	const b = body.replace(/^\s*\n/, "");
+	if (!fm) return b;
+	return `${fm}\n\n${b.replace(/^\n+/, "")}`;
+}
+
+/** `x_looks` -> `looks`. Only strips the namespace, never other content. */
+export function stripExtensionPrefix(key: string): string {
+	for (const ns of EXTENSION_NAMESPACES) {
+		if (key.startsWith(ns)) return key.slice(ns.length);
+	}
+	return key;
+}
+
+export interface ParsedBody {
+	/** field key -> section text, for headings matching a schema text field */
+	fields: Record<string, string>;
+	/**
+	 * Headings that matched no schema text field, in document order, with their
+	 * content and original heading text. NEVER discarded — the caller folds these
+	 * back into the body field so no prose is ever lost (§R2 never-drop).
+	 */
+	unknown: Array<{ heading: string; text: string }>;
+	/** Content appearing BEFORE the first `##` heading. Also never discarded. */
+	preamble: string;
+}
+
+/**
+ * Parse a note body into its `##` sections.
+ *
+ * Only level-2 headings are section boundaries; `###` and deeper belong to the
+ * prose of whatever section they sit in, so a user's own sub-structure survives.
+ * A fenced code block is skipped so a `##` inside ``` never splits a section.
+ */
+export function parseElementBody(body: string, category: string): ParsedBody {
+	const known = new Set(bodyTextFields(category));
+	const fields: Record<string, string> = {};
+	const unknown: Array<{ heading: string; text: string }> = [];
+	const lines = body.split(/\r?\n/);
+
+	let current: { heading: string; buf: string[] } | null = null;
+	const preambleBuf: string[] = [];
+	let inFence = false;
+
+	const flush = () => {
+		if (!current) return;
+		const text = current.buf.join("\n").trim();
+		const key = headingToFieldKey(current.heading);
+		if (known.has(key)) {
+			fields[key] = text;
+		} else {
+			unknown.push({ heading: current.heading, text });
+		}
+		current = null;
+	};
+
+	for (const line of lines) {
+		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+		// Accept `##` or `###` as a section boundary — we write `###`, earlier
+		// 3.2 builds wrote `##`, and users type whichever they like. `####` and
+		// deeper stay inside a section so the user's own sub-structure survives.
+		const m = !inFence ? /^(#{2,3})[ \t]+(.+?)\s*$/.exec(line) : null;
+		if (m) {
+			flush();
+			current = { heading: m[2], buf: [] };
+			continue;
+		}
+		(current ? current.buf : preambleBuf).push(line);
+	}
+	flush();
+
+	return { fields, unknown, preamble: preambleBuf.join("\n").trim() };
+}
+
+/**
+ * Turn a parsed body into the field values to upload.
+ *
+ * ★ Never-drop (R2): unknown sections and any preamble are appended to the body
+ * field (description/story) with their headings intact, rather than discarded.
+ * A user who renames `## Background` to `## Backstory` loses nothing — the prose
+ * lands in description and is visible, instead of vanishing.
+ */
+export function bodyToFieldValues(
+	body: string,
+	category: string,
+	/**
+	 * Custom field keys the note is known to carry (`x_looks`). A section whose
+	 * heading matches one of these becomes that field instead of being salvaged
+	 * into description — this is what makes a user-added field a real field
+	 * rather than stray prose. Callers that don't track custom fields can omit
+	 * it and get the pure never-drop behaviour.
+	 */
+	knownCustomKeys: string[] = []
+): Record<string, string> {
+	const parsed = parseElementBody(body, category);
+	const bodyField = bodyFieldForCategory(category);
+	const out: Record<string, string> = { ...parsed.fields };
+	const customByHeading = new Map(
+		knownCustomKeys.map((k) => [headingToFieldKey(stripExtensionPrefix(k)), k])
+	);
+
+	const salvage: string[] = [];
+	if (parsed.preamble) salvage.push(parsed.preamble);
+	for (const u of parsed.unknown) {
+		const customKey = customByHeading.get(headingToFieldKey(u.heading));
+		if (customKey) {
+			out[customKey] = u.text;
+			continue;
+		}
+		salvage.push(u.text ? `## ${u.heading}\n\n${u.text}` : `## ${u.heading}`);
+	}
+	if (salvage.length) {
+		const existing = out[bodyField] ? [out[bodyField]] : [];
+		out[bodyField] = [...existing, ...salvage].join("\n\n").trim();
+	}
+	return out;
+}
+
 export function getCategorySchema(category: string): CategorySchema | null {
 	const cat = normalizeCategory(category);
 	return (FIELD_SCHEMA as Record<string, CategorySchema>)[cat] ?? null;
@@ -203,6 +506,14 @@ export interface ReadLinkOptions {
 	 * on the upload/read path; leave off where a partial list is acceptable.
 	 */
 	omitFieldOnUnresolved?: boolean;
+	/**
+	 * Collects frontmatter keys adopted as custom fields — a key that is neither
+	 * a schema field nor already namespaced gets `x_` prepended so it survives
+	 * the upload (the API rejects unknown bare keys outright). Each entry is
+	 * `{ from: "mood", to: "x_mood" }`. The caller uses this to rewrite the key
+	 * in the note and tell the user what was kept.
+	 */
+	adopted?: Array<{ from: string; to: string }>;
 }
 
 /**
@@ -249,7 +560,25 @@ export function frontmatterToPayloadFields(
 			continue;
 		}
 		const field = schema[key];
-		if (!field) continue; // unknown non-extension key on a known type — not an API field
+		if (!field) {
+			// A key that is neither a schema field nor already namespaced. The API
+			// REJECTS these outright ("Unknown field: x") — so historically we
+			// dropped them here, silently, and the user's data never left the vault.
+			//
+			// Instead, adopt it as a custom field by prepending the extension
+			// namespace: `mood` -> `x_mood`. The value rides verbatim (the API
+			// accepts any JSON type in an x_ field — probed 2026-08-22: string,
+			// number, list, bool and nested object all round-trip).
+			//
+			// Reported via opts.adopted so the caller can rename the key in the
+			// note itself and tell the user; silent adoption would be its own
+			// (smaller) surprise.
+			const adoptedKey = `${EXTENSION_NAMESPACES[2]}${key}`;
+			if (adoptedKey in frontmatter) continue; // x_mood already exists — that one wins
+			out[adoptedKey] = value;
+			opts.adopted?.push({ from: key, to: adoptedKey });
+			continue;
+		}
 		if (field.type === "single_link") {
 			// Normalize first (collapses stub objects / arrays / empties to a single
 			// value), then resolve the wikilink-or-id to a bare id.
@@ -288,6 +617,16 @@ export function frontmatterToPayloadFields(
  */
 export interface WriteFrontmatterOptions {
 	resolveIdToName?: IdToName;
+	/**
+	 * Emit EVERY frontmatter field of the category, empty ones included, instead
+	 * of only those with values (the R3 empty-omit rule). Set when creating a new
+	 * element: the empty properties are the scaffold that makes the fields
+	 * discoverable at all. Live-verified 2026-08-22 that Obsidian keeps empty
+	 * frontmatter keys across an open/edit/close cycle, so the scaffold sticks.
+	 *
+	 * Downloads leave this off — a downloaded note shows what the element has.
+	 */
+	scaffoldEmptyFields?: boolean;
 }
 
 /**
@@ -340,6 +679,9 @@ export function apiDataToFrontmatter(
 			// keep notes clean — the API would not have returned it anyway.
 			continue;
 		}
+		// v3.2: TEXT fields live in the BODY as `## Heading` sections, never in
+		// frontmatter — except the base identity keys, which §2 keeps up top.
+		if (field.type === "text" && !BASE_FRONTMATTER_KEYS.has(key)) continue;
 		let out: unknown;
 		if (field.type === "single_link") {
 			const norm = normalizeLinkValue(value, "single_link");
@@ -358,12 +700,50 @@ export function apiDataToFrontmatter(
 		}
 	}
 
-	// R4 assembly: name, then content (schema order), then image_url, then id last.
+	// Scaffold mode: seed every non-text field of the category so a new element
+	// shows its whole shape. Runs BEFORE assembly so ordering still applies.
+	if (opts.scaffoldEmptyFields && schema) {
+		for (const [key, def] of Object.entries(schema)) {
+			if (key === "name" || key === "id" || key === bodyField) continue;
+			if (def.type === "text" && !BASE_FRONTMATTER_KEYS.has(key)) continue; // body owns it
+			if (key === "image_url") {
+				if (imageUrl === undefined) imageUrl = "";
+				continue;
+			}
+			if (key in content) continue; // a real value already won
+			content[key] = def.type === "multi_link" ? [] : def.type === "number" ? null : "";
+		}
+	}
+
+	// v3.2 assembly (§2 ordering ruling): BASE first (name, id, supertype,
+	// subtype, image_url), then NUMBER fields, then LINK fields — each in schema
+	// order. Numbers before links because numbers are one-line scalars that stay
+	// compact while link lists grow, so the identity block stays readable at the
+	// top of the Properties panel. Obsidian renders properties in key order, so
+	// this assembly IS the panel layout.
 	const fm: Record<string, unknown> = {};
 	fm.name = typeof data.name === "string" ? data.name : "";
-	for (const [k, v] of Object.entries(content)) fm[k] = v;
-	if (imageUrl !== undefined) fm.image_url = imageUrl;
 	fm.id = elementId;
+	for (const k of ["supertype", "subtype"]) {
+		if (k in content) fm[k] = content[k];
+	}
+	if (imageUrl !== undefined) fm.image_url = imageUrl;
+
+	const schemaForOrder = schema ?? {};
+	const rank = (key: string): number => {
+		const t = schemaForOrder[key]?.type;
+		if (t === "number") return 0;
+		if (t === "single_link" || t === "multi_link") return 1;
+		return 2; // extension keys and anything unschema'd trail the known fields
+	};
+	const remaining = Object.keys(content).filter((k) => k !== "supertype" && k !== "subtype");
+	// Stable sort: within a rank, schema order (= insertion order of `content`).
+	remaining
+		.map((k, i) => ({ k, i, r: rank(k) }))
+		.sort((a, b) => a.r - b.r || a.i - b.i)
+		.forEach(({ k }) => {
+			fm[k] = content[k];
+		});
 	return fm;
 }
 

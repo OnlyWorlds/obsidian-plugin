@@ -1,7 +1,51 @@
-# Core smoke — S9 Obsidian interop (the 10-minute pass)
+# Core smoke — the 10-minute pass
 
 The tight version of SMOKE-CHECKLIST.md — the load-bearing behaviors only.
 **Throwaway/copy vault first.** Reload Obsidian (Ctrl+R) after each `npm run build`.
+
+---
+
+## ★ 3.2.0 pass (2026-08-22) — run THIS first; the S9 section below is older
+
+The v3.2 format (text fields as `###` body sections) changed what a note looks
+like, so the S9 steps below still describe 3.0 notes. These are the checks that
+found real bugs on 3.2.0's own test day — every one of them caught something:
+
+1. **New element carries its whole shape.** Create a Character.
+   - [ ] ~33 properties (base → numbers → links) AND 6 `###` body sections.
+   - [ ] Headings fold. A blank line under each, including empty sections.
+   *(3.0/3.1 created `name` + `id` only — the bug this release exists to fix.)*
+
+2. **★ Frontmatter stays frontmatter.** Add Custom Field on a fresh note, then
+   again with a name that already exists.
+   - [ ] The note still renders Properties, NOT plain text.
+   *(The 2026-08-22 corruption: `processFrontMatter` left blank lines above the
+   `---`, which stops Obsidian seeing it as frontmatter, and every later write
+   buried it deeper. Never reintroduce that call — see CLAUDE.md's write rule.)*
+
+3. **Manage Fields, both directions.** Toggle a field off, then back ON.
+   - [ ] It comes back. *(Two writers racing lost the re-tick.)*
+   - [ ] A field holding text has a DISABLED toggle. **If you can untick it and
+         lose prose, stop and fix that before anything else.**
+   - [ ] Scroll position holds while toggling.
+
+4. **Download writes the full field set.** Download a world with sparse elements.
+   - [ ] Notes show every field, not only the populated ones.
+
+5. **Same key = same world.** Download using the key of a world already in the
+   vault under a DIFFERENT folder name.
+   - [ ] It reuses that folder; no duplicate world.
+
+6. **Update World to Latest Format** on a pre-3.2 world.
+   - [ ] Dry-run report FIRST; nothing written until confirmed.
+   - [ ] Run twice → second run reports nothing to do.
+
+7. **Link to a not-yet-uploaded element → Save Element.**
+   - [ ] A notice names the element and says to upload first.
+
+---
+
+## S9 (3.0) pass — kept for the sync/migration paths it still covers
 
 What Skeld already verified by execution (you don't need to re-run these):
 - ✅ **Migration correctness** — Captain's real MessWorld run audited: 22/22 notes, 0 span residue, every id/field/body matches the backup, via the plugin's own transform.

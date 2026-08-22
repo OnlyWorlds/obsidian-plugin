@@ -308,6 +308,12 @@ export class DownloadWorldCommand {
                             folderPath: categoryDirectory,
                             fileName: notePath.split('/').pop(),
                             idToName,
+                            // A downloaded note carries the SAME full field set as a
+                            // created one. Without this the note shows only fields
+                            // that happen to hold values, so a sparse element gives
+                            // the user no way to see what else it could carry —
+                            // exactly the "kinda useless" problem 3.2 exists to fix.
+                            scaffoldEmptyFields: true,
                         }
                     );
                 } else {

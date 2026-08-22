@@ -18,6 +18,15 @@ import {
 	diffPayload,
 	wikilinkTarget,
 	toWikilink,
+	bodyTextFields,
+	fieldToHeading,
+	headingToFieldKey,
+	buildElementBody,
+	parseElementBody,
+	bodyToFieldValues,
+	splitNote,
+	joinNote,
+	serializeFrontmatter,
 	isEmptyFieldValue,
 	parseRawFrontmatterScalars,
 } from "../vault/element-transform";
@@ -90,7 +99,7 @@ test("frontmatterToPayloadFields keeps extension keys verbatim (R3)", () => {
 		x_obsidian_pinned: true,
 		description: "body copy", // must be dropped (body owns it)
 		world: "w-1", // must be dropped
-		bogus_unknown: "drop me", // unknown non-extension key on a known type -> dropped
+		bogus_unknown: "keep me", // unknown non-extension key -> ADOPTED as x_bogus_unknown
 	};
 	const out = frontmatterToPayloadFields(fm, "character");
 	// species is multi_link in the SDK schema -> normalized to an array
@@ -102,7 +111,62 @@ test("frontmatterToPayloadFields keeps extension keys verbatim (R3)", () => {
 	assert.ok(!("id" in out));
 	assert.ok(!("world" in out));
 	assert.ok(!("description" in out)); // body field excluded
+	// An unknown bare key is no longer DROPPED — it is adopted under x_ so the
+	// user's data survives the upload (the API rejects unknown bare keys).
 	assert.ok(!("bogus_unknown" in out));
+	assert.equal(out.x_bogus_unknown, "keep me");
+});
+
+test("adoption: an unknown bare key is namespaced, not dropped, and is reported", () => {
+	const adopted: Array<{ from: string; to: string }> = [];
+	const fm = { id: "c-1", name: "Ireena", mood: "wary", tally: 3 };
+	const out = frontmatterToPayloadFields(fm, "character", { adopted });
+	assert.equal(out.x_mood, "wary");
+	assert.equal(out.x_tally, 3); // any JSON type rides verbatim
+	assert.ok(!("mood" in out));
+	assert.deepEqual(adopted, [
+		{ from: "mood", to: "x_mood" },
+		{ from: "tally", to: "x_tally" },
+	]);
+});
+
+test("adoption: does not clobber an existing x_ key of the same name", () => {
+	const adopted: Array<{ from: string; to: string }> = [];
+	// Both `mood` and `x_mood` present: the already-namespaced one wins and the
+	// bare one is skipped, so adoption can never overwrite real custom data.
+	const fm = { id: "c-1", name: "Ireena", mood: "bare", x_mood: "namespaced" };
+	const out = frontmatterToPayloadFields(fm, "character", { adopted });
+	assert.equal(out.x_mood, "namespaced");
+	assert.deepEqual(adopted, []);
+});
+
+test("adoption: schema fields and meta keys are never adopted", () => {
+	const adopted: Array<{ from: string; to: string }> = [];
+	const fm = {
+		id: "c-1",
+		name: "Ireena",
+		physicality: "tall", // real schema field
+		world: "w-1", // meta key
+		description: "body", // body field
+		aliases: ["I"], // obsidian meta
+	};
+	const out = frontmatterToPayloadFields(fm, "character", { adopted });
+	assert.equal(out.physicality, "tall");
+	assert.deepEqual(adopted, []);
+	for (const k of ["x_id", "x_world", "x_description", "x_aliases", "x_name"]) {
+		assert.ok(!(k in out), `${k} must not be adopted`);
+	}
+});
+
+test("adoption: an already-namespaced key is untouched (no double prefix)", () => {
+	const adopted: Array<{ from: string; to: string }> = [];
+	const fm = { id: "c-1", name: "Ireena", x_mood: "wary", atlas_thing: 1 };
+	const out = frontmatterToPayloadFields(fm, "character", { adopted });
+	assert.equal(out.x_mood, "wary");
+	assert.equal(out.atlas_thing, 1);
+	assert.ok(!("x_x_mood" in out));
+	assert.ok(!("x_atlas_thing" in out));
+	assert.deepEqual(adopted, []);
 });
 
 test("frontmatterToPayloadFields: narrative excludes story (body owns it), keeps description as a real field? no", () => {
@@ -325,21 +389,43 @@ test("R3 WRITE: null/''/[]  fields are omitted; id/name/extension-empty retained
 	assert.equal(fm.atlas_flag, "");
 });
 
-test("R4 WRITE: key order is name first, image_url then id LAST", () => {
+test("v3.2 WRITE: key order is BASE, then numbers, then links (§2 ruling)", () => {
+	// Supersedes the 3.0 "name first, id LAST" layout. Captain's 2026-08-22
+	// ruling: base identity at the top where a reader scans, then compact number
+	// scalars, then link lists (which grow) at the bottom. Obsidian renders
+	// properties in key order, so this assembly IS the panel layout.
 	const data = {
 		id: "c-1",
 		name: "Ireena",
 		supertype: "NPC",
+		subtype: "Ally",
 		image_url: "http://img/x.png",
-		location: "loc-1",
+		location: "loc-1", // single_link
+		traits: ["t-1"], // multi_link
+		height: 165, // number
+		charisma: 60, // number
+		physicality: "Tall.", // TEXT -> body, must not appear
 	};
 	const fm = apiDataToFrontmatter(data, "character", "c-1");
 	const keys = Object.keys(fm);
-	assert.equal(keys[0], "name"); // name leads
-	assert.equal(keys[keys.length - 1], "id"); // id last
-	assert.equal(keys[keys.length - 2], "image_url"); // image_url just above id
-	// content fields sit between name and image_url
-	assert.ok(keys.indexOf("supertype") > 0 && keys.indexOf("supertype") < keys.indexOf("image_url"));
+	assert.deepEqual(keys.slice(0, 5), ["name", "id", "supertype", "subtype", "image_url"]);
+	// every number precedes every link
+	const lastNum = Math.max(keys.indexOf("height"), keys.indexOf("charisma"));
+	const firstLink = Math.min(keys.indexOf("location"), keys.indexOf("traits"));
+	assert.ok(lastNum < firstLink, `numbers must precede links: ${keys.join(",")}`);
+	// text fields are gone from frontmatter — they live in the body now
+	assert.ok(!("physicality" in fm));
+});
+
+test("v3.2 WRITE: text fields are excluded from frontmatter, base text keys are not", () => {
+	const fm = apiDataToFrontmatter(
+		{ id: "c-1", name: "Ireena", supertype: "NPC", physicality: "Tall.", background: "Third son." },
+		"character",
+		"c-1"
+	);
+	assert.equal(fm.supertype, "NPC"); // base text key stays
+	assert.ok(!("physicality" in fm));
+	assert.ok(!("background" in fm));
 });
 
 test("R1 READ: [[Name]] resolves to id via injected name->id resolver, single + multi", () => {
@@ -597,4 +683,243 @@ test("frontmatterToPayloadFields: omit keeps a fully-resolvable field intact", (
 		omitFieldOnUnresolved: true,
 	});
 	assert.deepEqual(out.traits, ["id-1", "id-2"]);
+});
+
+// --- body sections (v3.2 format) ---------------------------------------------
+
+test("bodyTextFields: body field first, then text fields in schema order", () => {
+	const f = bodyTextFields("character");
+	assert.equal(f[0], "description");
+	assert.deepEqual(f, ["description", "physicality", "mentality", "background", "motivations", "reputation"]);
+	// Narrative's body field is story, not description
+	assert.equal(bodyTextFields("narrative")[0], "story");
+	// Marker has no text fields beyond the body field
+	assert.deepEqual(bodyTextFields("marker"), ["description"]);
+});
+
+test("heading <-> field key round-trips, tolerating case and spacing", () => {
+	assert.equal(fieldToHeading("political_climate"), "Political Climate");
+	assert.equal(headingToFieldKey("Political Climate"), "political_climate");
+	assert.equal(headingToFieldKey("  political   climate  "), "political_climate");
+	assert.equal(headingToFieldKey("PHYSICALITY"), "physicality");
+});
+
+test("buildElementBody: every text field gets a section, empty ones included (the scaffold)", () => {
+	const body = buildElementBody({ description: "A knight.", physicality: "Tall." }, "character");
+	assert.match(body, /## Description\n\nA knight\./);
+	assert.match(body, /## Physicality\n\nTall\./);
+	// Empty fields still get their heading — this is what makes them discoverable
+	assert.match(body, /## Mentality\n/);
+	assert.match(body, /## Motivations\n/);
+	for (const h of ["Description", "Physicality", "Mentality", "Background", "Motivations", "Reputation"]) {
+		assert.ok(body.includes(`## ${h}`), `missing ## ${h}`);
+	}
+});
+
+test("parseElementBody: sections map to their fields", () => {
+	const body = "## Description\n\nA knight.\n\n## Physicality\n\nTall and weathered.\n";
+	const p = parseElementBody(body, "character");
+	assert.equal(p.fields.description, "A knight.");
+	assert.equal(p.fields.physicality, "Tall and weathered.");
+	assert.deepEqual(p.unknown, []);
+	assert.equal(p.preamble, "");
+});
+
+test("★ never-drop: an unknown heading keeps its prose in the body field", () => {
+	const body = "## Description\n\nA knight.\n\n## Backstory\n\nRenamed by the user.\n";
+	const out = bodyToFieldValues(body, "character");
+	assert.match(out.description, /A knight\./);
+	// The renamed section is NOT lost — heading and prose both survive
+	assert.match(out.description, /## Backstory/);
+	assert.match(out.description, /Renamed by the user\./);
+});
+
+test("★ never-drop: preamble before the first heading survives", () => {
+	const body = "Stray text someone typed at the top.\n\n## Description\n\nA knight.\n";
+	const out = bodyToFieldValues(body, "character");
+	assert.match(out.description, /Stray text someone typed at the top\./);
+	assert.match(out.description, /A knight\./);
+});
+
+test("body sections: #### and deeper stay inside their section", () => {
+	// `##` and `###` are BOTH boundaries (we write ###; earlier 3.2 builds wrote
+	// ##), so a user's own sub-structure starts at ####.
+	const body = "### Background\n\nBorn in Waterdeep.\n\n#### Childhood\n\nUneventful.\n";
+	const p = parseElementBody(body, "character");
+	assert.match(p.fields.background, /Born in Waterdeep\./);
+	assert.match(p.fields.background, /#### Childhood/); // user sub-structure preserved
+	assert.deepEqual(p.unknown, []);
+});
+
+test("body sections: ## and ### both read as boundaries (back-compat)", () => {
+	const h2 = parseElementBody("## Description\n\nA knight.\n\n## Physicality\n\nTall.\n", "character");
+	const h3 = parseElementBody("### Description\n\nA knight.\n\n### Physicality\n\nTall.\n", "character");
+	assert.deepEqual(h2.fields, h3.fields);
+	assert.equal(h3.fields.physicality, "Tall.");
+});
+
+test("buildElementBody writes ### and puts a blank line under every heading", () => {
+	const body = buildElementBody({ description: "A knight." }, "character");
+	assert.match(body, /^### Description\n\nA knight\./);
+	assert.match(body, /### Mentality\n\n/); // empty sections get the gap too
+});
+
+test("body sections: a ## inside a fenced code block does not split a section", () => {
+	const body = "## Description\n\n```md\n## Not A Heading\n```\n\nstill description\n";
+	const p = parseElementBody(body, "character");
+	assert.match(p.fields.description, /## Not A Heading/);
+	assert.match(p.fields.description, /still description/);
+	assert.deepEqual(p.unknown, []);
+});
+
+test("body round-trip: build -> parse returns the same values", () => {
+	const values = {
+		description: "A knight.",
+		physicality: "Tall.",
+		mentality: "Wary.",
+		background: "Third son.",
+		motivations: "Redemption.",
+		reputation: "Feared.",
+	};
+	const parsed = parseElementBody(buildElementBody(values, "character"), "character");
+	assert.deepEqual(parsed.fields, values);
+	assert.deepEqual(parsed.unknown, []);
+});
+
+test("body round-trip: empty scaffold parses back to empty strings, not junk", () => {
+	const parsed = parseElementBody(buildElementBody({}, "character"), "character");
+	for (const k of ["description", "physicality", "mentality", "background", "motivations", "reputation"]) {
+		assert.equal(parsed.fields[k], "", `${k} should be empty`);
+	}
+	assert.deepEqual(parsed.unknown, []);
+});
+
+test("narrative: the body field is story and gets a ## Story heading", () => {
+	const body = buildElementBody({ story: "Once upon a time." }, "narrative");
+	assert.match(body, /## Story\n\nOnce upon a time\./);
+	const out = bodyToFieldValues(body, "narrative");
+	assert.equal(out.story, "Once upon a time.");
+});
+
+test("custom text fields render without the x_ prefix and parse back to it", () => {
+	const body = buildElementBody({ description: "A knight.", x_looks: "Weathered." }, "character", ["x_looks"]);
+	assert.match(body, /## Looks\n\nWeathered\./);
+	assert.ok(!body.includes("x_looks"));
+	// Unknown to the schema, so it lands in unknown[] for the caller to re-key
+	const p = parseElementBody(body, "character");
+	assert.equal(p.unknown.length, 1);
+	assert.equal(p.unknown[0].heading, "Looks");
+	assert.equal(p.unknown[0].text, "Weathered.");
+});
+
+test("scaffold: a new element carries its whole field set, ordered base/numbers/links", () => {
+	const fm = apiDataToFrontmatter({ name: "New Character" }, "character", "c-1", {
+		scaffoldEmptyFields: true,
+	});
+	const keys = Object.keys(fm);
+	assert.deepEqual(keys.slice(0, 5), ["name", "id", "supertype", "subtype", "image_url"]);
+	// numbers seeded null, multi-links seeded [], single-links seeded ""
+	assert.equal(fm.charisma, null);
+	assert.deepEqual(fm.species, []);
+	assert.equal(fm.location, "");
+	// text fields never appear in frontmatter, even in scaffold mode
+	for (const k of ["physicality", "mentality", "background", "motivations", "reputation"]) {
+		assert.ok(!(k in fm), `${k} belongs in the body`);
+	}
+	const lastNum = keys.indexOf("CHA");
+	const firstLink = keys.indexOf("species");
+	assert.ok(lastNum < firstLink, "numbers must precede links");
+});
+
+test("scaffold: off by default, so downloads still show only what has values", () => {
+	const fm = apiDataToFrontmatter({ name: "Ireena", charisma: 60 }, "character", "c-1");
+	assert.equal(fm.charisma, 60);
+	assert.ok(!("STR" in fm)); // empty fields omitted on a normal write
+});
+
+test("scaffold: a real value always beats the empty seed", () => {
+	const fm = apiDataToFrontmatter({ name: "Ireena", charisma: 60, species: ["sp-1"] }, "character", "c-1", {
+		scaffoldEmptyFields: true,
+	});
+	assert.equal(fm.charisma, 60);
+	assert.deepEqual(fm.species, ["sp-1"]);
+});
+
+test("custom body sections round-trip as x_ fields when known", () => {
+	const body = "## Description\n\nA knight.\n\n## Looks\n\nWeathered.\n";
+	const out = bodyToFieldValues(body, "character", ["x_looks"]);
+	assert.equal(out.x_looks, "Weathered.");
+	assert.equal(out.description, "A knight."); // not salvaged into description
+});
+
+test("custom body sections: unknown-and-untracked still salvages (never-drop holds)", () => {
+	const body = "## Description\n\nA knight.\n\n## Looks\n\nWeathered.\n";
+	const out = bodyToFieldValues(body, "character"); // no known custom keys
+	assert.match(out.description, /## Looks/);
+	assert.match(out.description, /Weathered\./);
+});
+
+// --- frontmatter position (the 2026-08-22 corruption) -------------------------
+
+test("★ splitNote finds frontmatter even when blank lines precede it", () => {
+	const good = "---\nname: x\nid: 1\n---\n\n## Description\n\nhi\n";
+	const bad = "\n\n\n" + good;
+	// The naive startsWith('---') check reported "no frontmatter" here, so the
+	// next rewrite pushed the YAML into the body and the damage compounded.
+	assert.equal(splitNote(bad).frontmatter, "---\nname: x\nid: 1\n---");
+	assert.match(splitNote(bad).body, /^## Description/);
+	assert.equal(splitNote(good).frontmatter, splitNote(bad).frontmatter);
+});
+
+test("★ joinNote always puts frontmatter at byte 0 — repairs a damaged note", () => {
+	const damaged = "\n\n\n---\nname: x\nid: 1\n---\n\n## Description\n\nhi\n";
+	const { frontmatter, body } = splitNote(damaged);
+	const repaired = joinNote(frontmatter, body);
+	assert.ok(repaired.startsWith("---"), "must start at byte 0");
+	assert.ok(!/^\s*\n/.test(repaired));
+	// and it is idempotent
+	const twice = joinNote(...Object.values(splitNote(repaired)) as [string, string]);
+	assert.equal(twice, repaired);
+});
+
+test("joinNote: no frontmatter yields the body unchanged (no stray separator)", () => {
+	assert.equal(joinNote("", "## Description\n\nhi\n"), "## Description\n\nhi\n");
+});
+
+test("splitNote: a note with no frontmatter is all body", () => {
+	const s = splitNote("just prose\n");
+	assert.equal(s.frontmatter, "");
+	assert.equal(s.body, "just prose\n");
+});
+
+test("serializeFrontmatter emits a block that starts at byte 0 and round-trips", () => {
+	const fm = {
+		name: "Ireena",
+		id: "c-1",
+		supertype: "",
+		height: 165,
+		charisma: null,
+		species: [] as string[],
+		traits: ["[[Brave]]", "[[Kind]]"],
+		x_obj: { a: 1 },
+	};
+	const block = serializeFrontmatter(fm);
+	assert.ok(block.startsWith("---\n"));
+	assert.ok(block.endsWith("\n---"));
+	assert.match(block, /^name: Ireena$/m);
+	assert.match(block, /^charisma:$/m); // null -> bare key
+	assert.match(block, /^species: \[\]$/m);
+	assert.match(block, /^ {2}- "\[\[Brave\]\]"$/m); // [[ ]] must be quoted
+	assert.match(block, /^x_obj: \{"a":1\}$/m);
+	// and the assembled note always begins with the block
+	assert.ok(joinNote(block, "### Description\n\n").startsWith("---\nname:"));
+});
+
+test("★ a full write cycle can never emit leading blank lines", () => {
+	// The corruption was: block not at byte 0 -> Obsidian stops seeing frontmatter.
+	const block = serializeFrontmatter({ name: "x", id: "1" });
+	for (const body of ["", "\n", "\n\n\n### Description\n", "### Description\n\nhi\n"]) {
+		const out = joinNote(block, body);
+		assert.ok(out.startsWith("---"), `body ${JSON.stringify(body)} produced ${JSON.stringify(out.slice(0, 8))}`);
+	}
 });

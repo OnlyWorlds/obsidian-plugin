@@ -3,6 +3,14 @@ import { sanitizeFileName } from "../Scripts/WorldService";
 import {
 	frontmatterToPayloadFields,
 	apiDataToFrontmatter,
+	buildElementBody,
+	bodyToFieldValues,
+	parseElementBody,
+	headingToFieldKey,
+	isExtensionKey,
+	splitNote,
+	joinNote,
+	serializeFrontmatter,
 	bodyFieldForCategory,
 	normalizeCategory,
 	getCategorySchema,
@@ -35,6 +43,14 @@ export interface ParsedElement {
 	category: string; // lowercase singular, e.g. "character"
 	worldName: string;
 	fields: Record<string, unknown>; // snake_case, ready for the v2 payload builder
+	/**
+	 * `[[Name]]` link targets that resolved to no local note, so their whole
+	 * field was omitted to protect the server's copy. The CALLER must surface
+	 * these: a console warning is invisible, and the user sees "saved" while a
+	 * link they just made silently did not travel. Typically a link to an
+	 * element created locally and not yet uploaded.
+	 */
+	unresolvedLinks: string[];
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
@@ -113,8 +129,27 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 				`[OnlyWorlds] ${file.path}: ${unresolved.length} unresolved link(s); their fields omitted from upload to preserve server values: ${unresolved.join(", ")}`
 			);
 		}
-		const bodyField = bodyFieldForCategory(category);
-		if (body) fields[bodyField] = body;
+		// v3.2: the body carries text fields as `## Heading` sections. Unknown
+		// headings and any preamble are folded back into description/story rather
+		// than dropped (never-drop, R2) — a user who renames a heading loses no
+		// prose. A legacy body with no headings at all parses to a lone preamble,
+		// which lands in the body field exactly as it did before.
+		if (body) {
+			// A `## Looks` section is a user-added custom TEXT field and must reach
+			// the API as `x_looks`, not be salvaged into description. We cannot know
+			// from the note alone which unknown headings are deliberate, so treat
+			// every unknown heading whose name is a clean single token as a custom
+			// field. A heading with punctuation or many words reads as prose
+			// structure and still falls through to the never-drop salvage.
+			const customKeys = parseElementBody(body, category)
+				.unknown.map((u) => u.heading.trim())
+				.filter((h) => /^[A-Za-z][A-Za-z0-9 _-]{0,40}$/.test(h) && h.split(/\s+/).length <= 3)
+				.map((h) => `x_${headingToFieldKey(h)}`);
+			const sectionValues = bodyToFieldValues(body, category, customKeys);
+			for (const [k, v] of Object.entries(sectionValues)) {
+				fields[k] = v;
+			}
+		}
 		if (!fields.name) {
 			fields.name = typeof fm.name === "string" ? fm.name : file.basename;
 		}
@@ -124,6 +159,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			category,
 			worldName: pathInfo.worldName,
 			fields,
+			unresolvedLinks: unresolved,
 		};
 	}
 
@@ -143,6 +179,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			category,
 			worldName: pathInfo.worldName,
 			fields,
+			unresolvedLinks: [],
 		};
 	}
 
@@ -167,6 +204,12 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
  */
 export interface WriteElementOpts {
 	markSelfWrite?: (path: string) => void;
+	/**
+	 * Write the element's FULL field set, empty fields included (v3.2 scaffold).
+	 * Set by element CREATION so a new note shows every field it can carry;
+	 * downloads leave it off so a note shows what the element actually has.
+	 */
+	scaffoldEmptyFields?: boolean;
 	folderPath?: string; // e.g. "OnlyWorlds/Worlds/W/Elements/Character (12)"
 	fileName?: string; // e.g. "Ireena (2).md"
 	/**
@@ -201,7 +244,14 @@ export async function writeElement(
 	// finding, 2026-07-16: safeName was a weaker regex than sanitizeFileName).
 	const safeName = sanitizeFileName(name);
 	const bodyField = bodyFieldForCategory(cat);
-	const bodyValue = typeof data[bodyField] === "string" ? (data[bodyField] as string) : "";
+	// v3.2: the body is no longer just description/story — it carries EVERY text
+	// field as a `## Heading` section, empty ones included (the empty section is
+	// the scaffold that makes a field discoverable at all). Custom `x_` text
+	// fields ride along, rendered without their prefix.
+	const customTextFields = Object.entries(data)
+		.filter(([k, v]) => isExtensionKey(k) && typeof v === "string")
+		.map(([k]) => k);
+	const bodyValue = buildElementBody(data, cat, customTextFields);
 
 	const folder = opts.folderPath
 		? normalizePath(opts.folderPath)
@@ -232,31 +282,38 @@ export async function writeElement(
 	// not yet indexed in metadataCache).
 	const fm = apiDataToFrontmatter(data, cat, elementId, {
 		resolveIdToName: opts.idToName ?? buildIdToNameResolver(app, worldName),
+		scaffoldEmptyFields: opts.scaffoldEmptyFields,
 	});
 
-	markSelfWrite?.(file.path);
-	await app.fileManager.processFrontMatter(file, (frontmatter) => {
-		const target = frontmatter as Record<string, unknown>;
-		// Rewrite the fields we own from scratch so their ORDER matches `fm`
-		// (name first, image_url/id last — R4). Delete every owned key first
-		// (including ones now empty/omitted — R3), then re-insert in fm order.
-		// Extension keys and any user-added frontmatter NOT owned are left in place.
-		const schema = getCategorySchema(cat);
-		const ownedKeys = new Set<string>(["id", "name"]);
-		if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
-		for (const k of Object.keys(target)) {
-			if (ownedKeys.has(k)) delete target[k];
-		}
-		for (const [k, v] of Object.entries(fm)) {
-			target[k] = v;
-		}
-	});
-
-	// Write the body (description/story). processFrontMatter preserved the body,
-	// so re-read, swap the body, keep the frontmatter block intact.
+	// ★ ONE write for the whole note — frontmatter AND body together.
+	//
+	// This used to be two steps: processFrontMatter for the block, then a
+	// vault.modify for the body. That is what corrupted notes (2026-08-22,
+	// reproduced on four real notes): processFrontMatter is async and owns the
+	// serialization, and on a note whose body was empty it left blank lines
+	// above the `---`. A block that is not at byte 0 is not frontmatter to
+	// Obsidian — the note renders as plain text and every later write buries it
+	// deeper. Chasing it with a repair pass afterwards kept losing the race.
+	//
+	// Serializing the block ourselves removes the whole class: there is exactly
+	// one write, it is built by joinNote, and joinNote cannot emit a leading
+	// blank line. We also keep any frontmatter key we do not own (extension
+	// namespaces, the user's own additions), which is what processFrontMatter
+	// was buying us.
 	const content = await app.vault.read(file);
-	const fmBlock = extractFrontmatterBlock(content);
-	const newContent = fmBlock ? `${fmBlock}\n${bodyValue}\n` : `${bodyValue}\n`;
+	const existingFm = parseRawFrontmatter(content) ?? {};
+	const schema = getCategorySchema(cat);
+	const ownedKeys = new Set<string>(["id", "name"]);
+	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
+	const preserved: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(existingFm)) {
+		if (!ownedKeys.has(k)) preserved[k] = v;
+	}
+	const merged: Record<string, unknown> = { ...fm };
+	for (const [k, v] of Object.entries(preserved)) {
+		if (!(k in merged)) merged[k] = v;
+	}
+	const newContent = joinNote(serializeFrontmatter(merged), `${bodyValue}\n`);
 	if (newContent !== content) {
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);

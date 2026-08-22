@@ -47,6 +47,15 @@ export function classifyWorldKey(
 }
 
 /** Shared user-facing line for the local-world sync gate — one wording, everywhere. */
+/**
+ * ⚑ Point at the flow, not at the homework. The plugin already has a one-move
+ * take-online path (Create World → "take an existing local world online"): it
+ * creates the server world, writes the key into World.md and uploads the
+ * elements. Telling the user to go make a world and paste a key by hand sent
+ * them down the long road past a door that was already there (2026-08-22).
+ */
 export const LOCAL_WORLD_SYNC_MESSAGE =
-    'This is a local-only world — nothing was sent to onlyworlds.com. To enable sync, ' +
-    'create a world at onlyworlds.com and put its API key in World.md.';
+    'This is a local-only world — nothing was sent to onlyworlds.com. ' +
+    'To put it online: run "Create World" and use "Or take a local world online" — ' +
+    'it creates the world, links the key and uploads everything in one move. ' +
+    '(Or paste an existing world\'s API key into World.md yourself.)';

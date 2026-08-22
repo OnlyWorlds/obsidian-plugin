@@ -66,6 +66,22 @@ export class SaveElementCommand {
         const v2 = await readElement(this.app, activeFile);
         if (v2 && v2.id) {
             elementData = { id: v2.id, ...v2.fields };
+            // A [[Name]] pointing at an element that exists only in the vault
+            // resolves to nothing, so its whole field is omitted to avoid
+            // stripping the server's copy. That is the right call — but saying
+            // nothing means the user sees "saved" while the link they just made
+            // did not travel. Name the elements and the fix.
+            if (v2.unresolvedLinks.length > 0) {
+                const names = [...new Set(v2.unresolvedLinks)];
+                const shown = names.slice(0, 3).join(', ');
+                const more = names.length > 3 ? ` +${names.length - 3} more` : '';
+                new Notice(
+                    `Not saved to those links: ${shown}${more}. ` +
+                    `${names.length === 1 ? 'That element is' : 'Those elements are'} not on the server yet — ` +
+                    `run "Export World" first, then save this note again.`,
+                    12000
+                );
+            }
         } else {
             const fileContent = await this.app.vault.read(activeFile);
             elementData = await this.parseElementContent(fileContent, activeFile.path);
