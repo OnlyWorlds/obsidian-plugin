@@ -32,27 +32,46 @@
    `--modal-max-height` variable rather than fighting its layout, so the modal
    stays where obsidian puts it and simply stops being too tall.
 
-   ⚑ 3.2.3 ALSO added a `:has(input:focus)` rule clamping the modal to 50dvh,
-   as a fallback for a keyboard that overlays without resizing. On device it
-   collapsed the dialog to an empty sliver, because dvh had already shrunk and
-   the rule halved it again. Removed in 3.2.4 — see the note where it used to
-   live. dvh needs no helper; a second height rule stacked on it is the bug.
+   ⚑ FOUR ATTEMPTS BEFORE THIS ONE, all the same mistake in different clothes:
+   adding a SECOND height rule on top of a mechanism that already worked.
+   3.2.3 clamped to 50dvh on focus (halved an already-halved viewport).
+   3.2.4 removed that but added `min-height: min(18em, 60dvh)` as a "floor" —
+   which with the keyboard up exceeded the space left, and min-height beats
+   max-height, so the box was forced taller than the screen and its content
+   squeezed. A floor measured in the same unit as the ceiling is a second
+   ceiling, not a floor.
+
+   ★ 3.2.5 sets `height: auto` and `max-height: 100dvh`, BOTH `!important`,
+   and nothing else. Obsidian sets both height and max-height on its modals, so
+   overriding only one leaves the other fighting; every plugin that solved
+   full-screen mobile modals sets both. The modal is now as tall as its content
+   and never taller than the viewport, which is the whole requirement.
    ========================================================================== */
 
 .ow-mobile-modal {
     /* ⚑ NEVER set `transform`, `left`, or a computed width here — that was the
-       3.2.1 half-off-screen bug. Obsidian's own centering is left alone. */
-    --modal-max-height: calc(100dvh - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px));
-    max-height: var(--modal-max-height);
+       3.2.1 half-off-screen bug. Obsidian's own centering is left alone.
 
-    /* ★ A floor, so that no height rule can ever collapse this dialog to
-       nothing again (3.2.3 did exactly that). If the available space is truly
-       smaller than this, the modal overflows and scrolls — visibly wrong, and
-       recoverable — rather than rendering as an empty box with no way out. */
-    min-height: min(18em, 60dvh);
+       ★ WHY `height` AND `max-height` TOGETHER, BOTH `!important`:
+       obsidian sets BOTH on its modals, so overriding only one leaves the other
+       fighting it — which is what 3.2.3/3.2.4 did. Setting max-height alone let
+       obsidian's own `height` keep the box tall while our cap squeezed it, and
+       the content lost. Every plugin that has solved full-screen mobile modals
+       sets both, with !important. Height and max-height are the SAME value here
+       so there is nothing left to disagree. */
+    height: auto !important;
+    max-height: calc(100dvh - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px)) !important;
 
-    /* Full width is worth having on a phone, but expressed so it cannot
-       interact with obsidian's centering: a max, never a position. */
+    /* ⚑ NO min-height. 3.2.4 set `min-height: min(18em, 60dvh)` as a "floor so
+       this can never collapse again" — and made it worse: with the keyboard up,
+       60dvh of the SHRUNKEN viewport can exceed the space left, min-height wins
+       over max-height in CSS, and the box is forced taller than the screen while
+       its content is squeezed. A floor measured in the same unit as the ceiling
+       is not a floor, it is a second ceiling arguing with the first.
+       `height: auto` is the real answer: the modal is as tall as its content,
+       capped by the viewport, and never any taller. */
+
+    /* Full width, expressed as a max so it cannot interact with centering. */
     --modal-max-width: 100vw;
 
     display: flex;
@@ -60,7 +79,11 @@
 }
 
 /* The content area is the scroller — not the modal — so the footer below stays
-   put while the fields above it move. */
+   put while the fields above it move.
+
+   `min-height: 0` is required for a flex child to be allowed to shrink below
+   its content size; without it the scroller never scrolls. It is safe HERE (on
+   the inner content) precisely because the outer modal is `height: auto`. */
 .ow-mobile-modal .modal-content {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -81,18 +104,21 @@
    A second height rule stacking on `dvh` is always wrong — `dvh` is already the
    answer. Do not add one back. */
 
-/* The action row, lifted into place by mobile.ts. Sticky so it stays reachable
-   while the content scrolls under it.
+/* The action row, lifted into place by mobile.ts.
+
+   ⚑ NOT `position: sticky` any more. 3.2.4 made it sticky so it would ride
+   above scrolling content — and on device it detached and floated over a
+   collapsed dialog, because a sticky element positions against a scroll
+   container that had been squeezed to nothing. It is a plain flex item now:
+   the modal is `height: auto`, so the footer simply sits at the end of the
+   content, and the content area above it is the thing that scrolls. Nothing
+   floats, so nothing can float over anything.
 
    ⚑ The background is INHERITED, not painted. 3.2.2 set an opaque
    `--background-primary` here and it rendered as a foreign black box behind
-   the buttons, because obsidian's mobile modal is translucent. Matching the
-   modal's own surface is the only thing that looks native. */
+   the buttons, because obsidian's mobile modal is translucent. */
 .ow-mobile-modal .ow-mobile-modal-footer {
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
-    background-color: var(--modal-background, inherit);
+    flex: 0 0 auto;
     border-top: 1px solid var(--background-modifier-border);
     padding: 0.6em 0 calc(0.6em + var(--safe-area-inset-bottom, 0px));
     margin-top: 0.4em;
