@@ -32,11 +32,11 @@
    `--modal-max-height` variable rather than fighting its layout, so the modal
    stays where obsidian puts it and simply stops being too tall.
 
-   ★ The `:has()` rule then handles the case dvh cannot: a keyboard that
-   overlays without resizing. Padding is added only while a TEXT input has
-   focus — never on a select or a button, which do not raise a keyboard. That
-   distinction is the Tasks plugin's hard-won refinement: a bare :focus-within
-   made their buttons jump whenever a dropdown was touched.
+   ⚑ 3.2.3 ALSO added a `:has(input:focus)` rule clamping the modal to 50dvh,
+   as a fallback for a keyboard that overlays without resizing. On device it
+   collapsed the dialog to an empty sliver, because dvh had already shrunk and
+   the rule halved it again. Removed in 3.2.4 — see the note where it used to
+   live. dvh needs no helper; a second height rule stacked on it is the bug.
    ========================================================================== */
 
 .ow-mobile-modal {
@@ -44,6 +44,12 @@
        3.2.1 half-off-screen bug. Obsidian's own centering is left alone. */
     --modal-max-height: calc(100dvh - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px));
     max-height: var(--modal-max-height);
+
+    /* ★ A floor, so that no height rule can ever collapse this dialog to
+       nothing again (3.2.3 did exactly that). If the available space is truly
+       smaller than this, the modal overflows and scrolls — visibly wrong, and
+       recoverable — rather than rendering as an empty box with no way out. */
+    min-height: min(18em, 60dvh);
 
     /* Full width is worth having on a phone, but expressed so it cannot
        interact with obsidian's centering: a max, never a position. */
@@ -62,21 +68,18 @@
     min-height: 0;
 }
 
-/* ★ The keyboard-overlay fallback. When a TEXT field has focus and the browser
-   did NOT shrink the viewport, the modal keeps its full height and the footer
-   sits under the keyboard. Shrinking the modal to half the dynamic viewport
-   guarantees the footer is above the fold in either behaviour.
+/* ⚑ THERE IS DELIBERATELY NO `:has(input:focus)` SHRINK RULE HERE.
+   3.2.3 had one — `max-height: 50dvh` while a text field was focused — as a
+   fallback for a keyboard that overlays without resizing the viewport. On a
+   real iPhone it collapsed the dialog to an empty sliver: `dvh` had ALREADY
+   shrunk for the keyboard, so the rule took half of a half, and with
+   `.modal-content` as a `min-height: 0` scroller the content had nowhere to
+   render. The photo showed an empty box with only obsidian's ✕ left.
 
-   Only text inputs, never selects or buttons — a select opens a picker, not a
-   keyboard, and shrinking for it makes the controls jump for no reason. */
-.ow-mobile-modal:has(input[type="text"]:focus),
-.ow-mobile-modal:has(input[type="email"]:focus),
-.ow-mobile-modal:has(input[type="password"]:focus),
-.ow-mobile-modal:has(input[type="number"]:focus),
-.ow-mobile-modal:has(input:not([type]):focus),
-.ow-mobile-modal:has(textarea:focus) {
-    max-height: calc(50dvh - var(--safe-area-inset-top, 0px));
-}
+   That is the useful finding: **dvh DOES respond to the keyboard on iOS**, so
+   the fallback guarded a case that does not occur and broke the one that does.
+   A second height rule stacking on `dvh` is always wrong — `dvh` is already the
+   answer. Do not add one back. */
 
 /* The action row, lifted into place by mobile.ts. Sticky so it stays reachable
    while the content scrolls under it.
