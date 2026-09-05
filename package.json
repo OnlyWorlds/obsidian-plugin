@@ -1,6 +1,6 @@
 {
   "name": "onlyworlds-obsidian-plugin",
-  "version": "3.2.2",
+  "version": "3.2.3",
   "description": "Obsidian plugin for the OnlyWorlds worldbuilding framework",
   "main": "main.js",
   "type": "module",
