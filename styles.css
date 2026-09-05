@@ -5,82 +5,115 @@
    --------------------------------------------------------------------------
    Fixes the iOS report of 2026-09-05: modals rendered centered and
    unscrollable, so the action buttons sat behind the on-screen keyboard, which
-   cannot be dismissed from inside a modal. Applied via Modals/mobile.ts, which
-   adds .ow-mobile-modal only when Platform.isMobile — desktop never sees any
-   of this.
+   on iOS cannot be dismissed from inside a modal (confirmed on device: tapping
+   elsewhere in the modal does not close it; only a tap far enough outside
+   closes the whole dialog).
 
-   --ow-viewport-height is written by mobile.ts from window.visualViewport, the
-   only measure that reflects space NOT covered by the keyboard (iOS does not
-   shrink the layout viewport, so 100vh lies while the keyboard is up). The
-   100vh here is the fallback for platforms without visualViewport.
+   Applied via Modals/mobile.ts, which adds .ow-mobile-modal only when
+   Platform.isMobile — desktop never sees any of this.
+
+   ================== HOW THIS WORKS, AND TWO FAILED ATTEMPTS =================
+
+   The keyboard problem is a KNOWN Obsidian-wide issue, not specific to this
+   plugin: obsidian's own modals use a vh-based max-height, so any tall plugin
+   modal puts its controls under the keyboard. There is an open feature request
+   asking the core app to fix it, and plugins currently work around it
+   themselves (the Tasks plugin is the reference case).
+
+   ⚑ 3.2.1 tried `transform: translateX(-50%)` with `width: 100%` and put half
+   the dialog off-screen. ⚑ 3.2.2 tried measuring window.visualViewport in JS
+   and writing the height into a custom property; the modal rendered correctly
+   but did NOT shrink for the keyboard on iOS. Both were attempts to compute a
+   height by hand.
+
+   ★ The fix is to stop computing it. `dvh` is the DYNAMIC viewport height: the
+   browser shrinks it when the keyboard opens, with no listener to fire, no
+   measurement to get wrong, and no JS involved. We set obsidian's OWN
+   `--modal-max-height` variable rather than fighting its layout, so the modal
+   stays where obsidian puts it and simply stops being too tall.
+
+   ★ The `:has()` rule then handles the case dvh cannot: a keyboard that
+   overlays without resizing. Padding is added only while a TEXT input has
+   focus — never on a select or a button, which do not raise a keyboard. That
+   distinction is the Tasks plugin's hard-won refinement: a bare :focus-within
+   made their buttons jump whenever a dropdown was touched.
    ========================================================================== */
 
 .ow-mobile-modal {
-    /* ⚑ NEVER set a `transform` here, and never assume Obsidian's positioning.
-       3.2.1 shipped `transform: translateX(-50%)` alongside `width: 100%`,
-       which put HALF the dialog off the left edge of the screen: the transform
-       overwrote Obsidian's own centering transform while the full-width rule
-       removed the very offset it was compensating for. Two rules that each
-       looked right and were only wrong together.
+    /* ⚑ NEVER set `transform`, `left`, or a computed width here — that was the
+       3.2.1 half-off-screen bug. Obsidian's own centering is left alone. */
+    --modal-max-height: calc(100dvh - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px));
+    max-height: var(--modal-max-height);
 
-       Pin to the viewport instead of nudging a layout we do not own — inset
-       gives position without arithmetic, so there is nothing to get wrong.
+    /* Full width is worth having on a phone, but expressed so it cannot
+       interact with obsidian's centering: a max, never a position. */
+    --modal-max-width: 100vw;
 
-       Robust to EITHER containing block: `inset` with `margin: 0` and
-       `width: auto` pins the box to its parent's edges whether that parent is
-       the viewport or Obsidian's own modal container, because both span the
-       screen width. The width falls out of the insets, so there is no 50%
-       arithmetic and no half-off-screen failure mode in either case. */
-    position: fixed;
-    inset: env(safe-area-inset-top, 0px) 0 auto 0;
-    transform: none;
-    margin: 0;
-
-    width: auto;
-    max-width: 100%;
-    max-height: calc(var(--ow-viewport-height, 100vh) - env(safe-area-inset-top, 0px));
     display: flex;
     flex-direction: column;
 }
 
-/* The content area is the scroller — not the modal — so the sticky footer
-   below stays pinned while the fields above it move. */
+/* The content area is the scroller — not the modal — so the footer below stays
+   put while the fields above it move. */
 .ow-mobile-modal .modal-content {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     flex: 1 1 auto;
     min-height: 0;
-    /* Room so the last field can scroll clear of the sticky footer. */
-    padding-bottom: 0.5em;
 }
 
-/* The action row, promoted by mobile.ts. Sticky rather than fixed so it stays
-   inside the modal's own scroll context. */
+/* ★ The keyboard-overlay fallback. When a TEXT field has focus and the browser
+   did NOT shrink the viewport, the modal keeps its full height and the footer
+   sits under the keyboard. Shrinking the modal to half the dynamic viewport
+   guarantees the footer is above the fold in either behaviour.
+
+   Only text inputs, never selects or buttons — a select opens a picker, not a
+   keyboard, and shrinking for it makes the controls jump for no reason. */
+.ow-mobile-modal:has(input[type="text"]:focus),
+.ow-mobile-modal:has(input[type="email"]:focus),
+.ow-mobile-modal:has(input[type="password"]:focus),
+.ow-mobile-modal:has(input[type="number"]:focus),
+.ow-mobile-modal:has(input:not([type]):focus),
+.ow-mobile-modal:has(textarea:focus) {
+    max-height: calc(50dvh - var(--safe-area-inset-top, 0px));
+}
+
+/* The action row, lifted into place by mobile.ts. Sticky so it stays reachable
+   while the content scrolls under it.
+
+   ⚑ The background is INHERITED, not painted. 3.2.2 set an opaque
+   `--background-primary` here and it rendered as a foreign black box behind
+   the buttons, because obsidian's mobile modal is translucent. Matching the
+   modal's own surface is the only thing that looks native. */
 .ow-mobile-modal .ow-mobile-modal-footer {
     position: sticky;
     bottom: 0;
     z-index: 1;
-    background-color: var(--background-primary);
+    background-color: var(--modal-background, inherit);
     border-top: 1px solid var(--background-modifier-border);
-    padding: 0.75em 0 calc(0.75em + env(safe-area-inset-bottom, 0px));
-    margin-top: 0.5em;
-    /* Buttons wrap instead of overflowing — CreateWorldModal carries three,
-       and three desktop-width buttons do not fit a phone. */
+    padding: 0.6em 0 calc(0.6em + var(--safe-area-inset-bottom, 0px));
+    margin-top: 0.4em;
+
+    /* Buttons WRAP rather than overflow. CreateWorldModal carries three, and
+       three desktop-width buttons do not fit a phone — on device the third was
+       clipped at the right edge. */
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
 }
 
-/* Touch targets. Apple's guidance is 44px; Obsidian's default button is
-   shorter than that, and these are the buttons the user could not reach. */
+/* Touch targets: Apple's guidance is 44px, and these are the buttons the user
+   could not reach. `flex: 1 1 auto` with wrapping means three buttons share a
+   row when they fit and stack when they do not. */
 .ow-mobile-modal .ow-mobile-modal-footer button {
     min-height: 44px;
     flex: 1 1 auto;
     margin-left: 0 !important;
+    white-space: normal;
 }
 
-/* Full-width inputs on mobile. 16px is the threshold below which iOS Safari
-   zooms the page on focus, which shifts the modal out from under the user. */
+/* Full-width inputs. 16px is the threshold below which iOS Safari zooms the
+   page on focus, which shifts the modal out from under the user. */
 .ow-mobile-modal input[type="text"],
 .ow-mobile-modal input[type="email"],
 .ow-mobile-modal input[type="password"],

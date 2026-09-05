@@ -10,35 +10,70 @@ import { findFooterRun, RowShape } from './mobile-core';
  * from inside a modal. The dialog becomes unusable: you can type, but you can
  * never reach CREATE or CANCEL.
  *
- * Three causes compounded, and this helper answers all three:
+ * Four causes, and this helper plus `styles.css` answer all four:
  *
  *   1. Nothing capped modal height or scrolled the overflow, so a tall modal
- *      simply extended past the viewport. -> `ow-mobile-modal` caps the modal
- *      at the VISIBLE viewport and makes the content area the scroller.
+ *      simply extended past the viewport. -> the stylesheet sets obsidian's own
+ *      `--modal-max-height` in `dvh` and makes the content area the scroller.
  *   2. 14 of 24 modals auto-focused a text input, summoning the keyboard before
  *      the user had seen the dialog. -> `suppressAutofocus()` skips that
  *      focus call on phones (tablets keep it; there is room there).
  *   3. Buttons were built last in content flow, so they were the first thing
- *      the keyboard covered. -> the button row is promoted to a sticky footer
- *      that stays reachable while the content above it scrolls.
+ *      the keyboard covered. -> the button row is promoted to a sticky footer.
+ *   4. ★ There was NO WAY TO DISMISS THE KEYBOARD (confirmed on device: a tap
+ *      elsewhere in the modal does nothing; only a tap far enough outside
+ *      closes the whole dialog, losing the input). -> `addKeyboardDismissal()`
+ *      blurs the focused field on a tap anywhere in the modal's own chrome.
  *
- * WHY VISUAL VIEWPORT: on iOS the on-screen keyboard does NOT shrink the layout
- * viewport, so `100vh` still spans the full screen and the sticky footer lands
- * underneath the keyboard. `window.visualViewport.height` is the only measure
- * that reflects the space actually visible, so we track it and write it to a
- * CSS custom property the stylesheet consumes.
+ * ⚑ WHY THERE IS NO visualViewport CODE HERE ANY MORE. 3.2.2 measured
+ * `window.visualViewport.height` and wrote it into a custom property. It
+ * shipped, and on a real iPhone the modal rendered correctly and STILL did not
+ * shrink for the keyboard. The height is now `100dvh` in CSS instead — the
+ * browser owns it, there is no listener to fail to fire, and nothing to
+ * measure wrong. Do not reintroduce the JS measurement; it was tried.
  *
  * Desktop is untouched: every function here returns immediately unless
  * `Platform.isMobile` is true.
  */
 
-/** Marks a modal for the mobile stylesheet and keeps it inside the visible viewport. */
+/** Marks a modal for the mobile stylesheet and makes its keyboard escapable. */
 export function applyMobileModal(modal: Modal): void {
 	if (!Platform.isMobile) return;
 
 	modal.modalEl.addClass('ow-mobile-modal');
 	promoteButtonRowToFooter(modal);
-	trackVisualViewport(modal);
+	addKeyboardDismissal(modal);
+}
+
+/**
+ * ★ Gives the keyboard a way out.
+ *
+ * On iOS, inside a modal, there is no system affordance to close the keyboard:
+ * no back gesture (that is android), no "Done" bar, and tapping the modal's own
+ * background does nothing because nothing was listening. The user's only escape
+ * was tapping outside the modal entirely, which closes the dialog and discards
+ * what they typed. Confirmed on device 2026-09-05.
+ *
+ * So: a tap on the modal's own chrome — anywhere that is not itself an input or
+ * a button — blurs the active field, which is what closes the keyboard. Tapping
+ * a heading, a label, a description paragraph or the padding now works the way
+ * a user expects, and nothing else changes.
+ *
+ * `pointerdown` rather than `click`: it fires before focus moves, so the blur
+ * lands even when the tap target is not focusable.
+ */
+function addKeyboardDismissal(modal: Modal): void {
+	modal.modalEl.addEventListener('pointerdown', (evt: PointerEvent) => {
+		const target = evt.target as HTMLElement | null;
+		if (!target) return;
+		// A tap ON a control is that control's business — never steal its focus.
+		if (target.closest('input, textarea, select, button, a, [contenteditable]')) return;
+
+		const active = document.activeElement;
+		if (active instanceof HTMLElement && modal.modalEl.contains(active)) {
+			active.blur();
+		}
+	});
 }
 
 /**
@@ -73,36 +108,6 @@ function describeRow(el: HTMLElement): RowShape {
 		otherContent: Array.from(el.querySelectorAll('*')).filter(
 			(n) => !(n instanceof HTMLButtonElement) && !n.closest('button')
 		).length,
-	};
-}
-
-/**
- * Writes the visible viewport height into `--ow-viewport-height` on the modal.
- *
- * The keyboard opening/closing fires `resize` on visualViewport; without this
- * the modal keeps sizing itself against a viewport that the keyboard is
- * covering. Falls back to `100vh` (via the CSS default) where visualViewport is
- * unavailable, which costs nothing on platforms that shrink the layout viewport.
- */
-function trackVisualViewport(modal: Modal): void {
-	const vv = window.visualViewport;
-	if (!vv) return;
-
-	const sync = () => {
-		modal.modalEl.style.setProperty('--ow-viewport-height', `${vv.height}px`);
-	};
-
-	sync();
-	vv.addEventListener('resize', sync);
-	vv.addEventListener('scroll', sync);
-
-	// Obsidian empties contentEl on close; detach here so the listener does not
-	// outlive the modal it was measuring for.
-	const originalOnClose = modal.onClose.bind(modal);
-	modal.onClose = () => {
-		vv.removeEventListener('resize', sync);
-		vv.removeEventListener('scroll', sync);
-		originalOnClose();
 	};
 }
 
