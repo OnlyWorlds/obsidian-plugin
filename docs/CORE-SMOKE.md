@@ -7,6 +7,19 @@ The tight version of SMOKE-CHECKLIST.md — the load-bearing behaviors only.
 
 ## ★★ MOBILE pass (2026-09-05) — the phone checks, run on a real device
 
+**Status: PASSING on iPhone as of 3.2.5** (Captain, on a borrowed handset).
+Confirmed working: the dialog fits and is usable with the keyboard up · tapping
+the dialog outside a field dismisses the keyboard and the box returns to size ·
+content scrolls while the keyboard is showing. Reported as *still a bit buggy but
+not too bad* — no repro captured for the residue; if it is described more
+precisely later, it starts here.
+
+⚑ **It took five releases (3.2.1 → 3.2.5) and four device photos.** Nothing in
+this section is verifiable on desktop — the whole feature is gated on
+`Platform.isMobile`. Read the ⚑ notes in `styles.css` before touching any of
+those rules; each one records a specific thing that shipped broken.
+
+
 Why this section exists: a user on iOS reported that modal buttons sit behind
 the keyboard, unreachable. **None of this is verifiable on desktop** — the
 whole fix is gated on `Platform.isMobile`, so a desktop run exercises nothing.
