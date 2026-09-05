@@ -16,18 +16,31 @@
    ========================================================================== */
 
 .ow-mobile-modal {
-    /* Sit against the top rather than centering: a centered modal that grows
-       taller than the viewport has its top AND bottom clipped, and the top is
-       where the labels are. */
-    top: 0;
-    transform: translateX(-50%);
-    margin-top: env(safe-area-inset-top, 0px);
+    /* ⚑ NEVER set a `transform` here, and never assume Obsidian's positioning.
+       3.2.1 shipped `transform: translateX(-50%)` alongside `width: 100%`,
+       which put HALF the dialog off the left edge of the screen: the transform
+       overwrote Obsidian's own centering transform while the full-width rule
+       removed the very offset it was compensating for. Two rules that each
+       looked right and were only wrong together.
 
+       Pin to the viewport instead of nudging a layout we do not own — inset
+       gives position without arithmetic, so there is nothing to get wrong.
+
+       Robust to EITHER containing block: `inset` with `margin: 0` and
+       `width: auto` pins the box to its parent's edges whether that parent is
+       the viewport or Obsidian's own modal container, because both span the
+       screen width. The width falls out of the insets, so there is no 50%
+       arithmetic and no half-off-screen failure mode in either case. */
+    position: fixed;
+    inset: env(safe-area-inset-top, 0px) 0 auto 0;
+    transform: none;
+    margin: 0;
+
+    width: auto;
+    max-width: 100%;
     max-height: calc(var(--ow-viewport-height, 100vh) - env(safe-area-inset-top, 0px));
     display: flex;
     flex-direction: column;
-    width: 100%;
-    max-width: 100%;
 }
 
 /* The content area is the scroller — not the modal — so the sticky footer
