@@ -1,4 +1,5 @@
 import { App, Modal, Notice, TFolder, normalizePath } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 import { WorldService } from '../Scripts/WorldService';
 import { classifyWorldKey, worldFileApiKey } from '../vault/world-key';
 
@@ -180,7 +181,8 @@ export class CreateWorldModal extends Modal {
         });
         
         // Auto-focus the name input
-        nameInput.focus();
+        if (!suppressAutofocus()) nameInput.focus();
+        applyMobileModal(this);
     }
     
     validateAndSubmit(name: string, email: string, pinStr: string) {

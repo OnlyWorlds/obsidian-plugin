@@ -1,4 +1,5 @@
 import { App, Modal, Notice } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export class NameInputModal extends Modal {
     private inputValue: string = '';
@@ -41,8 +42,9 @@ export class NameInputModal extends Modal {
                 this.submitForm();  // Submit form
             }
         });
-        inputEl.focus();  // Focus the input element initially
+        if (!suppressAutofocus()) inputEl.focus();  // Focus the input element initially
         
+        applyMobileModal(this);
     }
 
     submitForm() {

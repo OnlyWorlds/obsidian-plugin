@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export class ValidateCopyResultModal extends Modal {
     private errors: {
@@ -91,6 +92,7 @@ export class ValidateCopyResultModal extends Modal {
                 this.close();
             });
         }
+        applyMobileModal(this);
     }
     
     // Add a property to hold the export callback function

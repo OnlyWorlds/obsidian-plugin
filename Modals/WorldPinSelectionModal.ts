@@ -1,4 +1,5 @@
 import { App, DropdownComponent, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export class WorldPinSelectionModal extends Modal {
     onChoose: (pin: number, worldFolder: string) => void;
@@ -93,7 +94,8 @@ export class WorldPinSelectionModal extends Modal {
             }
         });
 
-        input.focus();
+        if (!suppressAutofocus()) input.focus();
+        applyMobileModal(this);
     }
 
     validateAndSubmit(pinValue: string, worldFolder: string) {

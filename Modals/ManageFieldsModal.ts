@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export interface FieldChoice {
 	/** schema key, e.g. "physicality" (or "x_looks" for a custom field) */
@@ -92,6 +93,7 @@ export class ManageFieldsModal extends Modal {
 			text: 'Changes are applied to the note as you toggle.',
 			cls: 'setting-item-description',
 		});
+		applyMobileModal(this);
 	}
 
 	/** Push the current selection to the note. Called on every change. */

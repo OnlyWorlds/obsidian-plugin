@@ -1,4 +1,5 @@
 import { Modal, App } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export class WorldCopyModal extends Modal {
     worldName: string;
@@ -17,6 +18,7 @@ export class WorldCopyModal extends Modal {
         contentEl.createEl('button', { text: 'OK', type: 'button' }, (button) => {
             button.onclick = () => this.close();
         });
+        applyMobileModal(this);
     }
 
     onClose() {

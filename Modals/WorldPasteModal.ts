@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export class WorldPasteModal extends Modal {
     onSubmit: (jsonData: any) => void;
@@ -56,6 +57,7 @@ export class WorldPasteModal extends Modal {
                 this.close();
             }
         };
+        applyMobileModal(this);
     }
 
     isValidJSON(str: string): boolean {

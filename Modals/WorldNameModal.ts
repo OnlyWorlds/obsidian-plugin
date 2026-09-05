@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export class WorldNameModal extends Modal {
     onEnter: (value: string) => void;
@@ -32,7 +33,8 @@ export class WorldNameModal extends Modal {
             }
         });
 
-        input.focus();
+        if (!suppressAutofocus()) input.focus();
+        applyMobileModal(this);
     }
     submit(value: string) {
         this.close();

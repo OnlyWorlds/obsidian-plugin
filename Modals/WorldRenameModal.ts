@@ -1,4 +1,5 @@
 import { App, Modal, DropdownComponent, normalizePath, TFolder, TFile } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export class WorldRenameModal extends Modal {
     onRename: (oldWorldName: string, newWorldName: string) => void;
@@ -44,7 +45,8 @@ export class WorldRenameModal extends Modal {
             }
         };
 
-        input.focus();
+        if (!suppressAutofocus()) input.focus();
+        applyMobileModal(this);
     }
 
     async getWorldFolders(): Promise<string[]> {

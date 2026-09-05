@@ -1,4 +1,5 @@
 import { App, DropdownComponent, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 import { Category } from '../enums';
 import { WorldService } from '../Scripts/WorldService';
 
@@ -147,10 +148,11 @@ export class CreateElementModal extends Modal {
         });
 
         // Focus category input first for typing workflow
-        categoryInput.focus();
+        if (!suppressAutofocus()) categoryInput.focus();
         if (categoryInput.value) {
             categoryInput.select(); // Select the pre-filled text
         }
+        applyMobileModal(this);
     }
 
     validateAndSubmit(worldName: string, category: string, elementName: string) {

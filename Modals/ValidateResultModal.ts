@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export class ValidateResultModal extends Modal {
     private errors: {
@@ -77,6 +78,7 @@ export class ValidateResultModal extends Modal {
         closeButton.addEventListener('click', () => {
             this.close();
         });
+        applyMobileModal(this);
     }
 
     formatTitle(key: string): string {

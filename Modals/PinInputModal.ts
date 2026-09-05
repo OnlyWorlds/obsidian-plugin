@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export class PinInputModal extends Modal {
     pin: string = '';
@@ -61,6 +62,7 @@ export class PinInputModal extends Modal {
                     this.close();
                     this.onSubmit(null); // Indicate cancellation
                 }));
+        applyMobileModal(this);
     }
 
     onClose() {

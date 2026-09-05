@@ -1,4 +1,5 @@
 import { App, Modal, Notice } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export interface WorldDownloadData {
     apiKey: string;
@@ -133,7 +134,8 @@ export class WorldDownloadModal extends Modal {
         });
 
         // Focus the API key input
-        keyInput.focus();
+        if (!suppressAutofocus()) keyInput.focus();
+        applyMobileModal(this);
     }
 
     validateAndSubmit(apiKeyValue: string, pinValue: string) {

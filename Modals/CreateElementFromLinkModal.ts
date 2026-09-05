@@ -1,4 +1,5 @@
 import { App, DropdownComponent, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
+import { applyMobileModal } from './mobile';
 import { Category } from '../enums';
 import { WorldService } from '../Scripts/WorldService';
 
@@ -148,6 +149,7 @@ export class CreateElementFromLinkModal extends Modal {
 
         buttonContainer.appendChild(cancelButton);
         buttonContainer.appendChild(createButton);
+        applyMobileModal(this);
     }
 
     private async getWorldFolders(): Promise<string[]> {

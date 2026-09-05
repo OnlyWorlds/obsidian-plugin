@@ -5,6 +5,51 @@ The tight version of SMOKE-CHECKLIST.md — the load-bearing behaviors only.
 
 ---
 
+## ★★ MOBILE pass (2026-09-05) — the phone checks, run on a real device
+
+Why this section exists: a user on iOS reported that modal buttons sit behind
+the keyboard, unreachable. **None of this is verifiable on desktop** — the
+whole fix is gated on `Platform.isMobile`, so a desktop run exercises nothing.
+Obsidian mobile + a synced test vault; a phone, not a tablet, for steps 2-3
+(the auto-focus suppression is `isPhone`, deliberately).
+
+1. **★ The reported bug: Create World is usable.** Ribbon → Create World.
+   - [ ] The dialog fits the screen; you can scroll it.
+   - [ ] **CANCEL / CREATE LOCAL-ONLY / CREATE WITH ACCOUNT are all visible and
+         tappable while the keyboard is up.** This is the bug — if any button
+         is behind the keyboard, the fix has not worked.
+   - [ ] Tapping CREATE LOCAL-ONLY actually creates the world (the buttons kept
+         their listeners when they were moved into the footer).
+
+2. **The keyboard does not open by itself.** Open Create World again.
+   - [ ] On a PHONE the keyboard stays down until you tap a field.
+   - [ ] Tapping the name field opens it, and the buttons stay reachable.
+
+3. **A world with local worlds present.** Create a local-only world first, then
+   reopen Create World.
+   - [ ] The 'take a local world online' section and its TAKE ONLINE button are
+         reachable by scrolling. *(This button is a bare child after the main
+         button row — the case the first implementation got wrong.)*
+
+4. **★ Link Elements — the list still scrolls.** Open an element note, Link
+   Elements on a multi-link field with 20+ candidates.
+   - [ ] The element list scrolls.
+   - [ ] **The list is NOT pinned to the bottom as a footer** — only Done is.
+   - [ ] On a SINGLE-link field (no Done button) the list scrolls normally and
+         nothing is pinned. *(Naive footer-picking breaks exactly here.)*
+
+5. **Download World.** Ribbon → Download World with a real key.
+   - [ ] Key field reachable, buttons reachable with the keyboard up.
+
+6. **Manage Fields.** Open it on a Character.
+   - [ ] The long field list scrolls; the action row stays put.
+
+7. **Desktop did not regress.** Same vault on desktop.
+   - [ ] Modals look and behave exactly as before (nothing is gated on mobile
+         there — but confirm, because this touched all 24 modals).
+
+---
+
 ## ★ 3.2.0 pass (2026-08-22) — run THIS first; the S9 section below is older
 
 The v3.2 format (text fields as `###` body sections) changed what a note looks

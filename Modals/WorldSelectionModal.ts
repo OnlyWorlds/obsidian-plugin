@@ -1,4 +1,5 @@
 import { App, DropdownComponent, Modal, normalizePath, TFile, TFolder } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export class WorldSelectionModal extends Modal {
     onChoose: (worldFolder: string) => void;
@@ -68,7 +69,8 @@ export class WorldSelectionModal extends Modal {
             }
         });
 
-        dropdown.selectEl.focus();
+        if (!suppressAutofocus()) dropdown.selectEl.focus();
+        applyMobileModal(this);
     }
 
     async getWorldFolders(): Promise<string[]> { 

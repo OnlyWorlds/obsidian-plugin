@@ -1,4 +1,5 @@
-import { App, Modal, PluginManifest, Setting } from 'obsidian';
+import { App, Modal, Platform, PluginManifest, Setting } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 import { CreateElementCommand } from '../Commands/CreateElementCommand';
 import { WorldService } from '../Scripts/WorldService';
 import { CreateElementFromLinkModal } from './CreateElementFromLinkModal';
@@ -50,6 +51,7 @@ export class ElementSelectionModal extends Modal {
 
     onOpen() {
         this.renderContent();
+        applyMobileModal(this);
     }
 
     private emitAndClose() {
@@ -106,7 +108,7 @@ export class ElementSelectionModal extends Modal {
             done.addEventListener('click', () => this.emitAndClose());
         }
 
-        setTimeout(() => search.focus(), 0);
+        if (!suppressAutofocus()) setTimeout(() => search.focus(), 0);
     }
 
     private listContainer: HTMLDivElement;
@@ -114,8 +116,15 @@ export class ElementSelectionModal extends Modal {
     private renderList() {
         const c = this.listContainer;
         c.empty();
-        c.style.maxHeight = '50vh';
-        c.style.overflowY = 'auto';
+        // On mobile the modal itself scrolls (see Modals/mobile.ts), so a nested
+        // scroller here would trap the list inside a second scroll context — and
+        // 50vh measures the LAYOUT viewport, which iOS does not shrink for the
+        // keyboard, so the cap would be wrong anyway. Let the list run long and
+        // let the modal scroll it.
+        if (!Platform.isMobile) {
+            c.style.maxHeight = '50vh';
+            c.style.overflowY = 'auto';
+        }
 
         const matches = this.elements.filter((e) =>
             !this.filter || e.name.toLowerCase().includes(this.filter)

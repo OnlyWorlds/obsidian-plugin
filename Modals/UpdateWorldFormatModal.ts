@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export interface NotePlan {
 	path: string;
@@ -100,6 +101,7 @@ export class UpdateWorldFormatModal extends Modal {
 		const cancel = row.createEl('button', { text: 'Cancel' });
 		cancel.style.marginLeft = '8px';
 		cancel.addEventListener('click', () => this.close());
+		applyMobileModal(this);
 	}
 
 	onClose() {

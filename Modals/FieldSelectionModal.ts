@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export interface LinkFieldChoice {
 	/** frontmatter key, e.g. "location", "traits" */
@@ -66,6 +67,7 @@ export class FieldSelectionModal extends Modal {
 			// Dim fields that already have links so empty ones stand out.
 			if (field.count > 0) setting.nameEl.style.opacity = '0.7';
 		}
+		applyMobileModal(this);
 	}
 
 	onClose() {

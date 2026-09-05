@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 
 /**
  * A minimal one-line text prompt. `NameInputModal` is element-creation shaped
@@ -39,7 +40,8 @@ export class TextPromptModal extends Modal {
 		cancel.style.marginLeft = '8px';
 		cancel.addEventListener('click', () => this.close());
 
-		window.setTimeout(() => input.focus(), 0);
+		if (!suppressAutofocus()) window.setTimeout(() => input.focus(), 0);
+		applyMobileModal(this);
 	}
 
 	private submit() {

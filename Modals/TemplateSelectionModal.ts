@@ -1,4 +1,5 @@
 import { App, Modal, Notice } from 'obsidian';
+import { applyMobileModal, suppressAutofocus } from './mobile';
 import { Category } from '../enums';
 
 export class TemplateSelectionModal extends Modal {
@@ -62,10 +63,11 @@ export class TemplateSelectionModal extends Modal {
         });
 
         // Focus the input field and select all text
-        inputEl.focus();
+        if (!suppressAutofocus()) inputEl.focus();
         if (inputEl.value) {
             inputEl.select(); // This will select all the text in the input
         }
+        applyMobileModal(this);
     }
 
     handleCategorySelection(inputValue: string, dataListEl: HTMLElement, categories: string[]) {

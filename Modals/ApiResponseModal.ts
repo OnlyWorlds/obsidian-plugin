@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { applyMobileModal } from './mobile';
 
 export class ApiResponseModal extends Modal {
     success: boolean;
@@ -82,6 +83,7 @@ export class ApiResponseModal extends Modal {
         closeButton.addEventListener('click', () => {
             this.close();
         });
+        applyMobileModal(this);
     }
 
     onClose() {

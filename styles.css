@@ -1,5 +1,83 @@
 /* styles.css */
 
+/* ==========================================================================
+   Mobile modals
+   --------------------------------------------------------------------------
+   Fixes the iOS report of 2026-09-05: modals rendered centered and
+   unscrollable, so the action buttons sat behind the on-screen keyboard, which
+   cannot be dismissed from inside a modal. Applied via Modals/mobile.ts, which
+   adds .ow-mobile-modal only when Platform.isMobile — desktop never sees any
+   of this.
+
+   --ow-viewport-height is written by mobile.ts from window.visualViewport, the
+   only measure that reflects space NOT covered by the keyboard (iOS does not
+   shrink the layout viewport, so 100vh lies while the keyboard is up). The
+   100vh here is the fallback for platforms without visualViewport.
+   ========================================================================== */
+
+.ow-mobile-modal {
+    /* Sit against the top rather than centering: a centered modal that grows
+       taller than the viewport has its top AND bottom clipped, and the top is
+       where the labels are. */
+    top: 0;
+    transform: translateX(-50%);
+    margin-top: env(safe-area-inset-top, 0px);
+
+    max-height: calc(var(--ow-viewport-height, 100vh) - env(safe-area-inset-top, 0px));
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+}
+
+/* The content area is the scroller — not the modal — so the sticky footer
+   below stays pinned while the fields above it move. */
+.ow-mobile-modal .modal-content {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 1 1 auto;
+    min-height: 0;
+    /* Room so the last field can scroll clear of the sticky footer. */
+    padding-bottom: 0.5em;
+}
+
+/* The action row, promoted by mobile.ts. Sticky rather than fixed so it stays
+   inside the modal's own scroll context. */
+.ow-mobile-modal .ow-mobile-modal-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background-color: var(--background-primary);
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 0.75em 0 calc(0.75em + env(safe-area-inset-bottom, 0px));
+    margin-top: 0.5em;
+    /* Buttons wrap instead of overflowing — CreateWorldModal carries three,
+       and three desktop-width buttons do not fit a phone. */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Touch targets. Apple's guidance is 44px; Obsidian's default button is
+   shorter than that, and these are the buttons the user could not reach. */
+.ow-mobile-modal .ow-mobile-modal-footer button {
+    min-height: 44px;
+    flex: 1 1 auto;
+    margin-left: 0 !important;
+}
+
+/* Full-width inputs on mobile. 16px is the threshold below which iOS Safari
+   zooms the page on focus, which shifts the modal out from under the user. */
+.ow-mobile-modal input[type="text"],
+.ow-mobile-modal input[type="email"],
+.ow-mobile-modal input[type="password"],
+.ow-mobile-modal input[type="number"],
+.ow-mobile-modal textarea,
+.ow-mobile-modal select {
+    width: 100%;
+    font-size: 16px;
+}
+
 /* Sync status bar layout */
 .ow-sync-status {
     display: flex;
