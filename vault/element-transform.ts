@@ -257,6 +257,14 @@ export function splitNote(content: string): { frontmatter: string; body: string 
  * boolean, and arrays of strings (link lists). Anything else — a nested object
  * from an `x_` extension key — is emitted as JSON on one line, which is valid
  * YAML and round-trips through every reader.
+ *
+ * ★ An ARRAY is a block list only when every item is a string, number or
+ * boolean — the shapes `yamlScalar` can write. An array holding an object, an
+ * array or a null (an `x_` list of recipe rows, `[1, "two", null]`) is emitted
+ * as one-line JSON like any other structure. Sending those items through
+ * `yamlScalar` wrote every object as the string "[object Object]" and every
+ * null as "" — Sikelia's `x_inputs`/`x_wants` were destroyed on import (hop 9,
+ * 2026-09-23). Link lists keep their block form, so existing notes don't churn.
  */
 export function serializeFrontmatter(fm: Record<string, unknown>): string {
 	const lines: string[] = ["---"];
@@ -265,6 +273,7 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
 			lines.push(`${key}:`);
 		} else if (Array.isArray(value)) {
 			if (value.length === 0) lines.push(`${key}: []`);
+			else if (!value.every(isBlockListItem)) lines.push(`${key}: ${JSON.stringify(value)}`);
 			else {
 				lines.push(`${key}:`);
 				for (const item of value) lines.push(`  - ${yamlScalar(item)}`);
@@ -277,6 +286,15 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
 	}
 	lines.push("---");
 	return lines.join("\n");
+}
+
+/** An array item `yamlScalar` writes faithfully (see serializeFrontmatter). */
+function isBlockListItem(item: unknown): boolean {
+	return (
+		typeof item === "string" ||
+		typeof item === "boolean" ||
+		(typeof item === "number" && Number.isFinite(item))
+	);
 }
 
 /** Quote a scalar only when YAML would otherwise misread it. */
