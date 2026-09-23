@@ -3,7 +3,8 @@
  * the REAL Obsidian-facing wiring (vault/element-file.ts writeElement /
  * readElement, Commands/ImportFolderCommand.ts) instead of a model of it.
  *
- * Installed by ./obsidian-shim.ts, which must be imported FIRST.
+ * Installed by ./obsidian-shim.ts, which must be imported FIRST. Tests import
+ * from here directly for `makeApp` and the parser switch.
  *
  * What is emulated, and how faithfully:
  *   - Vault: a path -> content map. create / modify / read / createFolder,
@@ -20,17 +21,20 @@
  *     is not known here, so tests that care run under BOTH.
  *   - Modal / Setting / Notice: record-only stubs, no DOM.
  */
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-var-requires */
-
-const jsYaml = require("js-yaml");
-const yaml2 = require("yaml");
+import type { App as ObsidianApp } from "obsidian";
+// Both parsers are in node_modules through the eslint toolchain, not as
+// declared dependencies; js-yaml ships no types and there is no @types/js-yaml.
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { parse as yaml2Parse } from "yaml";
+// eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef, import/no-extraneous-dependencies
+const jsYaml = require("js-yaml") as { load(s: string): unknown };
 
 let parser: "js-yaml" | "yaml" = "js-yaml";
 export function setYamlParser(p: "js-yaml" | "yaml"): void {
 	parser = p;
 }
-export function parseYaml(s: string): any {
-	return parser === "yaml" ? yaml2.parse(s) : jsYaml.load(s);
+export function parseYaml(s: string): unknown {
+	return parser === "yaml" ? (yaml2Parse(s) as unknown) : jsYaml.load(s);
 }
 export function stringifyYaml(o: unknown): string {
 	return JSON.stringify(o);
@@ -45,14 +49,14 @@ export function normalizePath(p: string): string {
 export class TAbstractFile {
 	name: string;
 	parent: TFolder | null = null;
-	constructor(public vault: any, public path: string) {
+	constructor(public vault: MockVault, public path: string) {
 		this.name = path.split("/").pop() ?? path;
 	}
 }
 export class TFile extends TAbstractFile {
 	basename: string;
 	extension: string;
-	constructor(vault: any, p: string) {
+	constructor(vault: MockVault, p: string) {
 		super(vault, p);
 		const dot = this.name.lastIndexOf(".");
 		this.basename = dot > 0 ? this.name.slice(0, dot) : this.name;
@@ -72,10 +76,10 @@ export class Notice {
 		__notices.push(String(msg));
 	}
 }
-export const __modals: any[] = [];
+export const __modals: Modal[] = [];
 export class Modal {
-	contentEl: any = { empty() {}, createEl() { return { createEl() { return {}; }, style: {} }; } };
-	constructor(public app: any) {}
+	contentEl = { empty(): void {}, createEl: () => ({ createEl: () => ({}), style: {} }) };
+	constructor(public app: unknown) {}
 	open(): void {
 		__modals.push(this);
 	}
@@ -90,7 +94,7 @@ export class Setting {
 }
 export const Platform = { isMobile: false, isDesktop: true };
 
-class MockVault {
+export class MockVault {
 	files = new Map<string, { file: TFile; content: string }>();
 	folders = new Map<string, TFolder>();
 	dotfiles = new Map<string, string>();
@@ -176,23 +180,23 @@ class MockVault {
 }
 
 /** Frontmatter as Obsidian sees it: the block must start at byte 0. */
-function extractFrontmatter(content: string): any {
+function extractFrontmatter(content: string): Record<string, unknown> | null {
 	if (!content.startsWith("---")) return null;
 	const end = content.indexOf("\n---", 3);
 	if (end < 0) return null;
 	try {
 		const v = parseYaml(content.slice(3, end + 1));
-		return v && typeof v === "object" ? v : null;
+		return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 	} catch {
 		return null;
 	}
 }
 
-class MockMetadataCache {
+export class MockMetadataCache {
 	/** When true, no note has been indexed yet — getFileCache knows nothing. */
 	coldCache = false;
 	constructor(private vault: MockVault) {}
-	getFileCache(file: TFile): any {
+	getFileCache(file: TFile): { frontmatter?: Record<string, unknown> } | null {
 		if (this.coldCache) return {};
 		const e = this.vault.files.get(file.path);
 		if (!e) return null;
@@ -215,4 +219,13 @@ export class App {
 	vault = new MockVault();
 	metadataCache = new MockMetadataCache(this.vault);
 	workspace = { getActiveFile: (): TFile | null => null };
+}
+
+/**
+ * A fresh mock app, typed as Obsidian's App for the code under test, plus
+ * typed handles on the mock's own vault and cache for the test to drive.
+ */
+export function makeApp(): { app: ObsidianApp; vault: MockVault; cache: MockMetadataCache } {
+	const a = new App();
+	return { app: a as unknown as ObsidianApp, vault: a.vault, cache: a.metadataCache };
 }

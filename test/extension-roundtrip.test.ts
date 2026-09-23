@@ -15,8 +15,7 @@
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
 import assert from "node:assert/strict";
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-var-requires */
-const mock = require("./support/obsidian-mock");
+import { makeApp, parseYaml, setYamlParser } from "./support/obsidian-mock";
 import { serializeFrontmatter, frontmatterToPayloadFields } from "../vault/element-transform";
 import { writeElement, readElement } from "../vault/element-file";
 
@@ -54,11 +53,11 @@ const EXTENSION_VALUES: Record<string, unknown> = {
 };
 
 function parse(parser: (typeof PARSERS)[number], block: string): Record<string, unknown> {
-	mock.setYamlParser(parser);
+	setYamlParser(parser);
 	try {
-		return mock.parseYaml(block.replace(/^---\n/, "").replace(/\n---$/, "\n"));
+		return parseYaml(block.replace(/^---\n/, "").replace(/\n---$/, "\n")) as Record<string, unknown>;
 	} finally {
-		mock.setYamlParser("js-yaml");
+		setYamlParser("js-yaml");
 	}
 }
 
@@ -103,25 +102,26 @@ test("link lists and plain string/number lists keep their block-list bytes (no c
 
 for (const parser of PARSERS) {
 	test(`★ writeElement -> readElement keeps x_inputs / x_wants intact, twice over (${parser})`, async () => {
-		mock.setYamlParser(parser);
+		setYamlParser(parser);
 		try {
-			const app = new mock.App();
+			const { app } = makeApp();
 			const id = "019a0000-0000-7000-8000-000000000001";
 			const data = { id, name: "Bronze smelting", description: "Copper and tin.", ...EXTENSION_VALUES };
 			const file = await writeElement(app, "W", "construct", id, data);
 			const first = await readElement(app, file);
 			assert.ok(first, "note did not read back");
 			for (const [k, v] of Object.entries(EXTENSION_VALUES)) {
-				assert.deepEqual(first!.fields[k], v, `${k} changed after one write/read`);
+				assert.deepEqual(first.fields[k], v, `${k} changed after one write/read`);
 			}
 			// a second trip (re-import of the export) must be stable too
-			const again = await writeElement(app, "W", "construct", id, { id, ...first!.fields });
+			const again = await writeElement(app, "W", "construct", id, { id, ...first.fields });
 			const second = await readElement(app, again);
+			assert.ok(second, "note did not read back the second time");
 			for (const [k, v] of Object.entries(EXTENSION_VALUES)) {
-				assert.deepEqual(second!.fields[k], v, `${k} changed after two write/reads`);
+				assert.deepEqual(second.fields[k], v, `${k} changed after two write/reads`);
 			}
 		} finally {
-			mock.setYamlParser("js-yaml");
+			setYamlParser("js-yaml");
 		}
 	});
 }
