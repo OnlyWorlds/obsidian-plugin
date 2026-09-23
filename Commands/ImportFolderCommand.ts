@@ -145,6 +145,7 @@ export class ImportFolderCommand {
 
 		// Pass 2 — translate prose ow:// -> [[wikilink]], mint notes via writeElement.
 		const result = { created: [] as string[], skipped: [] as string[], failed };
+		const notePathOwner = new Map<string, string>(); // note path -> element id, this run
 		let createdMarker = existingId !== null;
 		for (const el of parsed) {
 			const id = String(el.payload.id);
@@ -161,9 +162,19 @@ export class ImportFolderCommand {
 						(i) => idIndex.get(i) ?? null
 					);
 				}
-				await writeElement(this.app, targetWorld, el.type, id, payload, {
+				const file = await writeElement(this.app, targetWorld, el.type, id, payload, {
 					markSelfWrite: this.markSelfWrite,
 				});
+				// "created" must only ever count notes that still exist. writeElement
+				// never hands two elements one path any more, but if it ever did, the
+				// element whose note was overwritten is lost — report it as failed,
+				// never as created (hop 9: 35 in, 34 out, "35 created").
+				const prior = notePathOwner.get(file.path);
+				if (prior !== undefined && prior !== id) {
+					result.created = result.created.filter((c) => c !== prior);
+					result.failed.push({ path: prior, reason: `its note ${file.path} was overwritten by ${id}` });
+				}
+				notePathOwner.set(file.path, id);
 				result.created.push(id);
 				existingIds.add(id);
 				// Stamp the world-id marker once, after the first successful write
