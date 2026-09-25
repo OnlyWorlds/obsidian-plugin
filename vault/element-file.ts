@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, parseYaml } from "obsidian";
+import { App, TFile, TFolder, normalizePath, parseYaml } from "obsidian";
 import { sanitizeFileName } from "../Scripts/WorldService";
 import {
 	frontmatterToPayloadFields,
@@ -17,6 +17,7 @@ import {
 	isSpanFormat,
 	parseSpanNote,
 	spanFieldsToFrontmatter,
+	parseRawFrontmatterScalars,
 } from "./element-transform";
 
 /**
@@ -258,13 +259,14 @@ export async function writeElement(
 		: `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
 	const leaf = opts.fileName ? opts.fileName.replace(/\.md$/i, "") + ".md" : `${safeName}.md`;
 
-	// Resolve target path: reuse an existing note with this id if present (so a
-	// rename on the server moves the file rather than orphaning it).
-	let filePath = normalizePath(`${folder}/${leaf}`);
+	// Resolve target path BY ID first: reuse an existing note with this id if
+	// present (so a rename on the server moves the file rather than orphaning
+	// it). Only when no note carries this id does the NAME pick the path — and
+	// then never a path another element already holds (see claimNotePath).
 	const existing = await findNoteById(app, worldName, folderName, elementId);
-	if (existing && existing.path !== filePath) {
-		filePath = existing.path; // keep the existing file; rename is a separate concern
-	}
+	const filePath = existing
+		? existing.path // keep the existing file; rename is a separate concern
+		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
 
 	let file = app.vault.getAbstractFileByPath(filePath);
 	if (!(file instanceof TFile)) {
@@ -336,6 +338,55 @@ function parseRawFrontmatter(content: string): Record<string, unknown> | null {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * The path for an element whose note was not found by id: `<base>.md`, unless a
+ * DIFFERENT element (or any id-less note) already holds it — then the next free
+ * `<base> (N).md`, N from 1, the collision convention create/download/paste
+ * already use (WorldService.generateUniqueFileName).
+ *
+ * ★ Without this, two elements of one type sharing a name shared ONE note: the
+ * second write overwrote the first and the folder import still counted both as
+ * created (hop 9, 2026-09-23 — silent whole-element loss).
+ *
+ * A path already holding THIS element's id is reused: the id is read from the
+ * file itself, because findNoteById goes through metadataCache, which is cold
+ * for notes written moments ago in the same bulk run. Occupancy is compared
+ * case-insensitively — on Windows and macOS `Guard.md` and `guard.md` are one
+ * file, and Obsidian refuses to create the second.
+ */
+async function claimNotePath(app: App, folder: string, base: string, elementId: string): Promise<string> {
+	const siblings = new Map<string, TFile>();
+	const parent = app.vault.getAbstractFileByPath(folder);
+	if (parent instanceof TFolder) {
+		for (const c of parent.children) if (c instanceof TFile) siblings.set(c.path.toLowerCase(), c);
+	}
+	for (let n = 0; n <= 1000; n++) {
+		const candidate = normalizePath(`${folder}/${n === 0 ? base : `${base} (${n})`}.md`);
+		const exact = app.vault.getAbstractFileByPath(candidate);
+		const occupant = exact instanceof TFile ? exact : siblings.get(candidate.toLowerCase());
+		if (!exact && !occupant) return candidate;
+		if (occupant && (await noteIdOf(app, occupant)) === elementId) return occupant.path;
+	}
+	// Never fall back to overwriting: a thrown write is reported as failed.
+	throw new Error(`No free note name for "${base}" in ${folder}`);
+}
+
+/** The element id a note carries on disk — frontmatter, else a legacy span/bold id line. */
+async function noteIdOf(app: App, file: TFile): Promise<string | null> {
+	let content: string;
+	try {
+		content = await app.vault.read(file);
+	} catch {
+		return null;
+	}
+	// Tolerate leading blank lines (the corruption splitNote repairs): the note
+	// is still this element's, and rewriting it in place is what heals it.
+	const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ""), ["id"]).id;
+	if (fmId) return fmId;
+	if (isSpanFormat(content)) return parseSpanNote(content).id;
+	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
 }
 
 /** Find an element note by embedded frontmatter id within a category folder. */
