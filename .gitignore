@@ -26,3 +26,5 @@ CLAUDE.md
 
 # Test build output (npm test compiles here)
 test-dist/
+
+.claude/
