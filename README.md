@@ -133,4 +133,4 @@ The plugin talks to the OnlyWorlds API at `https://www.onlyworlds.com/api/v2/`, 
 
 ## Licence
 
-See [LICENSE](https://github.com/OnlyWorlds/obsidian-plugin/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/OnlyWorlds/obsidian-plugin/blob/main/LICENSE).
