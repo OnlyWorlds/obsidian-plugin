@@ -339,7 +339,11 @@ export class CreateWorldCommand {
             time_basic_unit: "Year",
             time_current: 0,
             time_range_min: 0,
-            time_range_max: 100
+            time_range_max: 100,
+            // World units (standard 00.31.00): "" = not set; the user fills them in World.md.
+            length_unit: "",
+            mass_unit: "",
+            distance_unit: ""
         };
         
         let worldNoteContent = this.compileWorldNote(worldNoteData);
@@ -355,10 +359,8 @@ export class CreateWorldCommand {
         }
         await this.app.vault.create(`${worldBasePath}/World.md`, worldNoteContent);
 
-        // Create core files (templates, handlebars, etc.)
-        // 3.0.0: no legacy template fetch — nothing reads those templates (all
-        // note writes go through writeElement / frontmatter). Readme + Settings only.
-        const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, false);
+        // Core files: the Readme and Settings notes.
+        const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
         await createCoreFilesCommand.execute();
     }
 

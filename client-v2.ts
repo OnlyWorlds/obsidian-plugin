@@ -143,6 +143,11 @@ export class V2Client {
         return this.request("GET", "/world");
     }
 
+    /** PATCH /world: owner only; send only the world fields you mean to change. */
+    async patchWorld(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+        return this.request("PATCH", "/world", undefined, payload);
+    }
+
     async get(type: string, id: string): Promise<Record<string, unknown>> {
         return this.request("GET", `/${type}/${id}`);
     }

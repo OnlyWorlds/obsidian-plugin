@@ -16,6 +16,8 @@
 		"vault/element-transform.ts",
 		"vault/folder-format.ts",
 		"vault/world-key-core.ts",
+		"vault/world-units.ts",
+		"Scripts/WorldDataTemplate.ts",
 		"Commands/export-plan.ts",
 		"test/**/*.ts"
 	]

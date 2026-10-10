@@ -7,6 +7,7 @@ import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
+import { parseWorldUnits } from '../vault/world-units';
 
 export class CopyWorldCommand {
     app: App;
@@ -100,7 +101,8 @@ export class CopyWorldCommand {
         try {
             const worldFileContent = await fs.read(worldFilePath); 
             const worldInfo = this.parseWorldFile(worldFileContent);
-            
+            const units = parseWorldUnits(worldFileContent);
+
             // Add missing fields with default values to match mobile app format
             const completeWorldInfo = {
                 id: worldInfo.id || this.generateUUID(),
@@ -116,6 +118,9 @@ export class CopyWorldCommand {
                 time_current: worldInfo.time_current || 0,
                 time_range_min: worldInfo.time_range_min || 0,
                 time_range_max: worldInfo.time_range_max || 100,
+                length_unit: units.length_unit ?? '',
+                mass_unit: units.mass_unit ?? '',
+                distance_unit: units.distance_unit ?? '',
                 api_key: worldInfo.api_key || '0000000000'
             };
             

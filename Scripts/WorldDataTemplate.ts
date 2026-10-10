@@ -17,4 +17,9 @@ export const worldTemplateString = `
 - **Time Range Min:** {{time_range_min}}
 - **Time Range Max:** {{time_range_max}}
 - **Current Time:** {{time_current}}
+
+## Units
+- **Length Unit:** {{length_unit}}
+- **Mass Unit:** {{mass_unit}}
+- **Distance Unit:** {{distance_unit}}
 `;

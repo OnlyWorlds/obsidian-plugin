@@ -9,6 +9,7 @@ import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
+import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 
 export class ExportWorldCommand {
@@ -178,7 +179,21 @@ export class ExportWorldCommand {
                 }
             }
 
-            let summary = `Upload complete: ${created} created, ${updated} updated.`;
+            // The world's own units (standard 00.31.00): sent only when World.md
+            // changed them. Never aborts the sweep: the elements already landed.
+            let unitsNote = '';
+            try {
+                const sentUnits = await pushWorldUnits(client, this.localWorldUnits(worldData));
+                if (Object.keys(sentUnits).length > 0) unitsNote = ' World units updated.';
+            } catch (e) {
+                const why = e instanceof V2ApiError && e.status === 403
+                    ? 'only the world\'s owner can change them'
+                    : (e instanceof Error ? e.message : String(e));
+                console.error('Upload: world units not sent:', e);
+                unitsNote = ` World units not sent: ${why}.`;
+            }
+
+            let summary = `Upload complete: ${created} created, ${updated} updated.${unitsNote}`;
             if (serverOnly > 0) {
                 summary += ` ${serverOnly} element${serverOnly === 1 ? '' : 's'} exist only on the server (not deleted).`;
             }
@@ -220,7 +235,9 @@ export class ExportWorldCommand {
         try {
             const worldFileContent = await fs.read(worldFilePath); 
             const worldInfo = this.parseWorldFile(worldFileContent);
-            worldData['World'] = worldInfo; // Directly assign the object, not in an array
+            // The unit lines are read by their own tolerant parser: a present
+            // line is a value ("" = not set), an absent line stays absent.
+            worldData['World'] = { ...worldInfo, ...parseWorldUnits(worldFileContent) }; // Directly assign the object, not in an array
         } catch (error) {
             console.error('Error reading World file:', error);
             const msg = error instanceof Error ? error.message : String(error);
@@ -269,6 +286,18 @@ export class ExportWorldCommand {
         }
     }
     
+    /** The unit fields collectWorldData read from World.md (absent stays absent). */
+    private localWorldUnits(worldData: Record<string, unknown>): WorldUnits {
+        const world = worldData['World'];
+        const units: WorldUnits = {};
+        if (!world || typeof world !== 'object') return units;
+        for (const field of WORLD_UNIT_FIELDS) {
+            const v = (world as Record<string, unknown>)[field];
+            if (typeof v === 'string') units[field] = v;
+        }
+        return units;
+    }
+
     private parseWorldFile(content: string): Record<string, string | string[]> {
         let currentSection: string | null = null;
         const data: Record<string, string | string[]> = {};

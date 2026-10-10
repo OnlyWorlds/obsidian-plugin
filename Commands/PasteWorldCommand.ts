@@ -49,8 +49,8 @@ export class PasteWorldCommand {
                 await this.generateWorldFile(worldData, worldFolderPath);
             }
 
-            // 3.0.0: no legacy template fetch (see CreateWorldCommand). Readme + Settings only.
-            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, false);
+            // Readme + Settings notes.
+            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
             await createCoreFilesCommand.execute();
 
             // Generate element notes in the correct category folders under Elements

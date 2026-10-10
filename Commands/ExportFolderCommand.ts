@@ -3,6 +3,7 @@ import { v7 as uuidv7 } from "uuid";
 import { readElement } from "../vault/element-file";
 import { bodyFieldForCategory } from "../vault/element-transform";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
+import { parseWorldUnits } from "../vault/world-units";
 import {
 	worldFolderName,
 	elementRelPath,
@@ -98,6 +99,10 @@ export class ExportFolderCommand {
 			const version = grab("Version");
 			if (desc) meta.description = desc;
 			if (version) meta.version = version;
+			// World units (standard 00.31.00): only a set unit travels.
+			for (const [field, unit] of Object.entries(parseWorldUnits(content))) {
+				if (unit && unit.trim()) meta[field] = unit.trim();
+			}
 		} catch {
 			/* best-effort meta */
 		}

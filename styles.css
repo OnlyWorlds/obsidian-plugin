@@ -171,6 +171,21 @@
     to { transform: rotate(360deg); }
 }
 
+/* World units beside a unit-bearing number in Properties ("182 cm").
+   vault/unit-display.ts sets the attribute; the stored value stays a number. */
+.metadata-property-value.ow-has-unit {
+    display: flex;
+    align-items: center;
+}
+.metadata-property-value.ow-has-unit::after {
+    content: attr(data-ow-unit);
+    flex-shrink: 0;
+    padding-inline: var(--size-4-1, 4px);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    white-space: nowrap;
+}
+
  
 
 .text-field::after, .number-field::after, .link-field::after, .multi-link-field::after  {

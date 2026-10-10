@@ -28,6 +28,7 @@ import { OnlyWorldsSettingTab } from './settings/settings-tab';
 import { AutoSyncEngine } from './sync/auto-sync';
 import { SyncRibbon } from './sync/ribbon';
 import { SyncStatusBar } from './sync/status-bar';
+import { UnitDisplay } from './vault/unit-display';
 
 export default class OnlyWorldsPlugin extends Plugin {
     noteLinker: NoteLinker;
@@ -54,6 +55,9 @@ export default class OnlyWorldsPlugin extends Plugin {
 
         this.autoSync = new AutoSyncEngine(this.app, this);
         this.autoSync.registerListeners();
+
+        // World units beside unit-bearing numbers in Properties (display only).
+        new UnitDisplay(this.app, this).register();
 
         this.worldService = new WorldService(this.app);
         this.registerHandlebarsHelpers();

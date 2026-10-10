@@ -31,8 +31,8 @@ import {
 	parseRawFrontmatterScalars,
 } from "../vault/element-transform";
 
-// --- A REAL Character span-format note, matching the upstream Handlebars grammar
-// (CreateHandlebarsCommand.ts inline templates + obsidian_handlebars). This is the
+// --- A REAL Character span-format note, matching the old Handlebars grammar
+// (the pre-3.0 span templates, removed with the legacy template code). This is the
 // exact on-disk format the migration must read. ------------------------------
 const CHARACTER_SPAN_NOTE = `## Base
 - <span class="text-field" data-tooltip="Text">Name</span>: Ireena Kolyana

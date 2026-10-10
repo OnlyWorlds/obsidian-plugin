@@ -71,6 +71,8 @@ On both Save Element and Upload World, a link field holding a `[[Name]]` that ma
 
 **Download World** pulls the other way. The first run fetches the whole world; later runs fetch only what changed. For each element that changed on the server, it rewrites that note's fields and body from the server's copy, so unsaved local edits in that note are replaced. Properties the plugin doesn't manage are kept. Elements deleted on the server keep their notes; the plugin tells you how many.
 
+**World units.** `World.md` has a Units section: Length Unit, Mass Unit and Distance Unit, free text such as `cm`, `kg` or `leagues`. They are labels only; nothing converts. Properties shows the unit beside the nine numbers that use one: height and weight on Characters and Creatures, Creature speed, weight on Objects and Species, Ability range and Location elevation. Download World writes the server's units into `World.md`. Upload World sends them when you changed them; only the world's owner can.
+
 The ribbon icon and the desktop status bar show the sync state: idle, dirty, syncing, synced or error.
 
 ## Commands

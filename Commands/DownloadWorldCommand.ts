@@ -9,6 +9,7 @@ import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
 import { parseRawFrontmatterScalars } from '../vault/element-transform';
+import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 
 export class DownloadWorldCommand {
     app: App;
@@ -123,12 +124,15 @@ export class DownloadWorldCommand {
                     const worldFilePath = `${worldFolderPath}/World.md`;
                     if (overwrite || !await fs.exists(worldFilePath)) {
                         await this.generateWorldFile(worldData.World, worldFolderPath);
+                    } else {
+                        // An existing World.md keeps every line except the world
+                        // units, which follow the server like element fields do
+                        // (a World.md from before 00.31.00 gains a Units section).
+                        await this.syncWorldUnits(worldFilePath, worldMeta);
                     }
 
-                    // 3.0.0: skip the legacy template fetch — nothing reads those
-                    // templates anymore (writeElement builds frontmatter directly).
-                    // Readme + Settings notes still created.
-                    const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, false);
+                    // Readme + Settings notes (writeElement builds the element notes).
+                    const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
                     await createCoreFilesCommand.execute();
 
                     // Generate element notes in the correct category folders under Elements
@@ -203,6 +207,20 @@ export class DownloadWorldCommand {
         const worldFilePath = `${worldFolderPath}/World.md`;
         await fs.write(worldFilePath, worldContent); 
     }
+    /** Write the server's world units into an existing World.md (only when they differ). */
+    private async syncWorldUnits(worldFilePath: string, worldMeta: Record<string, unknown>): Promise<void> {
+        const units = worldUnitsFromBody(worldMeta);
+        if (Object.keys(units).length === 0) return; // server without units: leave World.md alone
+        const fs = this.app.vault.adapter;
+        try {
+            const current = await fs.read(worldFilePath);
+            const next = upsertWorldUnits(current, units);
+            if (next !== current) await fs.write(worldFilePath, next);
+        } catch (error) {
+            console.error('OnlyWorlds: could not update the world units in World.md', error);
+        }
+    }
+
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
         const fs = this.app.vault.adapter;
 
