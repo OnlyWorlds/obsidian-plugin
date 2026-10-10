@@ -1,9 +1,8 @@
 import { App, Editor, MarkdownView, Notice, PluginManifest, TFile, WorkspaceLeaf } from 'obsidian';
-import { FIELD_SCHEMA } from '@onlyworlds/sdk';
 import { WorldService } from 'Scripts/WorldService';
 import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 import { FieldSelectionModal, LinkFieldChoice } from '../Modals/FieldSelectionModal';
-import { normalizeCategory, toWikilink, wikilinkTarget } from '../vault/element-transform';
+import { getCategorySchema, normalizeCategory, toWikilink, wikilinkTarget } from '../vault/element-transform';
 import { sanitizeFileName } from 'Scripts/WorldService';
 
 /**
@@ -52,7 +51,9 @@ export class NoteLinker {
 
 	/** The link fields (single/multi) for a category, derived from FIELD_SCHEMA. */
 	private linkFieldsFor(category: string, file: TFile): LinkFieldChoice[] {
-		const schema = (FIELD_SCHEMA as Record<string, Record<string, { type: string; target?: string }>>)[category];
+		// Through the plugin's view of the schema, so a field the API refuses
+		// (relation.relations in SDK 2.2.2) is never offered as a link target.
+		const schema = getCategorySchema(category) as Record<string, { type: string; target?: string }> | null;
 		if (!schema) return [];
 		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
 		const out: LinkFieldChoice[] = [];

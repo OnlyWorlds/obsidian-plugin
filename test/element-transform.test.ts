@@ -29,6 +29,8 @@ import {
 	serializeFrontmatter,
 	isEmptyFieldValue,
 	parseRawFrontmatterScalars,
+	getCategorySchema,
+	toV2WireKeys,
 } from "../vault/element-transform";
 
 // --- A REAL Character span-format note, matching the old Handlebars grammar
@@ -922,4 +924,29 @@ test("★ a full write cycle can never emit leading blank lines", () => {
 		const out = joinNote(block, body);
 		assert.ok(out.startsWith("---"), `body ${JSON.stringify(body)} produced ${JSON.stringify(out.slice(0, 8))}`);
 	}
+});
+
+// --- Fields the API refuses (hop 10, measured on the wire 2026-10-10: keel 422s
+// "Unknown field: relations" and "Unknown field: element"). -------------------
+
+test("relation: the SDK's stale `relations` field is not in the schema the plugin uses", () => {
+	const schema = getCategorySchema("relation");
+	assert.ok(schema);
+	assert.equal("relations" in schema!, false);
+	assert.equal("characters" in schema!, true);
+});
+
+test("relation: a scaffolded `relations: []` in an old note is dropped, never adopted as x_relations", () => {
+	const out = frontmatterToPayloadFields({ relations: [], name: "Pursuit" }, "relation");
+	assert.deepEqual(out, { name: "Pursuit" });
+});
+
+test("pin: element_type / element_id keep their wire names; other _id/_ids suffixes are stripped", () => {
+	const out = toV2WireKeys({ element_type: "relation", element_id: "abc", map_id: "m1", world_id: "w", name: "P" });
+	assert.deepEqual(out, { element_type: "relation", element_id: "abc", map: "m1", name: "P" });
+});
+
+test("character: the wire rename still strips v1 suffixes", () => {
+	const out = toV2WireKeys({ location_id: "l1", abilities_ids: ["a"], world: "w" });
+	assert.deepEqual(out, { location: "l1", abilities: ["a"] });
 });

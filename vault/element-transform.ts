@@ -438,9 +438,66 @@ export function bodyToFieldValues(
 	return out;
 }
 
+/**
+ * Fields the pinned SDK (2.2.2, standard 00.30.00) declares that the API does
+ * not have. keel 422s them ("Unknown field: relations", measured on the wire
+ * 2026-10-10, hop 10), and a 422 on one field fails the whole save, so a note
+ * carrying such a key could never be saved. The SDK bump to 4.x removes the
+ * need for this list; until then it is the plugin's view of the schema.
+ */
+export const API_DROPPED_FIELDS: Readonly<Record<string, readonly string[]>> = {
+	relation: ["relations"],
+};
+
+/**
+ * The generic link pair (Pin: `element_type` + `element_id`) keeps its wire
+ * names on v2; only the v1 link suffixes (`location_id`, `abilities_ids`) are
+ * stripped. keel 422s `element` ("Unknown field: element", measured 2026-10-10).
+ */
+export const GENERIC_PAIR_KEYS: ReadonlySet<string> = new Set(["element_type", "element_id"]);
+
+const schemaCache = new Map<string, CategorySchema | null>();
+
 export function getCategorySchema(category: string): CategorySchema | null {
 	const cat = normalizeCategory(category);
-	return (FIELD_SCHEMA as Record<string, CategorySchema>)[cat] ?? null;
+	if (schemaCache.has(cat)) return schemaCache.get(cat)!;
+	const raw = (FIELD_SCHEMA as Record<string, CategorySchema>)[cat] ?? null;
+	const dropped = API_DROPPED_FIELDS[cat];
+	let schema = raw;
+	if (raw && dropped && dropped.length) {
+		schema = Object.fromEntries(
+			Object.entries(raw).filter(([key]) => !dropped.includes(key))
+		) as CategorySchema;
+	}
+	schemaCache.set(cat, schema);
+	return schema;
+}
+
+/** True when the API refuses this key for the category (see API_DROPPED_FIELDS). */
+export function isApiDroppedField(category: string, key: string): boolean {
+	return (API_DROPPED_FIELDS[normalizeCategory(category)] ?? []).includes(key);
+}
+
+/**
+ * v2 wire keys: v1 link suffixes stripped (`location_id` -> `location`,
+ * `abilities_ids` -> `abilities`), the generic pair kept, `world`/`world_id`
+ * dropped (world identity is the API key). The transport's toV2Payload calls this.
+ */
+export function toV2WireKeys(element: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(element)) {
+		if (key === "world" || key === "world_id") continue;
+		if (GENERIC_PAIR_KEYS.has(key)) {
+			out[key] = value;
+		} else if (key.endsWith("_ids")) {
+			out[key.slice(0, -4)] = value;
+		} else if (key.endsWith("_id")) {
+			out[key.slice(0, -3)] = value;
+		} else {
+			out[key] = value;
+		}
+	}
+	return out;
 }
 
 /**
@@ -569,6 +626,7 @@ export function frontmatterToPayloadFields(
 	for (const [key, value] of Object.entries(frontmatter)) {
 		if (NON_PAYLOAD_KEYS.has(key)) continue;
 		if (key === bodyField) continue; // body owns this field; skip the fm copy
+		if (isApiDroppedField(category, key)) continue; // a scaffold the API refuses: never sent, never adopted
 		if (isExtensionKey(key)) {
 			out[key] = value; // verbatim, read-only
 			continue;

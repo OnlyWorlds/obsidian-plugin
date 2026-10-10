@@ -1,4 +1,5 @@
 import { requestUrl, RequestUrlParam } from "obsidian";
+import { toV2WireKeys } from "./vault/element-transform";
 
 /**
  * Minimal OnlyWorlds v2 API client over Obsidian's requestUrl().
@@ -28,18 +29,9 @@ const V2_BASE = "https://www.onlyworlds.com/api/v2";
  * (world identity is the API key).
  */
 export function toV2Payload(element: Record<string, unknown>): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(element)) {
-        if (key === "world" || key === "world_id") continue;
-        if (key.endsWith("_ids")) {
-            out[key.slice(0, -4)] = value;
-        } else if (key.endsWith("_id")) {
-            out[key.slice(0, -3)] = value;
-        } else {
-            out[key] = value;
-        }
-    }
-    return out;
+    // The rule lives in the transform (testable without Obsidian); Pin's
+    // element_type/element_id keep their names there (keel 422s `element`).
+    return toV2WireKeys(element);
 }
 
 export interface V2Change {
