@@ -1,6 +1,6 @@
-import { ValidateResultModal } from 'Modals/ValidateResultModal'; // Ensure path is correct
+import { ValidateResultModal } from '../Modals/ValidateResultModal';
 import { App, normalizePath, PluginManifest, TFile, TFolder } from 'obsidian';
-import { WorldService } from 'Scripts/WorldService';
+import { WorldService } from '../Scripts/WorldService';
 import { Category } from '../enums'; // Ensure this import is correct
 
 export class ValidateWorldCommand {
@@ -50,16 +50,19 @@ export class ValidateWorldCommand {
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (!isNaN(Number(category))) continue; // Skip if category is not a string
-        
-            const categoryPath = normalizePath(`${worldFolderPath}/${category}`);
-            const categoryFolder = this.app.vault.getAbstractFileByPath(categoryPath);
-        
+
+            // Category folders carry their count ("Location (2)"), so the folder is
+            // found by its base name, as download and the counts do; an exact path
+            // skipped every folder and validated nothing (Seethe, h57 #4846, 3.3.1).
+            const categoryFolder = await this.worldService.findCategoryFolderByBaseName(
+                worldFolderName, category);
+
             if (!(categoryFolder instanceof TFolder)) {
                 continue; // Skip to the next category if the folder is not found
             }
-         
+
             for (const file of categoryFolder.children) {
-                if (file instanceof TFile) {
+                if (file instanceof TFile && file.extension === 'md') {
                     this.elementCount++;
                     const content = await this.app.vault.read(file);
                     this.validateElement(category, file.name, content);
