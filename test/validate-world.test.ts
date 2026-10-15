@@ -63,6 +63,18 @@ test("a frontmatter note whose name does not match its file is an error", async 
 	assert.match(cmd.errors.nameMismatchErrors[0], /Gila River.*Name/);
 });
 
+test("★ a second run on the same command object counts afresh (Seethe saw Checked 2, 4, 6, 8)", async () => {
+	const { app, vault } = makeApp();
+	await vault.createFolder(`${WORLD}/Elements/Location (2)`);
+	await vault.create(`${WORLD}/World.md`, "# World Overview: W\n");
+	for (const [file, content] of Object.entries(GOOD)) await vault.create(`${WORLD}/Elements/Location (2)/${file}`, content);
+	const cmd = new ValidateWorldCommand(app, {} as never, new WorldService(app), false);
+	await cmd.execute("W");
+	await cmd.execute("W");
+	assert.equal(cmd.elementCount, 2);
+	assert.equal(cmd.checkedCount, 2);
+});
+
 test("a numbered twin (\"Guard (2).md\") and a filed-safe name are not mismatches", async () => {
 	const cmd = await validate("Character (2)", {
 		"Guard (2).md": NOTE(ID1, "Guard"),

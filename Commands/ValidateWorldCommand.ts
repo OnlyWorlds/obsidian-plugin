@@ -227,6 +227,7 @@ export class ValidateWorldCommand {
             worldFileErrors: [] as string[]
         };
         this.elementCount = 0;
+        this.checkedCount = 0;  // one command object lives the whole session (main.ts); Seethe saw 2, 4, 6, 8
         this.errorCount = 0;
     }
     
