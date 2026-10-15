@@ -1,6 +1,7 @@
 import { ValidateResultModal } from '../Modals/ValidateResultModal';
 import { App, normalizePath, PluginManifest, TFile, TFolder } from 'obsidian';
-import { WorldService } from '../Scripts/WorldService';
+import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
+import { parseRawFrontmatterScalars } from '../vault/element-transform';
 import { Category } from '../enums'; // Ensure this import is correct
 
 export class ValidateWorldCommand {
@@ -21,7 +22,27 @@ export class ValidateWorldCommand {
     };
 
     elementCount: number = 0;
+    checkedCount: number = 0;
     errorCount: number = 0;
+
+    /** The frontmatter checks: `id` present and UUID-shaped; `name` matching the
+     *  file (the name as the writer files it, a numbered twin allowed). */
+    validateFrontmatterElement(category: string, fileName: string, content: string) {
+        this.checkedCount++;
+        const displayName = fileName.replace(/\.md$/, '');
+        const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
+        const id = (fm.id ?? '').trim().replace(/^["']|["']$/g, '');
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            this.errorCount++;
+            this.errors.missingIdErrors.push(`(${category}) ${displayName} has error in Id: ${id ? 'not a UUID' : 'field is empty'}`);
+        }
+        const name = (fm.name ?? '').trim().replace(/^["']|["']$/g, '');
+        const filed = sanitizeFileName(name);
+        if (!name || (displayName !== filed && !displayName.startsWith(`${filed} (`))) {
+            this.errorCount++;
+            this.errors.nameMismatchErrors.push(`(${category}) ${displayName} has error in Name: field does not match file name`);
+        }
+    }
 
      constructor(app: App, manifest: PluginManifest, worldService: WorldService, manualTrigger: boolean = true) {
         this.app = app;
@@ -70,10 +91,10 @@ export class ValidateWorldCommand {
             }
         }
         
-        console.log(`Validation complete. Total elements scanned: ${this.elementCount}, Errors found: ${this.errorCount}`);
-      
+        console.log(`Validation complete. Notes found: ${this.elementCount}, checked: ${this.checkedCount}, errors: ${this.errorCount}`);
+
         if (this.manualTrigger) {
-            new ValidateResultModal(this.app, this.errors, this.elementCount, this.errorCount, worldFolderName).open();
+            new ValidateResultModal(this.app, this.errors, this.elementCount, this.errorCount, worldFolderName, this.checkedCount).open();
         }
     }
     
@@ -91,13 +112,16 @@ export class ValidateWorldCommand {
     }
     
     validateElement(category: string, fileName: string, content: string) {
-        // 3.0.0: this validator only understands the legacy <span> format. A
-        // migrated (frontmatter) note is valid by a different standard it can't
-        // check, so validating it here produces FALSE "missing Id/Name" errors.
-        // Skip frontmatter notes entirely rather than mislead. A frontmatter-aware
-        // validator (against the SDK FIELD_SCHEMA) is a separate, future command.
-        const isFrontmatter = content.startsWith('---') && /^---\r?\n[\s\S]*?\bid:/.test(content);
-        if (isFrontmatter) return;
+        // A frontmatter note (every note the plugin writes since 3.0.0) gets the
+        // two checks that hold in that format: an id, and a name that matches the
+        // file. Number and link rules below read the legacy <span> format only.
+        // Until 3.3.2 these notes were skipped and still counted, so "No issues"
+        // was said over a world nobody had checked (Seethe, h57 #4864).
+        if (content.startsWith('---')) {
+            this.validateFrontmatterElement(category, fileName, content);
+            return;
+        }
+        this.checkedCount++;
 
         let idFound = false;
         let nameFound = false;

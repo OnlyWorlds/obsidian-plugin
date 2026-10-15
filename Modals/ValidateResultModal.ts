@@ -33,13 +33,16 @@ export class ValidateResultModal extends Modal {
         missingIdErrors: string[], 
         nameMismatchErrors: string[], 
         worldFileErrors: string[]
-    }, elementCount: number, errorCount: number, worldName: string) {
+    }, elementCount: number, errorCount: number, worldName: string, checkedCount?: number) {
         super(app);
         this.errors = errors;
         this.elementCount = elementCount;
         this.errorCount = errorCount;
         this.worldName = worldName;
+        this.checkedCount = checkedCount ?? elementCount;
     }
+
+    checkedCount: number;
 
     onOpen() {
         const { contentEl } = this;
@@ -47,13 +50,15 @@ export class ValidateResultModal extends Modal {
 
         contentEl.createEl('h1', { text: `Validated ${this.worldName}` });
 
-        contentEl.createEl('p', { text: `Total elements scanned: ${this.elementCount}` });
+        contentEl.createEl('p', { text: `Notes found: ${this.elementCount}. Checked: ${this.checkedCount} (an id, and a name that matches the file; number and link rules apply to notes in the pre-3.0 format).` });
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });
 
         if (this.errorCount > 0) {
-            contentEl.createEl('p', { text: `Please correct these issues below before exporting ${this.worldName}.` });
+            contentEl.createEl('p', { text: `Please correct these issues below before uploading ${this.worldName}.` });
+        } else if (this.checkedCount > 0) {
+            contentEl.createEl('p', { text: `No issues in what was checked.` });
         } else {
-            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for export!` });
+            contentEl.createEl('p', { text: `Nothing was checked: no element notes found.` });
         }
 
         const errorKeys = Object.keys(this.errors) as (keyof typeof this.errors)[];
