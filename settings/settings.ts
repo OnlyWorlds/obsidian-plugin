@@ -1,8 +1,9 @@
 /**
  * Plugin settings persisted in Obsidian's data.json.
  *
- * API key is persisted (masked in the UI). PIN is NEVER persisted —
- * it lives only in plugin memory for the current session (see auth/pin-cache.ts).
+ * The API key is persisted (masked in the UI). The PIN is persisted only when the user
+ * types one in the settings tab; left empty, it is asked once per session and held in
+ * memory (see auth/pin-cache.ts, which tries the persisted PIN first).
  */
 export interface OnlyWorldsPluginSettings {
 	apiKey: string;

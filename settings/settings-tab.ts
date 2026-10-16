@@ -132,7 +132,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 			.setName("Auto-sync to OnlyWorlds")
 			.setDesc(
 				"When on, element notes are pushed to onlyworlds.com a short time after you stop editing. " +
-					"When off, use the Save Element command (Ctrl/Cmd+Shift+S) to push manually."
+					"When off, run the Save Element command to push manually (give it a hotkey in Settings, Hotkeys)."
 			)
 			.addToggle((tog) =>
 				tog.setValue(this.plugin.settings.autoSync).onChange(async (value) => {
