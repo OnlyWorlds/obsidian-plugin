@@ -4,6 +4,7 @@ import { bodyFieldForCategory, normalizeCategory } from "../vault/element-transf
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
 import { renderWorldMd, worldJsonToKeep } from "../vault/world-json";
+import { safeWorldFolderName } from "../vault/world-name";
 import {
 	parseFolderElementBody,
 	owMentionsToWikilinks,
@@ -95,7 +96,9 @@ export class ImportFolderCommand {
 		}
 
 		// 2. Target world folder — create if absent; abort on id mismatch (R5).
-		const targetWorld = worldName;
+		// The folder is one safe path segment of the name (Kael's review 3.7);
+		// the world keeps its real name in World.md and on export.
+		const targetWorld = safeWorldFolderName(worldName);
 		const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${targetWorld}`);
 		const existingId = await this.readWorldIdMarker(targetWorld);
 		if (existingId && existingId !== worldId) {
@@ -264,7 +267,9 @@ export class ImportFolderCommand {
 	private async writeWorldFields(world: string, worldJson: Record<string, unknown>): Promise<void> {
 		const mdPath = normalizePath(`OnlyWorlds/Worlds/${world}/World.md`);
 		if (!this.app.vault.getAbstractFileByPath(mdPath) && !(await this.app.vault.adapter.exists(mdPath))) {
-			await this.app.vault.create(mdPath, renderWorldMd(worldJson, world));
+			// World.md shows the real name; the folder is its safe form.
+			const realName = typeof worldJson.name === "string" && worldJson.name.trim() ? worldJson.name.trim() : world;
+			await this.app.vault.create(mdPath, renderWorldMd(worldJson, realName));
 		}
 		const sidecar = await readFolderSidecar(this.app, world);
 		if (!sidecar.world) {

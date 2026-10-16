@@ -12,6 +12,7 @@ import {
     revokeAccountKey,
 } from '../account/account-api';
 import { LOCAL_WORLD_KEY_TOKEN, isReadKey, worldFileApiKey, writeWorldFileApiKey } from '../vault/world-key';
+import { safeWorldFolderName } from '../vault/world-name';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from '../Scripts/WorldDataTemplate';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
@@ -85,7 +86,7 @@ export class DownloadWorldCommand {
                     // world, the cursor is stale state, not truth: ignore it and
                     // pull cold.
                     let stored = this.plugin?.settings.syncCursors?.[worldId];
-                    if (stored && !this.vaultHasElementNotes(worldName)) {
+                    if (stored && !this.vaultHasElementNotes(safeWorldFolderName(worldName))) {
                         console.log('OnlyWorlds: vault has no notes for this world — ignoring sync cursor, full download.');
                         stored = undefined;
                     }

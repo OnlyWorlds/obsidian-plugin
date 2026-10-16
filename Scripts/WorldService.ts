@@ -1,5 +1,6 @@
 import { App, TFolder, TFile, normalizePath } from 'obsidian';
 import { Category } from '../enums';
+import { safeWorldFolderName } from '../vault/world-name';
 
 /**
  * Element names are exact on the API and inside notes; FILENAMES are
@@ -324,7 +325,10 @@ export class WorldService {
         return null;
     }
 
-    async generateUniqueWorldName(worldName: string, worldApiKey?: string): Promise<string> {
+    async generateUniqueWorldName(rawWorldName: string, worldApiKey?: string): Promise<string> {
+        // A server's or a link's name is never a path: one safe segment
+        // (Kael's review 3.7).
+        const worldName = safeWorldFolderName(rawWorldName);
         const fs = this.app.vault.adapter;
         const worldsBasePath = normalizePath('OnlyWorlds/Worlds');
 

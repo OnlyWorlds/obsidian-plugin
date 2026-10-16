@@ -7,6 +7,7 @@ import { CreateWorldModal, WorldCreationData } from '../Modals/CreateWorldModal'
 import { worldTemplateString } from '../Scripts/WorldDataTemplate';
 import { Category } from '../enums';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey, worldFileApiKey, writeWorldFileApiKey } from '../vault/world-key';
+import { safeWorldFolderName } from '../vault/world-name';
 import { writeWorldIdMarker } from '../vault/world-id-marker';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import type { ExportWorldCommand } from './ExportWorldCommand';
@@ -60,7 +61,7 @@ export class CreateWorldCommand {
             // token so sync commands gate instead of falling back to another key.
             if (worldData.localOnly) {
                 await this.createLocalWorldFiles(worldData.name, { api_key: LOCAL_WORLD_KEY_TOKEN });
-                await writeWorldIdMarker(this.app, worldData.name, uuidv7());
+                await writeWorldIdMarker(this.app, safeWorldFolderName(worldData.name), uuidv7());
                 new Notice(`Local world "${worldData.name}" created. Everything stays in your vault; add an API key to World.md later to enable sync.`, 8000);
                 return;
             }
@@ -403,8 +404,9 @@ export class CreateWorldCommand {
     }
 
     async createLocalWorldFiles(worldName: string, worldData: any) {
-        // Create base and subdirectories for the world
-        const worldBasePath = `OnlyWorlds/Worlds/${worldName}`;
+        // Create base and subdirectories for the world. The folder is the
+        // name's one safe path segment (Kael's review 3.7); World.md keeps the name.
+        const worldBasePath = `OnlyWorlds/Worlds/${safeWorldFolderName(worldName)}`;
         await this.createFolderIfNeeded(worldBasePath);
         const elementsPath = `${worldBasePath}/Elements`;
         await this.createFolderIfNeeded(elementsPath);

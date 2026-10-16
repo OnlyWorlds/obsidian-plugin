@@ -29,6 +29,7 @@
  */
 import { worldTemplateString } from "../Scripts/WorldDataTemplate";
 import { LOCAL_WORLD_KEY_TOKEN } from "./world-key-core";
+import { safeWorldFolderName } from "./world-name";
 
 type LineKind = "text" | "number" | "list";
 
@@ -185,7 +186,10 @@ export function buildWorldJson(opts: {
 
 	const out: Record<string, unknown> = { ...kept };
 	out.id = worldId;
-	out.name = typeof kept.name === "string" && kept.name.trim() === worldName ? kept.name : worldName;
+	// The folder is the name's safe form (world-name.ts), so a kept name
+	// whose safe form is this folder is still the world's own name.
+	const keptName = typeof kept.name === "string" ? kept.name : null;
+	out.name = keptName !== null && (keptName.trim() === worldName || safeWorldFolderName(keptName) === worldName) ? keptName : worldName;
 	for (const line of WORLD_MD_LINES) {
 		const text = lines[line.label];
 		if (text === undefined) continue; // no line: the kept value (or its absence) stands

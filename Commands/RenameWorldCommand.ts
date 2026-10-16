@@ -1,6 +1,7 @@
 import { App, Notice, requestUrl, normalizePath, TFile, TFolder } from 'obsidian';
 import { WorldRenameModal } from 'Modals/WorldRenameModal';
 import { resolveWorldKey } from '../vault/world-key';
+import { safeWorldFolderName } from '../vault/world-name';
 import type OnlyWorldsPlugin from '../main';
 
 
@@ -20,13 +21,16 @@ export class RenameWorldCommand {
         const modal = new WorldRenameModal(this.app, async (oldWorldName: string, newWorldName: string) => {
             try {
                 // Ensures each step completes before starting the next one
+                // The folder is the new name's one safe path segment (Kael's
+                // review 3.7); World.md and the server get the name as typed.
+                const newFolder = safeWorldFolderName(newWorldName);
                 await this.renameWorldFile(oldWorldName, newWorldName);
-                await this.renameWorldFolder(oldWorldName, newWorldName);
-                await this.checkSettingsFile(oldWorldName, newWorldName);
+                await this.renameWorldFolder(oldWorldName, newFolder);
+                await this.checkSettingsFile(oldWorldName, newFolder);
                 // Push to the API BEFORE claiming success — the notice must
                 // reflect what actually happened on onlyworlds.com, not just the
                 // local rename (the false-success class, 2026-07-12).
-                await this.pushRenameToApi(newWorldName);
+                await this.pushRenameToApi(newWorldName, newFolder);
             } catch (error) {
                 console.error('Error in renaming process:', error);
                 new Notice('Failed to complete the renaming process.');
@@ -38,7 +42,7 @@ export class RenameWorldCommand {
     // PATCH the world name via the SDK (WorldResource.update → PATCH /world/),
     // using THIS world's own key. A local-only rename is stated plainly, never
     // dressed up as a synced success.
-    private async pushRenameToApi(newWorldName: string): Promise<void> {
+    private async pushRenameToApi(newWorldName: string, newFolder: string): Promise<void> {
         if (!this.plugin) {
             new Notice('World renamed in your vault (not synced: no plugin context).');
             return;
@@ -47,7 +51,7 @@ export class RenameWorldCommand {
         // World.md key wins; settings is fallback ONLY when the world has no key
         // of its own. Never silently write to whatever world the settings key
         // names (the wrong-world class).
-        const resolved = await resolveWorldKey(this.app, newWorldName, this.plugin.settings.apiKey);
+        const resolved = await resolveWorldKey(this.app, newFolder, this.plugin.settings.apiKey);
         if (resolved.source === 'local-world') {
             new Notice('World renamed in your vault (local-only world — nothing to update on onlyworlds.com).');
             return;
