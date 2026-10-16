@@ -273,6 +273,22 @@ test("downloading the same account world again reuses the vault's key, no second
 	assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion (1)"), null);
 });
 
+test("a world already in the vault under a legacy key, or a key the account does not list, is found by its id: no mint, no 'Name (1)' (Kael 3.4)", async () => {
+	for (const held of ["1234567890", "ow_w_unlisted_hyperion"]) {
+		const { app, vault } = makeApp();
+		const plugin = fakePlugin(app, true);
+		const cmd = new DownloadWorldCommand(app, { version: "test" }, plugin);
+		keel({ answers: accountAnswers() });
+		assert.equal(await cmd.downloadWithKey(held, ""), "Hyperion");
+		keel({ answers: accountAnswers() });
+		const again = await cmd.downloadAccountWorld(WORLDS[0]); // keys: [] — the account lists none of this vault's
+		assert.equal(again, "Hyperion", `${held}: ${__notices.join(" / ")}`);
+		assert.equal(sent(`/account/worlds/${OWNED}/keys`).length, 0, `${held}: a key was minted`);
+		assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion (1)"), null, `${held}: came down twice`);
+		assert.match(worldMd(vault, "Hyperion"), new RegExp(`- \\*\\*API Key:\\*\\* ${held}`));
+	}
+});
+
 // --- 3. the join link ----------------------------------------------------------
 
 const PREVIEW = (reader: string, role: string) => ({

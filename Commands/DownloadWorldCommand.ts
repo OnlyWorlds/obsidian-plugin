@@ -1,7 +1,7 @@
 import Handlebars from 'handlebars';
 import { WorldDownloadAccount, WorldDownloadData, WorldDownloadModal } from '../Modals/WorldDownloadModal';
 import { AccountWorld, MintedKey, NO_PIN_YET, listAccountWorlds, mintVaultKey } from '../account/account-api';
-import { worldFileApiKey } from '../vault/world-key';
+import { LOCAL_WORLD_KEY_TOKEN, worldFileApiKey } from '../vault/world-key';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from '../Scripts/WorldDataTemplate';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
@@ -216,7 +216,7 @@ export class DownloadWorldCommand {
             return null;
         }
         const held = await this.heldKeyFor(world);
-        if (held) return this.downloadWithKey(held, '');
+        if (held) return this.downloadWithKey(held.key, '');
 
         let minted: MintedKey;
         try {
@@ -230,24 +230,27 @@ export class DownloadWorldCommand {
     }
 
     /**
-     * An ow_ key in one of this vault's World.md files that is a live key of
-     * `world`: its last four characters are among the keys keel lists for the
-     * world (last4s only, a member's own), and keel opens `world` with it.
+     * The key and folder of `world` if this vault already holds it: any key in
+     * a World.md (prefixed, legacy 10-digit, one the account does not list, a
+     * player link's) whose PIN-less GET /world answers with `world`'s id.
+     * Identity is the world id, never the key's shape or its last four (Kael's
+     * review 3.4: a legacy or unlisted key missed the last-four pre-filter and
+     * the world came down again as "Name (1)"). A legacy key on a private world
+     * needs its PIN even to read, so it cannot be recognised here; nothing is
+     * asked for it.
      */
-    private async heldKeyFor(world: AccountWorld): Promise<string | null> {
-        const live = (world.keys ?? []).filter((k) => !k.revoked).map((k) => k.last4);
-        if (live.length === 0) return null;
+    private async heldKeyFor(world: AccountWorld): Promise<{ key: string; folder: string } | null> {
         const worlds = this.app.vault.getAbstractFileByPath(normalizePath('OnlyWorlds/Worlds'));
         if (!(worlds instanceof TFolder)) return null;
         for (const child of worlds.children) {
             if (!(child instanceof TFolder)) continue;
             const key = await worldFileApiKey(this.app, child.name);
-            if (!key || !/^ow_[rw]_/.test(key) || !live.some((l) => key.endsWith(l))) continue;
+            if (!key || key.toLowerCase() === LOCAL_WORLD_KEY_TOKEN) continue;
             try {
                 const meta = await new V2Client(key, '').getWorld();
-                if (meta.id === world.id) return key;
+                if (meta.id === world.id) return { key, folder: child.name };
             } catch {
-                // a key keel no longer opens: not this world's
+                // a key keel does not open without more: not recognisable here
             }
         }
         return null;
