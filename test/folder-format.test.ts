@@ -14,6 +14,7 @@ import {
 	slugify,
 	idTail,
 	filenameFor,
+	planElementPaths,
 	worldFolderName,
 	elementRelPath,
 	wikilinksToOwMentions,
@@ -84,18 +85,35 @@ test("R1c: parse splits what a note has no home for from the payload", () => {
 	assert.deepEqual(carried, { created_at: "c", change_seq: 1 });
 });
 
-// --- R1d: filename = <slug>--<8-char id tail> ---------------------------------
+// --- R1d: filename = <slug>--<8-char id tail> (spec §3.2) ---------------------
 test("R1d: element filename = <slug>--<8-char id tail>.json", () => {
 	assert.equal(idTail(WID), "2e3f4a5b"); // last 8 hex, dashes stripped
-	assert.equal(filenameFor("character", { id: WID, name: "Aria Stormwind" }), "aria-stormwind--2e3f4a5b.json");
-	// no name -> type-prefixed fallback (folder.js).
-	assert.equal(filenameFor("object", { id: WID, name: "" }), "object--2e3f4a5b.json");
+	assert.equal(filenameFor({ id: WID, name: "Aria Stormwind" }), "aria-stormwind--2e3f4a5b.json");
+	// collision fallback: the full id after the slug (Atlas elementFilenameFullId).
+	assert.equal(filenameFor({ id: WID, name: "Aria Stormwind" }, true), `aria-stormwind--${WID}.json`);
+	// no name -> <full-id>.json (spec §3.2 guard).
+	assert.equal(filenameFor({ id: WID, name: "" }), `${WID}.json`);
+	assert.equal(filenameFor({ id: WID, name: "!!!" }, true), `${WID}.json`);
 });
 
-test("slugify matches folder.js: lowercase, diacritic-strip, collapse, trim", () => {
+test("slugify, spec §3.2: lowercase, diacritic-strip, collapse, trim, cap 40", () => {
 	assert.equal(slugify("Château d'Amberville"), "chateau-d-amberville");
 	assert.equal(slugify("  --Weird__Name!!  "), "weird-name");
-	assert.equal(slugify("A".repeat(80)).length, 60); // max cap
+	assert.equal(slugify("A".repeat(80)).length, 40); // max cap
+	assert.equal(slugify("b".repeat(39) + "-c"), "b".repeat(39)); // cut, then strip the hyphen
+});
+
+test("planElementPaths: a short-name collision goes to the higher id, per type, case-insensitively", () => {
+	const lo = "018f2a3b-4c5d-7e6f-8a9b-00000000aaaa";
+	const hi = "018f2a3b-4c5d-7e6f-8a9b-11110000aaaa";
+	const paths = planElementPaths([
+		{ type: "pin", id: hi, name: "GATE" },
+		{ type: "pin", id: lo, name: "gate" },
+		{ type: "zone", id: WID, name: "Gate" }, // another type folder: no clash
+	]);
+	assert.equal(paths.get(lo), "elements/pin/gate--0000aaaa.json");
+	assert.equal(paths.get(hi), `elements/pin/gate--${hi}.json`);
+	assert.equal(paths.get(WID), "elements/zone/gate--2e3f4a5b.json");
 });
 
 // --- R3: ow:// <-> wikilink prose translation ---------------------------------

@@ -317,4 +317,52 @@ test("row 13: export to a desktop folder refuses a target that already exists (h
 	}
 });
 
+// --- Row 14: filenames follow spec §3.2's RECOMMENDED profile ----------------
+
+test("row 14: slug capped at 40, cut first and then a trailing hyphen stripped (§3.2)", async () => {
+	const { app, vault } = makeApp();
+	const long = "a".repeat(39) + " bcdefghijklmnopqrstuvwxyz and more words";
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/x.json": { id: CHAR_ID, type: "character", name: long },
+	});
+	await importDir(app, "in/barovia");
+	const rels = Object.keys(await exportWorld(app, vault, "Barovia")).filter((p) => p !== "world.json");
+	assert.deepEqual(rels, [`elements/character/${"a".repeat(39)}--000000c1.json`]);
+});
+
+test("row 14: an unsluggable name writes <full-id>.json (§3.2 guard)", async () => {
+	const { app, vault } = makeApp();
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/x.json": { id: CHAR_ID, type: "character", name: "日本" },
+	});
+	await importDir(app, "in/barovia");
+	const rels = Object.keys(await exportWorld(app, vault, "Barovia")).filter((p) => p !== "world.json");
+	assert.deepEqual(rels, [`elements/character/${CHAR_ID}.json`]);
+});
+
+test("row 14: two same-named elements sharing a tail both survive: the lower id keeps the short name, the other falls back to the full id (§3.2 MUST)", async () => {
+	const { app, vault } = makeApp();
+	const lo = "0199b000-0000-7000-8000-1111000000e1";
+	const hi = "0199b000-0000-7000-8000-2222000000e1"; // same last 8: 000000e1
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/pin/b.json": { id: hi, type: "pin", name: "Gate", x: 2 },
+		"elements/pin/a.json": { id: lo, type: "pin", name: "Gate", x: 1 },
+	});
+	await importDir(app, "in/barovia");
+	const out = await exportWorld(app, vault, "Barovia");
+	const rels = Object.keys(out).filter((p) => p !== "world.json").sort();
+	assert.deepEqual(rels, [`elements/pin/gate--${hi}.json`, "elements/pin/gate--000000e1.json"].sort());
+	assert.equal(JSON.parse(out["elements/pin/gate--000000e1.json"]).id, lo);
+	assert.equal(JSON.parse(out[`elements/pin/gate--${hi}.json`]).id, hi);
+});
+
+test("row 14: import reads any filename; identity is the id inside (§3.1)", async () => {
+	const { app, vault } = makeApp();
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/Hand Renamed (copy).json": { id: CHAR_ID, type: "character", name: "Ireena" },
+	});
+	await importDir(app, "in/barovia");
+	assert.ok([...vault.files.keys()].some((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/Character/")));
+});
+
 void __modals;

@@ -7,7 +7,7 @@ import { readFolderSidecar } from "../vault/folder-sidecar";
 import { buildWorldJson } from "../vault/world-json";
 import {
 	worldFolderName,
-	elementRelPath,
+	planElementPaths,
 	buildFolderElementBody,
 	wikilinksToOwMentions,
 	type ElementRef,
@@ -49,7 +49,9 @@ import {
  *   - every element body carries `type`; no timestamp is minted, and the
  *     server/sync fields an import carried go back out as received (spec
  *     §4.1, §4.2, §5; OW Infra #166 row 6);
- *   - folder = <slug>-<id8>, files = <slug>--<id-tail>.json.
+ *   - folder = <slug>-<id8>, files = spec §3.2: <slug>--<id-tail>.json (slug
+ *     cap 40), <full-id>.json for an unsluggable name, and the full-id
+ *     fallback on a same-type collision (OW Infra #166 row 14).
  *
  * Prose (R3): note body -> description (story for Narrative); [[WikiLink]] ->
  * [Label](ow://type/uuid) where the name resolves. Extension fields round-trip
@@ -158,6 +160,10 @@ export class ExportFolderCommand {
 		const planned: { rel: string; content: string }[] = [
 			{ rel: "world.json", content: JSON.stringify(worldJson, null, 2) + "\n" },
 		];
+		// Filenames per spec §3.2, with its writer collision rule (row 14).
+		const paths = planElementPaths(
+			elements.map((el) => ({ type: el.type, id: String(el.payload.id), name: el.payload.name }))
+		);
 		for (const el of elements) {
 			const bodyField = bodyFieldForCategory(el.type);
 			const payload = { ...el.payload };
@@ -168,7 +174,7 @@ export class ExportFolderCommand {
 				);
 			}
 			const body = buildFolderElementBody(el.type, payload, carriedById[String(el.payload.id)] ?? {});
-			const rel = elementRelPath(el.type, { id: String(el.payload.id), name: el.payload.name });
+			const rel = paths.get(String(el.payload.id)) as string;
 			planned.push({ rel, content: JSON.stringify(body, null, 2) + "\n" });
 		}
 		return { files: planned, failed };

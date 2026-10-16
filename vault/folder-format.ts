@@ -21,8 +21,10 @@
  *       never rides the API/bulk). No timestamp is minted: server and sync
  *       fields an import carried are written back as received, nothing else
  *       (OW Infra #166 row 6, spec §4.1/§5).
- *   (d) folder name = <slug>-<first 8 chars of world id>; element files =
- *       <slug>--<8-char id tail>.json (filename = presentation, id = identity).
+ *   (d) folder name = <slug>-<first 8 chars of world id>; element files follow
+ *       spec §3.2's RECOMMENDED profile (slugify, filenameFor,
+ *       planElementPaths; OW Infra #166 row 14). Filename = presentation,
+ *       id = identity: the import reads any filename (§3.1).
  *
  * ow:// mention scheme (R3): body prose carries element references as
  * `[Label](ow://<type>/<uuid>)`. On export a `[[WikiLink]]` becomes that form
@@ -68,43 +70,87 @@ export function splitCarriedFields(
 	return { payload: kept, carried };
 }
 
+/** Spec §3.2: the slug is capped at 40 chars (trued to Atlas's SLUG_MAX_LEN). */
+export const SLUG_MAX_LEN = 40;
+
 /**
- * Slugify a name for filesystem use — transcribed from folder.js `slugify` so
- * the plugin's filenames match the gold-standard writer byte-for-byte.
+ * Slugify a name for filesystem use, spec §3.2's RECOMMENDED profile, the same
+ * steps as Atlas's `slugify` (fs-utils.ts): NFKD, drop combining marks,
+ * lowercase, non-alphanumeric runs to one `-`, trim `-`, then cut to the cap
+ * and strip a trailing `-` (cut first, then strip: ruled 2026-09-28).
  */
-export function slugify(name: string, max = 60): string {
+export function slugify(name: string, max = SLUG_MAX_LEN): string {
 	return String(name)
-		.toLowerCase()
 		.normalize("NFKD")
 		.replace(/[̀-ͯ]/g, "") // strip combining diacritics
+		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "")
 		.slice(0, max)
 		.replace(/-+$/g, "");
 }
 
-/** 8-char id tail: strip dashes, take the last 8 chars (folder.js filenameFor). */
+/** 8-char id tail: strip dashes, take the last 8 chars (spec §3.2). */
 export function idTail(id: string): string {
 	return id.replace(/-/g, "").slice(-8);
 }
 
-/** Element filename: `<slug>--<tail>.json`, or `<type>--<tail>.json` if no name. */
-export function filenameFor(type: string, element: { id: string; name?: unknown }): string {
-	const tail = idTail(element.id);
+/**
+ * Element filename, spec §3.2: `<slug>--<tail>.json`; `fullId` gives the
+ * collision fallback `<slug>--<full-id>.json` (Atlas's elementFilenameFullId).
+ * An empty or unsluggable name is `<full-id>.json` either way.
+ */
+export function filenameFor(element: { id: string; name?: unknown }, fullId = false): string {
 	const slug = slugify(typeof element.name === "string" ? element.name : "");
-	return slug ? `${slug}--${tail}.json` : `${type}--${tail}.json`;
+	if (!slug) return `${element.id}.json`;
+	return `${slug}--${fullId ? element.id : idTail(element.id)}.json`;
 }
 
-/** Folder name for a world: `<slug>-<first 8 chars of world id>` (R1d). */
+/**
+ * Folder name for a world: `<slug>-<first 8 chars of world id>` (R1d). The
+ * spec leaves a world folder's name to the tool (presentation, §4 archives);
+ * the cap stays at 60 so an existing export's folder keeps its name.
+ */
 export function worldFolderName(worldName: string, worldId: string): string {
 	const head = worldId.replace(/-/g, "").slice(0, 8);
-	const slug = slugify(worldName);
+	const slug = slugify(worldName, 60);
 	return slug ? `${slug}-${head}` : `world-${head}`;
 }
 
 /** Relative path (inside the world folder) for an element JSON file: elements/<type>/ for every type (spec §4). */
-export function elementRelPath(type: string, element: { id: string; name?: unknown }): string {
-	return `elements/${type}/${filenameFor(type, element)}`;
+export function elementRelPath(type: string, element: { id: string; name?: unknown }, fullId = false): string {
+	return `elements/${type}/${filenameFor(element, fullId)}`;
+}
+
+/**
+ * Every element's relative path for one export, with spec §3.2's writer
+ * collision rule (a MUST): two elements of one type whose short names coincide
+ * (compared case-insensitively, as NTFS and APFS do) would share a file and the
+ * second write would destroy the first. Ids go in ascending order; the first
+ * keeps the short name and every later one falls back to the full id, so the
+ * choice is the same on every run and in every writer (Atlas's open-time tidy
+ * walks ids the same way). OW Infra #166 row 14.
+ */
+export function planElementPaths(
+	elements: { type: string; id: string; name?: unknown }[]
+): Map<string, string> {
+	const byType = new Map<string, { type: string; id: string; name?: unknown }[]>();
+	for (const el of elements) {
+		const list = byType.get(el.type) ?? [];
+		list.push(el);
+		byType.set(el.type, list);
+	}
+	const out = new Map<string, string>();
+	for (const [type, list] of byType) {
+		const occupied = new Set<string>();
+		for (const el of [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+			let rel = elementRelPath(type, el);
+			if (occupied.has(rel.toLowerCase())) rel = elementRelPath(type, el, true);
+			occupied.add(rel.toLowerCase());
+			out.set(el.id, rel);
+		}
+	}
+	return out;
 }
 
 // --- ow:// <-> wikilink prose translation (R3) --------------------------------
