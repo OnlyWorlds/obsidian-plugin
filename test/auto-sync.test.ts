@@ -99,3 +99,48 @@ test("auto-sync saves its file even when no note is active", async () => {
 	await settle();
 	assert.deepEqual(h.calls, [`get character ${ID_B}`, `create character ${ID_B}`]);
 });
+
+// ★ Row 7: auto-sync ended on `synced` after a failed save. The status a save
+// leaves behind must say whether anything reached the server.
+const unprocessable = () => new V2ApiError(422, "invalid_request", "Unknown field: mood", null);
+
+test("★ a 422 on update leaves the status on error, not synced (row 7)", async () => {
+	const h = await harness({ existing: new Set([ID_B]), updateError: unprocessable() });
+	schedule(h.engine, h.fileB);
+	await settle();
+	assert.ok(h.calls.includes(`update character ${ID_B}`));
+	assert.equal(h.statuses.at(-1), "error");
+});
+
+test("★ a 422 on create leaves the status on error (row 7)", async () => {
+	const h = await harness({ createError: unprocessable() });
+	schedule(h.engine, h.fileB);
+	await settle();
+	assert.ok(h.calls.includes(`create character ${ID_B}`));
+	assert.equal(h.statuses.at(-1), "error");
+});
+
+test("★ no API key anywhere: error, nothing sent (row 7)", async () => {
+	const h = await harness({ worldKey: null });
+	schedule(h.engine, h.fileB);
+	await settle();
+	assert.deepEqual(h.calls, []);
+	assert.equal(h.statuses.at(-1), "error");
+});
+
+test("★ PIN prompt cancelled: error, nothing sent (row 7)", async () => {
+	const h = await harness({ pin: false });
+	schedule(h.engine, h.fileB);
+	await settle();
+	assert.deepEqual(h.calls, []);
+	assert.equal(h.statuses.at(-1), "error");
+});
+
+test("a save that lands, or finds nothing to change, ends on synced", async () => {
+	const h = await harness({ existing: new Set([ID_A]) });
+	schedule(h.engine, h.fileA); // existing: name differs from the server's "old" -> update
+	schedule(h.engine, h.fileB); // new -> create
+	await settle();
+	assert.equal(h.statuses.at(-1), "synced");
+	assert.ok(!h.statuses.includes("error"));
+});

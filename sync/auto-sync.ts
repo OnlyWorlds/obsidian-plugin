@@ -105,8 +105,15 @@ export class AutoSyncEngine {
 			// letting the command read it back made every timer in a burst save
 			// whichever note was active (OW Infra #166 row 4).
 			const cmd = new SaveElementCommand(this.app, this.plugin);
-			await cmd.execute(file);
-			this.plugin.setSyncStatus("synced");
+			const result = await cmd.execute(file);
+			// The command already showed its Notice; the status must agree with it.
+			// A refused save (a 422, no key, the PIN prompt cancelled) ends on
+			// error, never on synced (OW Infra #166 row 7).
+			if (result.ok) {
+				this.plugin.setSyncStatus("synced");
+			} else {
+				this.plugin.setSyncStatus("error", { error: result.reason });
+			}
 		} catch (error) {
 			console.error("Auto-sync error:", error);
 			const msg = error instanceof Error ? error.message : "Unknown error";
