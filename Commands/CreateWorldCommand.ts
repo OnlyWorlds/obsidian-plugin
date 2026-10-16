@@ -1,4 +1,4 @@
-import { App, Notice, PluginManifest, requestUrl } from 'obsidian';
+import { App, Notice, PluginManifest, TFolder, normalizePath, requestUrl } from 'obsidian';
 
 import Handlebars from 'handlebars';
 import { v7 as uuidv7 } from 'uuid';
@@ -11,7 +11,8 @@ import { safeWorldFolderName } from '../vault/world-name';
 import { writeWorldIdMarker } from '../vault/world-id-marker';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import type { ExportWorldCommand } from './ExportWorldCommand';
-import { createAccountWorld, isFullWriteKey, mintVaultKey, revokeCreateKeys, type CreatedWorld } from '../account/account-api';
+import { createAccountWorld, isFullWriteKey, listAccountWorlds, mintVaultKey, revokeCreateKeys, type CreatedWorld } from '../account/account-api';
+import { V2ApiError, V2Client } from '../client-v2';
 
 export class CreateWorldCommand {
     app: App;
@@ -346,10 +347,61 @@ export class CreateWorldCommand {
      * (DELETE /api/v2/account/worlds/{id}/keys/{key_id}).
      * Answers in the old route's shape ({api_key}) so both callers go on as before.
      */
+    /**
+     * True only when keel says the typed PIN is not the account's: a world the
+     * account owns whose key this vault holds is read with the PIN, and keel
+     * checks a PIN that is sent even on a read (D93). With no such key, or any
+     * other answer, the PIN is not judged here (false).
+     */
+    private async typedPinIsWrong(token: string, pin: string): Promise<boolean> {
+        let owned: Set<string>;
+        try {
+            owned = new Set((await listAccountWorlds(token)).filter((w) => w.role === 'owner').map((w) => w.id));
+        } catch {
+            return false;
+        }
+        if (owned.size === 0) return false;
+        const worlds = this.app.vault.getAbstractFileByPath(normalizePath('OnlyWorlds/Worlds'));
+        if (!(worlds instanceof TFolder)) return false;
+        for (const child of worlds.children) {
+            if (!(child instanceof TFolder)) continue;
+            const key = await worldFileApiKey(this.app, child.name);
+            if (!key || !/^ow_w_/.test(key)) continue;
+            try {
+                const meta = await new V2Client(key, '').getWorld();
+                if (!owned.has(String(meta.id))) continue;
+            } catch {
+                continue;
+            }
+            try {
+                await new V2Client(key, pin).getWorld();
+                return false;
+            } catch (error) {
+                return error instanceof V2ApiError && (error.status === 401 || error.status === 403);
+            }
+        }
+        return false;
+    }
+
     private async createWorldOnAccount(
         account: { token: string; username: string },
         worldData: WorldCreationData
     ): Promise<{ api_key: string; afterLanding?: () => Promise<void> } | null> {
+        // The typed PIN is the one Take online uploads with. keel takes it at
+        // create only from an account with no PIN yet, so a wrong PIN would
+        // otherwise surface after the world exists, as an upload refused into
+        // an empty world. Check it first where the vault can (Kael's review).
+        if (worldData.pin && (await this.typedPinIsWrong(account.token, String(worldData.pin)))) {
+            new ApiResponseModal(
+                this.app,
+                false,
+                "That PIN is not your account's PIN, so nothing was created on onlyworlds.com. Type your account PIN and try again.",
+                null,
+                () => {},
+                'World Create Failed'
+            ).open();
+            return null;
+        }
         let created: CreatedWorld;
         try {
             created = await createAccountWorld(account.token, worldData.name, worldData.pin ? String(worldData.pin) : '');

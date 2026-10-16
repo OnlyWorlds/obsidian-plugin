@@ -505,6 +505,31 @@ test("Create World online, signed in: the account's create-world route, and its 
 	assert.ok(!__requests.some((r) => r.url.includes("worldsync")), "the old route was called");
 });
 
+test("Create World online, signed in: a typed PIN is checked against the account before anything is created (Kael nit)", async () => {
+	for (const [pin, created] of [[9999, 0], [1234, 1]] as const) {
+		keel({
+			answers: {
+				...accountAnswers(),
+				"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [], key: "ow_w_created_by_create" } },
+			},
+			route: (r, path) =>
+				path === "/world" && r.headers["API-Pin"] && r.headers["API-Pin"] !== "1234"
+					? { status: 401, json: { error: { code: "invalid_credentials", message: "Incorrect PIN.", param: "API-Pin" } } }
+					: undefined,
+		});
+		const { app, vault } = makeApp();
+		// This vault already holds a world the account owns (Hyperion): its key
+		// can test the PIN on a read.
+		await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **API Key:** ow_w_hyperion_held\n");
+		const plugin = fakePlugin(app, true);
+		const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: plugin.settings.accountToken, username: plugin.settings.accountUsername }));
+		const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin });
+		const posts = sent("/account/worlds").filter((r) => pathOf(r.url) === "/account/worlds" && r.method === "POST");
+		assert.equal(posts.length, created, `PIN ${pin}`);
+		assert.equal(res === null, created === 0, `PIN ${pin}`);
+	}
+});
+
 test("Create World online, signed in, a create answer without a full write key: mint the vault's key, then revoke the create key", async () => {
 	keel({
 		answers: {
