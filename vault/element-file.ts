@@ -121,10 +121,14 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// A bare-id link value passes through untouched (dangling/unmigrated).
 		const unresolved: string[] = [];
 		const ambiguous: string[] = [];
+		// A Pin's `element_type` (a text field, so a body section) narrows its
+		// generic `element_id` to that type's notes (OW Infra #166 row 2).
+		const elementType = body ? parseElementBody(body, category).fields.element_type : undefined;
 		const fields = frontmatterToPayloadFields(fm, category, {
 			resolveNameToId: buildWikilinkResolver(app, file.path),
 			unresolved,
 			ambiguous,
+			genericTargetType: elementType || undefined,
 			// Upload safety: a field with any unresolvable [[Name]] is OMITTED, not
 			// shortened — a full-field bulk PATCH built from a reduced id list would
 			// strip the server's copy of the dropped link (the 2.3.0 smoke class,

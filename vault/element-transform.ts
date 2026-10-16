@@ -661,6 +661,13 @@ export interface ReadLinkOptions {
 	 * (OW Infra #166 row 2).
 	 */
 	ambiguous?: string[];
+	/**
+	 * The type a generic-target link field (target `any`) names, from the note's
+	 * own `element_type` (a Pin). When set, that field resolves against notes of
+	 * this type only, like any typed link field; absent or empty, the generic
+	 * rule applies (ambiguous -> left out and named).
+	 */
+	genericTargetType?: string;
 }
 
 /**
@@ -702,6 +709,13 @@ export function frontmatterToPayloadFields(
 	const schema = getCategorySchema(category);
 	const out: Record<string, unknown> = {};
 	const bodyField = bodyFieldForCategory(category);
+	const fmType = frontmatter.element_type;
+	const genericType =
+		opts.genericTargetType?.trim() ||
+		(typeof fmType === "string" && fmType.trim() ? fmType.trim() : undefined);
+	/** A link field's resolution target: `any` narrowed by element_type when the note carries one. */
+	const targetOf = (field: SchemaField): string | undefined =>
+		field.target === "any" && genericType ? normalizeCategory(genericType) : field.target;
 
 	for (const [key, value] of Object.entries(frontmatter)) {
 		if (NON_PAYLOAD_KEYS.has(key)) continue;
@@ -742,7 +756,7 @@ export function frontmatterToPayloadFields(
 			// value), then resolve the wikilink-or-id to a bare id.
 			const norm = normalizeLinkValue(value, "single_link");
 			if (norm == null) { out[key] = null; continue; }
-			const id = linkValueToId(norm, opts, field.target);
+			const id = linkValueToId(norm, opts, targetOf(field));
 			// A non-null input that resolved to null is unresolved. On the upload
 			// path, OMIT the field rather than write null — a null single-link on a
 			// full-field PATCH would clear the server's value.
@@ -751,7 +765,7 @@ export function frontmatterToPayloadFields(
 		} else if (field.type === "multi_link") {
 			const arr = normalizeLinkValue(value, "multi_link") as string[];
 			const ids = arr
-				.map((v) => linkValueToId(v, opts, field.target))
+				.map((v) => linkValueToId(v, opts, targetOf(field)))
 				.filter((v): v is string => v != null);
 			// If any input entry didn't resolve, the list is SHORTENED — and a
 			// full-field PATCH from a shortened list strips server links. Omit the

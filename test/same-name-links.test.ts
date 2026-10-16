@@ -89,7 +89,8 @@ const SYRACUSE = {
 	],
 	Collective: [{ id: COL, name: "Syracuse" }],
 	Character: [{ id: GELON, name: "Gelon", location: LOC }],
-	Pin: [{ id: PIN, name: "Syracuse pin", element_type: "location", element_id: LOC }],
+	// No element_type: the generic rule applies (ambiguous -> omit and name).
+	Pin: [{ id: PIN, name: "Syracuse pin", element_type: "", element_id: LOC }],
 };
 
 test("★ a Location and a Collective both named Syracuse download and re-upload with every link id unchanged (row 2)", async () => {
@@ -99,7 +100,7 @@ test("★ a Location and a Collective both named Syracuse download and re-upload
 	assert.equal(byId.get(AKRAI)?.partner, LOC, "Akrai's partner (a Location field, same folder as both)");
 });
 
-test("★ a generic-target field (Pin element_id) naming two types is left out and named, never guessed (row 2)", async () => {
+test("★ a Pin element_id with no element_type naming two types is left out and named, never guessed (row 2)", async () => {
 	const { byId, vault, app } = await downloadThenCollect(SYRACUSE);
 	const pin = byId.get(PIN);
 	assert.ok(pin, "the pin was collected");
@@ -147,7 +148,21 @@ test("the upload sweep names the ambiguous generic link too", async () => {
 test("a generic-target field naming ONE note resolves to it", async () => {
 	const { byId } = await downloadThenCollect({
 		Location: [{ id: LOC, name: "Syracuse" }],
-		Pin: [{ id: PIN, name: "Syracuse pin", element_type: "location", element_id: LOC }],
+		Pin: [{ id: PIN, name: "Syracuse pin", element_id: LOC }],
 	});
 	assert.equal(byId.get(PIN)?.element_id, LOC);
+});
+
+test("★ a Pin carrying element_type resolves element_id against that type only (row 2)", async () => {
+	const PIN_L = "019a0000-0000-7000-8000-0000000000f6";
+	const PIN_C = "019a0000-0000-7000-8000-0000000000f7";
+	const { byId } = await downloadThenCollect({
+		...SYRACUSE,
+		Pin: [
+			{ id: PIN_L, name: "Located pin", element_type: "Location", element_id: LOC },
+			{ id: PIN_C, name: "People pin", element_type: "collective", element_id: COL },
+		],
+	});
+	assert.equal(byId.get(PIN_L)?.element_id, LOC, "element_type Location");
+	assert.equal(byId.get(PIN_C)?.element_id, COL, "element_type collective");
 });
