@@ -62,6 +62,19 @@ test("★ a note already on disk with a plain date supertype reads back as the s
 	assert.equal(back?.fields.supertype, "2024-01-01");
 });
 
+test("★ a text field YAML read as a number or boolean leaves as the string typed; a number field stays a number", async () => {
+	// Hand-typed: `supertype: 5` and `subtype: true` parse as 5 and true.
+	const { app, vault } = makeApp();
+	const file = await vault.seed(
+		"OnlyWorlds/Worlds/W/Elements/Character/Five.md",
+		`---\nname: Five\nid: ${ID}\nsupertype: 5\nsubtype: true\nheight: 5\n---\n\n### Description\n\n`
+	);
+	const back = await readElement(app, file as unknown as TFile);
+	assert.equal(back?.fields.supertype, "5");
+	assert.equal(back?.fields.subtype, "true");
+	assert.equal(back?.fields.height, 5);
+});
+
 test("the raw frontmatter scanner unescapes a double-quoted value", () => {
 	const content = `---\nname: "He said \\"hi\\" \\\\ there"\nid: ${ID}\n---\n`;
 	assert.equal(parseRawFrontmatterScalars(content, ["name"]).name, 'He said "hi" \\ there');

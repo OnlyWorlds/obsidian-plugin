@@ -362,6 +362,18 @@ export function dateToFieldString(value: unknown): unknown {
 }
 
 /**
+ * The value of a schema TEXT field as the string the user typed, where
+ * recoverable: a hand-typed `supertype: 5` or `subtype: true` parses as a
+ * number or boolean and goes to the server as "5" / "true", never as 5 / true
+ * (OW Infra #166 row 3). Dates as dateToFieldString. Only for text fields:
+ * link, number and extension values pass through untouched.
+ */
+export function textFieldString(value: unknown): unknown {
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return dateToFieldString(value);
+}
+
+/**
  * Reassemble a note. The frontmatter block ALWAYS lands at byte 0 with exactly
  * one newline after it — never leading blank lines, whatever the input had.
  */
@@ -725,7 +737,7 @@ export function frontmatterToPayloadFields(
 			if (ids.length < arr.length && opts.omitFieldOnUnresolved) continue;
 			out[key] = ids;
 		} else {
-			out[key] = field.type === "text" ? dateToFieldString(value) : value;
+			out[key] = field.type === "text" ? textFieldString(value) : value;
 		}
 	}
 	return out;
