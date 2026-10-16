@@ -12,6 +12,7 @@ import type { App } from "obsidian";
 import { makeApp, __modals, __notices, type MockVault } from "./support/obsidian-mock";
 import { ImportFolderCommand } from "../Commands/ImportFolderCommand";
 import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
+import { readElement, writeElement } from "../vault/element-file";
 
 const WID = "0199b000-0000-7000-8000-0000000000aa";
 
@@ -420,6 +421,54 @@ test("round trip: export, import, export again is byte-identical, and every key 
 			"elements/pin/ireena--000000d2.json", "elements/zone/svalich-woods--000000d4.json", "world.json"]
 	);
 	assert.equal("local_updated_at" in byId.get(MAP_ID), false);
+});
+
+// --- Row 12: a tool's extension key is never shadowed as the user's x_ ------
+
+const RICH = '{"type":"doc","content":[{"type":"paragraph","text":"Ireena: \\"the bride\\" # 1"}]}';
+
+test("row 12: string atlas_color and atlas_richtext_json survive import -> save -> export unchanged, no x_ shadow, nothing extra in the payload", async () => {
+	const { app, vault } = makeApp();
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/ireena--000000c1.json": { ...CHAR_FILE, atlas_color: "#8b0000", atlas_richtext_json: RICH, x_mood: "wary" },
+	});
+	await importDir(app, "in/barovia");
+	const notePath = [...vault.files.keys()].find((p) => p.includes("/Elements/Character/"))!;
+	const note = () => vault.contentAt(notePath) ?? "";
+	assert.ok(!/^### (Color|Richtext Json)$/m.test(note()), "a tool's key became a body section");
+
+	// Save: the user edits the body; the save path reads the note into its payload.
+	vault.files.get(notePath)!.content = note().replace("A noble.", "A noble of Barovia.");
+	const file = app.vault.getAbstractFileByPath(notePath) as unknown as import("obsidian").TFile;
+	const read = await readElement(app, file);
+	assert.ok(read);
+	assert.equal(read.fields.atlas_color, "#8b0000");
+	assert.equal(read.fields.atlas_richtext_json, RICH);
+	assert.equal(read.fields.x_mood, "wary");
+	assert.deepEqual(Object.keys(read.fields).filter((k) => k.startsWith("x_")), ["x_mood"], "an x_ shadow in the payload");
+	await writeElement(app, "Barovia", "character", CHAR_ID, { ...read.fields, id: CHAR_ID, name: read.name });
+
+	const out = await exportWorld(app, vault, "Barovia");
+	const body = JSON.parse(out["elements/character/ireena--000000c1.json"]);
+	assert.equal(body.atlas_color, "#8b0000");
+	assert.equal(body.atlas_richtext_json, RICH);
+	assert.equal(body.x_mood, "wary");
+	assert.equal(body.description, "A noble of Barovia.");
+	assert.deepEqual(Object.keys(body).filter((k) => k.startsWith("x_")), ["x_mood"]);
+});
+
+test("row 12: a note an older plugin wrote, with a '### Color' copy of atlas_color, reads no x_color and loses no prose", async () => {
+	const { app, vault } = makeApp();
+	const path = "OnlyWorlds/Worlds/W/Elements/Character/Ireena.md";
+	await vault.seed(
+		path,
+		`---\nname: Ireena\nid: ${CHAR_ID}\natlas_color: "#8b0000"\n---\n\n### Description\n\nA noble.\n\n### Color\n\n#8b0000\n`
+	);
+	const read = await readElement(app, app.vault.getAbstractFileByPath(path) as unknown as import("obsidian").TFile);
+	assert.ok(read);
+	assert.equal(read.fields.atlas_color, "#8b0000");
+	assert.equal("x_color" in read.fields, false);
+	assert.equal(read.fields.description, "A noble.");
 });
 
 void __modals;

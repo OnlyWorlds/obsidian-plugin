@@ -38,6 +38,30 @@ export function isExtensionKey(key: string): boolean {
 	return EXTENSION_NAMESPACES.some((ns) => key.startsWith(ns));
 }
 
+/**
+ * The user's own custom fields: `x_` only. Only these become body sections;
+ * `atlas_` and `shadow_` are tools' namespaces and stay in the frontmatter
+ * verbatim (OW Infra #166 row 12; spec §3.3, foreign fields are read-only).
+ */
+export function isUserCustomKey(key: string): boolean {
+	return key.startsWith(EXTENSION_NAMESPACES[2]);
+}
+
+/**
+ * The `x_` keys a body heading would be read as if it were a section copy of a
+ * tool's key in this frontmatter (`atlas_color` -> `x_color`). Older plugin
+ * versions wrote such copies; readElement consumes them instead of adopting
+ * them as user fields.
+ */
+export function toolShadowHeadings(frontmatter: Record<string, unknown>): Set<string> {
+	const out = new Set<string>();
+	for (const k of Object.keys(frontmatter)) {
+		if (!isExtensionKey(k) || isUserCustomKey(k)) continue;
+		out.add(`${EXTENSION_NAMESPACES[2]}${headingToFieldKey(stripExtensionPrefix(k))}`);
+	}
+	return out;
+}
+
 /** Meta keys that never belong in an outbound API payload. */
 const NON_PAYLOAD_KEYS = new Set(["id", "world", "world_id", "position", "aliases", "tags"]);
 

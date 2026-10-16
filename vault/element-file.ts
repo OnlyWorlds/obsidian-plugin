@@ -8,6 +8,8 @@ import {
 	parseElementBody,
 	headingToFieldKey,
 	isExtensionKey,
+	isUserCustomKey,
+	toolShadowHeadings,
 	splitNote,
 	joinNote,
 	serializeFrontmatter,
@@ -157,11 +159,22 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			// every unknown heading whose name is a clean single token as a custom
 			// field. A heading with punctuation or many words reads as prose
 			// structure and still falls through to the never-drop salvage.
-			const customKeys = parseElementBody(body, category)
-				.unknown.map((u) => u.heading.trim())
+			//
+			// ⚑ A note an older plugin wrote may carry a section copy of a tool's
+			// key (`atlas_color` in frontmatter, `### Color` in the body). That
+			// section is the tool's value, not a user field: it is consumed here,
+			// read neither as `x_color` nor as prose, and the next write drops it.
+			// The user's own `x_color` in the frontmatter still claims the heading
+			// (OW Infra #166 row 12).
+			const toolShadows = toolShadowHeadings(fm);
+			const unknownHeadings = parseElementBody(body, category).unknown.map((u) => u.heading.trim());
+			const customKeys = unknownHeadings
 				.filter((h) => /^[A-Za-z][A-Za-z0-9 _-]{0,40}$/.test(h) && h.split(/\s+/).length <= 3)
-				.map((h) => `x_${headingToFieldKey(h)}`);
-			const sectionValues = bodyToFieldValues(body, category, customKeys);
+				.map((h) => `x_${headingToFieldKey(h)}`)
+				.filter((k) => !toolShadows.has(k) || k in fm);
+			const shadowKeys = [...toolShadows].filter((k) => !(k in fm));
+			const sectionValues = bodyToFieldValues(body, category, [...customKeys, ...shadowKeys]);
+			for (const k of shadowKeys) delete sectionValues[k];
 			for (const [k, v] of Object.entries(sectionValues)) {
 				fields[k] = v;
 			}
@@ -266,8 +279,12 @@ export async function writeElement(
 	// field as a `## Heading` section, empty ones included (the empty section is
 	// the scaffold that makes a field discoverable at all). Custom `x_` text
 	// fields ride along, rendered without their prefix.
+	// Only `x_` keys, the user's own custom fields (OW Infra #166 row 12). Any
+	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
+	// frontmatter verbatim, never becomes a section, and so is never read back
+	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
 	const customTextFields = Object.entries(data)
-		.filter(([k, v]) => isExtensionKey(k) && typeof v === "string")
+		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string")
 		.map(([k]) => k);
 	const bodyValue = buildElementBody(data, cat, customTextFields);
 
