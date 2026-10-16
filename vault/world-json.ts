@@ -55,6 +55,14 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 	{ label: "Distance Unit", keys: ["distance_unit"], kind: "text" },
 ];
 
+/**
+ * The folder format spec version this writer follows (spec §4.2's
+ * `format_version` row: "SHOULD be written by any writer"; it moves when the
+ * spec's version moves). Stamped on an export whose world carries none; a
+ * value the world already carries is kept as it is.
+ */
+export const FOLDER_FORMAT_VERSION = "0.3.8";
+
 /** The world.json keys the plugin never keeps (spec §4.1, a portable copy). */
 export const WORLD_KEYS_NOT_KEPT = ["api"] as const;
 
@@ -142,7 +150,8 @@ export function renderWorldMd(worldJson: Record<string, unknown>, worldName: str
  * `kept` is the sidecar's world block (null for a world made in the vault).
  * Without it: id, name, and every World.md line that has a value. With it: the
  * kept world.json, key order and spelling as they were, each World.md-shown key
- * replaced only where the user changed its line.
+ * replaced only where the user changed its line. Both end with
+ * `format_version` (FOLDER_FORMAT_VERSION) unless the world carries one.
  *
  * The name is the world's folder name (the plugin's world identity, as before);
  * the kept spelling wins when it trims to the same name.
@@ -163,6 +172,7 @@ export function buildWorldJson(opts: {
 			if (text === undefined || text.trim() === "") continue;
 			out[line.keys[0]] = coerceWorldLine(text, line.kind);
 		}
+		out.format_version = FOLDER_FORMAT_VERSION;
 		return out;
 	}
 
@@ -180,5 +190,8 @@ export function buildWorldJson(opts: {
 			out[key] = coerceWorldLine(text, line.kind);
 		}
 	}
+	// A value the world carried stays as it is; none means this export is the
+	// folder's birth, so it gets this writer's version.
+	if (!("format_version" in out)) out.format_version = FOLDER_FORMAT_VERSION;
 	return out;
 }

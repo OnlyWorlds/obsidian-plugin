@@ -122,7 +122,8 @@ test("row 5: a world.json spelling the wire's time_range_current keeps that spel
 	await importDir(app, "in/barovia");
 	assert.match(vault.contentAt("OnlyWorlds/Worlds/Barovia/World.md") ?? "", /^- \*\*Current Time:\*\* 12$/m);
 	const out = await exportWorld(app, vault, "Barovia");
-	assert.equal(out["world.json"], JSON.stringify(wire, null, 2) + "\n");
+	// its own keys as they were, plus the format_version of this birth
+	assert.equal(out["world.json"], JSON.stringify({ ...wire, format_version: "0.3.8" }, null, 2) + "\n");
 });
 
 test("row 5: the api block (a credential) is never kept in the vault nor exported (§4.1 portable copy)", async () => {
@@ -136,7 +137,7 @@ test("row 5: the api block (a credential) is never kept in the vault nor exporte
 	}
 	const world = JSON.parse((await exportWorld(app, vault, "Barovia"))["world.json"]);
 	assert.equal(world.api, undefined);
-	assert.deepEqual(world, { id: WID, name: "Barovia", time_current: 3 });
+	assert.deepEqual(world, { id: WID, name: "Barovia", time_current: 3, format_version: "0.3.8" });
 });
 
 test("row 5: a world made in the vault exports its World.md time settings", async () => {
@@ -469,6 +470,28 @@ test("row 12: a note an older plugin wrote, with a '### Color' copy of atlas_col
 	assert.equal(read.fields.atlas_color, "#8b0000");
 	assert.equal("x_color" in read.fields, false);
 	assert.equal(read.fields.description, "A noble.");
+});
+
+// --- format_version: written at a folder's birth (spec §4.2 row, v0.3.8) ----
+
+test("format_version: a world made in the vault exports format_version 0.3.8", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Native/World.md", "- **Name:** Native\n");
+	await vault.seed("OnlyWorlds/Worlds/Native/Elements/Character/Ireena.md", NATIVE_MD("Ireena", CHAR_ID));
+	const world = JSON.parse((await exportWorld(app, vault, "Native"))["world.json"]);
+	assert.equal(world.format_version, "0.3.8");
+});
+
+test("format_version: a source folder without one gets 0.3.8; one that carried a value keeps it", async () => {
+	for (const [carried, expected] of [[undefined, "0.3.8"], ["0.3.6", "0.3.6"]] as const) {
+		const { app, vault } = makeApp();
+		const src: Record<string, unknown> = { id: WID, name: "Barovia" };
+		if (carried) src.format_version = carried;
+		await seedFolder(vault, "in/barovia", src, { "elements/character/ireena--000000c1.json": CHAR_FILE });
+		await importDir(app, "in/barovia");
+		const world = JSON.parse((await exportWorld(app, vault, "Barovia"))["world.json"]);
+		assert.equal(world.format_version, expected, `source ${carried ?? "without one"}`);
+	}
 });
 
 void __modals;
