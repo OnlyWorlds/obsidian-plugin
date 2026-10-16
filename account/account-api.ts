@@ -52,7 +52,34 @@ export interface MintedKey {
 	readForWantOfPin: boolean;
 }
 
-/** One request to keel's v2 surface over Obsidian's requestUrl. Errors are keel's envelope, as V2ApiError. */
+/** How owRequest waits before its one retry; tests replace `sleep`. */
+export const owTiming = {
+	sleep: (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+const RETRY_CAP_MS = 10_000;
+
+/** Retry-After as milliseconds (seconds or an HTTP date), capped at 10 s; null when absent or unreadable. */
+export function retryAfterMs(headers: Record<string, string> | undefined): number | null {
+	if (!headers) return null;
+	const raw = Object.entries(headers).find(([k]) => k.toLowerCase() === "retry-after")?.[1];
+	if (raw === undefined || String(raw).trim() === "") return null;
+	const s = String(raw).trim();
+	let ms: number;
+	if (/^\d+(\.\d+)?$/.test(s)) ms = Number(s) * 1000;
+	else {
+		const at = Date.parse(s);
+		if (Number.isNaN(at)) return null;
+		ms = at - Date.now();
+	}
+	return Math.min(Math.max(0, ms), RETRY_CAP_MS);
+}
+
+/**
+ * One request to keel's v2 surface over Obsidian's requestUrl. Errors are
+ * keel's envelope, as V2ApiError. A 429 or 503 that carries Retry-After is
+ * retried once after that wait, capped at 10 s (Kael's review).
+ */
 export async function owRequest<T>(
 	method: string,
 	path: string,
@@ -63,7 +90,14 @@ export async function owRequest<T>(
 	const req: RequestUrlParam = { url: `${API_V2}${path}`, method, headers, throw: false };
 	if (opts.body !== undefined) req.body = JSON.stringify(opts.body);
 
-	const response = await requestUrl(req);
+	let response = await requestUrl(req);
+	if (response.status === 429 || response.status === 503) {
+		const wait = retryAfterMs(response.headers);
+		if (wait !== null) {
+			await owTiming.sleep(wait);
+			response = await requestUrl(req);
+		}
+	}
 	if (response.status >= 400) {
 		let code = `http_${response.status}`;
 		let message = `API error ${response.status}`;

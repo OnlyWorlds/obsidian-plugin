@@ -112,6 +112,8 @@ export interface MockResponse {
 	status: number;
 	json?: unknown;
 	text?: string;
+	/** Response headers (lower-case names, as Obsidian's requestUrl gives them). */
+	headers?: Record<string, string>;
 }
 export const __requests: MockRequest[] = [];
 let requestHandler: ((r: MockRequest) => MockResponse) | null = null;
@@ -141,7 +143,7 @@ export async function requestUrl(req: {
 			json = undefined;
 		}
 	}
-	return { status: res.status, text, json, headers: {} };
+	return { status: res.status, text, json, headers: res.headers ?? {} };
 }
 
 export class MockVault {

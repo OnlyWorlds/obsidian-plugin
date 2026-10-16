@@ -13,6 +13,7 @@ import { makeApp, setRequestUrl, __requests, __notices, __modals, type MockReque
 import { FakeEl } from "./support/fake-dom";
 import {
 	checkAccountToken,
+	owTiming,
 	listAccountWorlds,
 	mintVaultKey,
 	signIn,
@@ -143,6 +144,39 @@ test("the token check: GET /account with the token as a Bearer, the username bac
 	assert.equal(__requests[0].headers.Authorization, `Bearer ${TOKEN}`);
 	assert.equal(__requests[0].headers["API-Key"], undefined);
 	assert.equal(signedInLabel(me.username), "Signed in as tess");
+});
+
+test("owRequest honours Retry-After on a 429 or 503 once, capped at 10 s (Kael nit)", async () => {
+	const waits: number[] = [];
+	owTiming.sleep = async (ms: number) => {
+		waits.push(ms);
+	};
+	try {
+		for (const [status, after, expectWait] of [[429, "2", 2000], [503, "60", 10000]] as const) {
+			let calls = 0;
+			waits.length = 0;
+			keel({
+				answers: {},
+				route: (_r, path) => {
+					if (path !== "/account") return undefined;
+					calls++;
+					return calls === 1
+						? { status, headers: { "retry-after": after }, json: { error: { message: "slow down" } } }
+						: { status: 200, json: { username: "tess" } };
+				},
+			});
+			assert.deepEqual(await checkAccountToken(TOKEN), { username: "tess" });
+			assert.equal(calls, 2, `${status}: retried once`);
+			assert.deepEqual(waits, [expectWait]);
+		}
+		// Once only: a second 429 is the answer.
+		let calls = 0;
+		keel({ answers: {}, route: (_r, path) => (path === "/account" ? (calls++, { status: 429, headers: { "retry-after": "1" }, json: {} }) : undefined) });
+		await assert.rejects(checkAccountToken(TOKEN), /Too many requests/);
+		assert.equal(calls, 2);
+	} finally {
+		owTiming.sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+	}
 });
 
 test("the token check refuses a key that is not an account token, without a call", async () => {
