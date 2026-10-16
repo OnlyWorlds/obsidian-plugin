@@ -61,6 +61,8 @@ The note's identity is the `id` in its Properties, so renaming a note does not b
 
 The plugin reads the world's key from that world's `World.md`. The **API key** setting is a fallback for a world whose `World.md` has no key (the plugin warns when it uses it). A local-only world never syncs.
 
+Only notes inside a world's `Elements` folders are elements. Notes you already had elsewhere in the vault never sync; to bring one in, run **Create Element** and paste its text into the new note.
+
 | How | What it sends |
 |---|---|
 | **Save Element** | The active note. Reads the element on the server first and sends only the fields that changed; fields the note doesn't carry are left alone. No default hotkey: bind one in **Settings → Hotkeys**. |
