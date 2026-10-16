@@ -227,5 +227,94 @@ test("row 6: server and sync fields an imported element carried come back out ve
 	assert.ok(!/created_at|change_seq|updated_at/.test(vault.contentAt(note) ?? ""), "server fields in the note");
 });
 
+// --- Row 13: all 22 types under elements/<type>/ (spec §4) ------------------
+
+const MAP_ID = "0199b000-0000-7000-8000-0000000000d1";
+const PIN_ID = "0199b000-0000-7000-8000-0000000000d2";
+const MARKER_ID = "0199b000-0000-7000-8000-0000000000d3";
+const ZONE_ID = "0199b000-0000-7000-8000-0000000000d4";
+const SPATIAL_FILES = (bucket: string): Record<string, unknown> => ({
+	[`${bucket}/map/barovia--000000d1.json`]: { id: MAP_ID, type: "map", name: "Barovia", width: 1000, height: 800 },
+	[`${bucket}/pin/ireena--000000d2.json`]: { id: PIN_ID, type: "pin", name: "Ireena", map: MAP_ID, x: 10, y: 20 },
+	[`${bucket}/marker/tser-pool--000000d3.json`]: { id: MARKER_ID, type: "marker", name: "Tser Pool", map: MAP_ID, x: 5, y: 6 },
+	[`${bucket}/zone/svalich-woods--000000d4.json`]: { id: ZONE_ID, type: "zone", name: "Svalich Woods" },
+});
+
+test("row 13: map, pin, marker and zone export under elements/<type>/, never spatial/", async () => {
+	const { app, vault } = makeApp();
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, SPATIAL_FILES("elements"));
+	await importDir(app, "in/barovia");
+	const out = await exportWorld(app, vault, "Barovia");
+	const rels = Object.keys(out).filter((p) => p !== "world.json").sort();
+	assert.equal(rels.length, 4);
+	for (const t of ["map", "pin", "marker", "zone"]) {
+		assert.ok(rels.some((p) => p.startsWith(`elements/${t}/`)), `no elements/${t}/ file: ${rels.join(", ")}`);
+	}
+	assert.ok(!rels.some((p) => p.startsWith("spatial/")), "a spatial/ path was written");
+});
+
+test("row 13: import still reads a legacy spatial/<type>/ folder (old exports on users' disks)", async () => {
+	const { app, vault } = makeApp();
+	await seedFolder(vault, "in/old", { id: WID, name: "Barovia" }, SPATIAL_FILES("spatial"));
+	await importDir(app, "in/old");
+	const notes = [...vault.files.keys()].filter((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/"));
+	for (const t of ["Map", "Pin", "Marker", "Zone"]) {
+		assert.ok(notes.some((p) => p.includes(`/Elements/${t}/`)), `no ${t} note from spatial/`);
+	}
+});
+
+// Temper (Atlas): Atlas serves the copy with the larger local_updated_at when an
+// id sits in both spatial/ and elements/, so an old spatial/ file beside a new
+// elements/ one would win forever. A mixed folder can only come from writing
+// into an existing folder, and every export path refuses that.
+async function seedNativeWorld(vault: MockVault): Promise<string> {
+	await vault.seed("OnlyWorlds/Worlds/Native/World.md", "- **Name:** Native\n");
+	await vault.seed(
+		"OnlyWorlds/Worlds/Native/Elements/Pin/Ireena.md",
+		`---\nname: Ireena\nid: ${PIN_ID}\n---\n\n### Description\n\nA pin.\n`
+	);
+	vault.dotfiles.set("OnlyWorlds/Worlds/Native/.ow-world-id", `world_id: ${WID}\n`);
+	return "native-0199b000"; // worldFolderName("Native", WID)
+}
+
+test("row 13: export into the vault refuses a folder that already exists (holding spatial/pin/x.json); nothing written", async () => {
+	const { app, vault } = makeApp();
+	const folder = await seedNativeWorld(vault);
+	await vault.seed(`OW-folder-export/${folder}/spatial/pin/x.json`, "{}\n");
+	__notices.length = 0;
+	const out = await exportWorld(app, vault, "Native");
+	assert.deepEqual(out, {}, "files were written into an existing folder");
+	assert.ok(__notices.some((n) => /already exists/.test(n)), "no refusal notice");
+});
+
+test("row 13: export to a desktop folder refuses a target that already exists (holding spatial/pin/x.json); nothing written", async () => {
+	// eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+	const fs = require("fs") as typeof import("fs");
+	// eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+	const path = require("path") as typeof import("path");
+	const { app, vault } = makeApp();
+	const folder = await seedNativeWorld(vault);
+	// Inside the build output (test-dist), never outside the checkout.
+	// eslint-disable-next-line no-undef
+	const root = path.join(__dirname, `tmp-export-${process.pid}`);
+	const existing = path.join(root, folder, "spatial", "pin");
+	fs.mkdirSync(existing, { recursive: true });
+	fs.writeFileSync(path.join(existing, "x.json"), "{}\n");
+	try {
+		__notices.length = 0;
+		const cmd = new ExportFolderCommand(app) as unknown as {
+			exportWorld(world: string, dest: { kind: "external"; dir: string }): Promise<void>;
+		};
+		await cmd.exportWorld("Native", { kind: "external", dir: root });
+		const walk = (d: string): string[] =>
+			fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+				e.isDirectory() ? walk(path.join(d, e.name)) : [path.relative(root, path.join(d, e.name))]
+			);
+		assert.deepEqual(walk(root), [path.join(folder, "spatial", "pin", "x.json")]);
+		assert.ok(__notices.some((n) => /already exists/.test(n)), "no refusal notice");
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
+
 void __modals;
-void __notices;

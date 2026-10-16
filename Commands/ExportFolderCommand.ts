@@ -43,7 +43,9 @@ import {
  * Conformance (R1, from the gold-standard writer azgaar-converter/src/folder.js):
  *   - world.json carries id + name + every key the world has: World.md's
  *     lines, plus what an import kept in the folder sidecar (spec §4.1);
- *   - spatial types under spatial/<type>/, others under elements/<type>/;
+ *   - all 22 types under elements/<type>/ (spec §4; OW Infra #166 row 13).
+ *     Export never writes into an existing folder (both sinks refuse), so an
+ *     old export's spatial/ copy can never sit beside a new elements/ one;
  *   - every element body carries `type`; no timestamp is minted, and the
  *     server/sync fields an import carried go back out as received (spec
  *     §4.1, §4.2, §5; OW Infra #166 row 6);
@@ -542,7 +544,7 @@ class ExportReportModal extends Modal {
 			next.appendText(
 				"To open in Atlas: move this folder into your Atlas root, or re-run export " +
 					"and choose that folder directly. (The folder is self-contained — " +
-					"world.json + elements/ + spatial/.)"
+					"world.json + elements/.)"
 			);
 		}
 

@@ -13,8 +13,10 @@
  * 2026-07-14) — folder.js WINS on any disagreement (R1, disclosed in the report):
  *
  *   (a) world.json carries `id` + `name` (+ world meta).
- *   (b) spatial types (map/pin/zone/marker) live under spatial/<type>/, all
- *       others under elements/<type>/.
+ *   (b) all 22 types live under elements/<type>/, map/pin/zone/marker included
+ *       (spec §4, ruled 2026-07-28; OW Infra #166 row 13). The import still
+ *       reads the legacy spatial/<type>/ layout, which Atlas through v1.0 and
+ *       this plugin through 3.3 wrote.
  *   (c) every element body carries in-file `type` (the FOLDER dialect only; it
  *       never rides the API/bulk). No timestamp is minted: server and sync
  *       fields an import carried are written back as received, nothing else
@@ -31,8 +33,9 @@
 import { getCategorySchema, isExtensionKey } from "./element-transform";
 
 /**
- * Spatial types — copied verbatim from folder.js SPATIAL_TYPES. Atlas's reader
- * only indexes these under spatial/; everything else under elements/.
+ * The four types the legacy `spatial/<type>/` layout held. Export no longer
+ * writes there (spec §4: `elements/<type>/` for all 22); a reader SHOULD still
+ * accept `spatial/{map,pin,zone,marker}/`, and the import does.
  */
 export const SPATIAL_TYPES = new Set(["map", "pin", "zone", "marker"]);
 
@@ -99,10 +102,9 @@ export function worldFolderName(worldName: string, worldId: string): string {
 	return slug ? `${slug}-${head}` : `world-${head}`;
 }
 
-/** Relative path (inside the world folder) for an element JSON file. */
+/** Relative path (inside the world folder) for an element JSON file: elements/<type>/ for every type (spec §4). */
 export function elementRelPath(type: string, element: { id: string; name?: unknown }): string {
-	const bucket = SPATIAL_TYPES.has(type) ? "spatial" : "elements";
-	return `${bucket}/${type}/${filenameFor(type, element)}`;
+	return `elements/${type}/${filenameFor(type, element)}`;
 }
 
 // --- ow:// <-> wikilink prose translation (R3) --------------------------------

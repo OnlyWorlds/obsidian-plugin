@@ -107,7 +107,8 @@ export class ImportFolderCommand {
 			return;
 		}
 
-		// 3. Collect element JSON files under elements/ and spatial/.
+		// 3. Collect element JSON files under elements/ and the legacy spatial/
+		//    (spec §4: a reader SHOULD accept both; identity is the id inside).
 		const elementFiles = this.app.vault
 			.getFiles()
 			.filter(

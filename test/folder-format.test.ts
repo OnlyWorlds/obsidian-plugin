@@ -34,14 +34,14 @@ test("R1a: world folder name = <slug>-<first 8 of world id>", () => {
 	assert.ok(worldFolderName("X", WID).endsWith("-018f2a3b"));
 });
 
-// --- R1b: spatial vs elements bucketing ---------------------------------------
-test("R1b: spatial types bucket under spatial/, others under elements/", () => {
+// --- R1b: one layout for all 22 types -----------------------------------------
+test("R1b: every type, spatial ones included, lives under elements/<type>/ (spec §4)", () => {
 	assert.deepEqual([...SPATIAL_TYPES].sort(), ["map", "marker", "pin", "zone"]);
 	const el = { id: WID, name: "Barovia" };
-	assert.ok(elementRelPath("map", el).startsWith("spatial/map/"));
-	assert.ok(elementRelPath("pin", el).startsWith("spatial/pin/"));
-	assert.ok(elementRelPath("zone", el).startsWith("spatial/zone/"));
-	assert.ok(elementRelPath("marker", el).startsWith("spatial/marker/"));
+	assert.ok(elementRelPath("map", el).startsWith("elements/map/"));
+	assert.ok(elementRelPath("pin", el).startsWith("elements/pin/"));
+	assert.ok(elementRelPath("zone", el).startsWith("elements/zone/"));
+	assert.ok(elementRelPath("marker", el).startsWith("elements/marker/"));
 	assert.ok(elementRelPath("location", el).startsWith("elements/location/"));
 	assert.ok(elementRelPath("character", el).startsWith("elements/character/"));
 });
@@ -218,9 +218,9 @@ test("RT: world survives export serializers -> import serializers (object equali
 		return { relPath: elementRelPath(e.type, e.payload), body };
 	});
 
-	// Conformance: spatial map bucketed, no minted stamp, filenames well-formed.
+	// Conformance: map under elements/, no minted stamp, filenames well-formed.
 	const mapEntry = exported.find((x) => x.relPath.includes("/map/"))!;
-	assert.ok(mapEntry.relPath.startsWith("spatial/map/"));
+	assert.ok(mapEntry.relPath.startsWith("elements/map/"));
 	for (const x of exported) {
 		assert.equal(typeof x.body.type, "string");
 		assert.equal("local_updated_at" in x.body, false);
