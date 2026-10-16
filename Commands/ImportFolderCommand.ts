@@ -122,9 +122,20 @@ export class ImportFolderCommand {
 		}
 
 		// Pass 1 — parse every element, build the id -> ref index for ow:// resolution.
-		const parsed: { type: string; payload: Record<string, unknown>; carried: Record<string, unknown> }[] = [];
+		const parsed: { type: string; payload: Record<string, unknown>; carried: Record<string, unknown>; rel: string }[] = [];
 		const idIndex = new Map<string, ElementRef>();
 		const failed: { path: string; reason: string }[] = [];
+		// spec §4 (v0.3.8) "one id, one file": an id in both layouts is read from
+		// its elements/ copy, never the newer local_updated_at; the other copy is
+		// listed in the summary (Kael's review 3.5). Two copies in one layout:
+		// the first by path, so every run reads the same one.
+		const slotById = new Map<string, number>();
+		const duplicates: { id: string; read: string; ignored: string }[] = [];
+		const preferred = (a: string, b: string): boolean => {
+			const ae = a.startsWith("elements/");
+			const be = b.startsWith("elements/");
+			return ae !== be ? ae : a < b;
+		};
 		for (const file of elementFiles) {
 			try {
 				const json = JSON.parse(await this.app.vault.read(file)) as Record<string, unknown>;
@@ -138,7 +149,19 @@ export class ImportFolderCommand {
 					failed.push({ path: file.path, reason: "missing valid id or name" });
 					continue;
 				}
-				parsed.push({ type, payload, carried });
+				const slot = slotById.get(id);
+				if (slot !== undefined) {
+					const other = parsed[slot].rel;
+					if (!preferred(rel, other)) {
+						duplicates.push({ id, read: other, ignored: rel });
+						continue;
+					}
+					duplicates.push({ id, read: rel, ignored: other });
+					parsed[slot] = { type, payload, carried, rel };
+				} else {
+					slotById.set(id, parsed.length);
+					parsed.push({ type, payload, carried, rel });
+				}
 				idIndex.set(id, { id, name, type });
 			} catch (e) {
 				failed.push({ path: file.path, reason: e instanceof Error ? e.message : String(e) });
@@ -153,7 +176,7 @@ export class ImportFolderCommand {
 		const existingIds = await this.existingElementIds(targetWorld);
 
 		// Pass 2 — translate prose ow:// -> [[wikilink]], mint notes via writeElement.
-		const result = { created: [] as string[], skipped: [] as string[], failed };
+		const result = { created: [] as string[], skipped: [] as string[], failed, duplicates };
 		const notePathOwner = new Map<string, string>(); // note path -> element id, this run
 		let createdMarker = existingId !== null;
 		let wroteWorldFields = false;
@@ -300,7 +323,12 @@ class ImportReportModal extends Modal {
 	constructor(
 		app: App,
 		private world: string,
-		private result: { created: string[]; skipped: string[]; failed: { path: string; reason: string }[] }
+		private result: {
+			created: string[];
+			skipped: string[];
+			failed: { path: string; reason: string }[];
+			duplicates: { id: string; read: string; ignored: string }[];
+		}
 	) {
 		super(app);
 	}
@@ -314,6 +342,15 @@ class ImportReportModal extends Modal {
 		summary.createEl("li", { text: `${this.result.created.length} created` });
 		summary.createEl("li", { text: `${this.result.skipped.length} skipped (id already present)` });
 		summary.createEl("li", { text: `${this.result.failed.length} failed` });
+		if (this.result.duplicates.length > 0) {
+			summary.createEl("li", { text: `${this.result.duplicates.length} element(s) found twice: one copy read, the other ignored` });
+		}
+
+		if (this.result.duplicates.length > 0) {
+			contentEl.createEl("h3", { text: "Found twice" });
+			const list = contentEl.createEl("ul");
+			for (const d of this.result.duplicates) list.createEl("li", { text: `${d.id}: read ${d.read}, ignored ${d.ignored}` });
+		}
 
 		if (this.result.failed.length > 0) {
 			contentEl.createEl("h3", { text: "Failed elements" });

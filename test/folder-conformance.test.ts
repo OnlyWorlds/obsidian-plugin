@@ -495,4 +495,25 @@ test("format_version: every export is a birth: 0.3.8 whether the source carried 
 	}
 });
 
+// --- v0.3.8 §4 "one id, one file": a reader serves the elements/ copy -------
+
+test("import serves the elements/ copy of an id found in both layouts, and lists the duplicate (§4, Kael 3.5)", async () => {
+	const { app, vault } = makeApp();
+	__modals.length = 0;
+	// The legacy spatial/ copy first, so getFiles() order alone would pick it.
+	await seedFolder(vault, "in/mixed", { id: WID, name: "Barovia" }, {
+		"spatial/pin/ireena--000000d2.json": { id: PIN_ID, type: "pin", name: "Old Ireena", local_updated_at: "2099-01-01T00:00:00.000Z" },
+		"elements/pin/ireena--000000d2.json": { id: PIN_ID, type: "pin", name: "Ireena" },
+	});
+	await importDir(app, "in/mixed");
+	const notes = [...vault.files.keys()].filter((p) => p.includes("/Elements/Pin/"));
+	assert.equal(notes.length, 1);
+	assert.match(vault.contentAt(notes[0]) ?? "", /^name: Ireena$/m);
+	const report = __modals.find((m) => m.constructor.name === "ImportReportModal") as unknown as
+		{ result: { duplicates: { id: string; read: string; ignored: string }[] } };
+	assert.deepEqual(report.result.duplicates, [
+		{ id: PIN_ID, read: "elements/pin/ireena--000000d2.json", ignored: "spatial/pin/ireena--000000d2.json" },
+	]);
+});
+
 void __modals;
