@@ -365,4 +365,61 @@ test("row 14: import reads any filename; identity is the id inside (§3.1)", asy
 	assert.ok([...vault.files.keys()].some((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/Character/")));
 });
 
+// --- The round trip: folder -> vault -> folder -> vault -> folder ------------
+
+/** A folder with a full world.json and one element of each spatial type, server fields included. */
+const ROUND_TRIP_FOLDER: Record<string, unknown> = {
+	"elements/map/barovia--000000d1.json": {
+		id: MAP_ID, name: "Barovia", description: "The valley.", supertype: "region", width: 1000, height: 800,
+		created_at: "2026-01-01T00:00:00.000000Z", updated_at: "2026-01-05T00:00:00.000000Z", change_seq: 11, created_by: null,
+	},
+	"elements/pin/ireena--000000d2.json": {
+		id: PIN_ID, name: "Ireena", map: MAP_ID, x: 10, y: 20,
+		created_at: "2026-01-02T00:00:00.000000Z", updated_at: "2026-01-06T00:00:00.000000Z", change_seq: 12,
+		local_updated_at: "2026-01-06T00:00:00.000Z", server_updated_at: "2026-01-06T00:00:00.000000Z",
+	},
+	"elements/marker/tser-pool--000000d3.json": {
+		id: MARKER_ID, name: "Tser Pool", map: MAP_ID, zone: ZONE_ID, x: 5, y: 6, atlas_style: { color: "#336699", layer: 2 },
+		created_at: "2026-01-03T00:00:00.000000Z", change_seq: 13,
+	},
+	"elements/zone/svalich-woods--000000d4.json": {
+		id: ZONE_ID, name: "Svalich Woods", description: "Dark pines.", x_mood: "grim",
+		created_at: "2026-01-04T00:00:00.000000Z", updated_at: "2026-01-07T00:00:00.000000Z", change_seq: 14,
+	},
+};
+
+test("round trip: export, import, export again is byte-identical, and every key of the source survives", async () => {
+	// F0 -> vault A -> F1
+	const a = makeApp();
+	await seedFolder(a.vault, "in/barovia", FULL_WORLD, ROUND_TRIP_FOLDER);
+	await importDir(a.app, "in/barovia");
+	const f1 = await exportWorld(a.app, a.vault, "Barovia");
+
+	// F1 -> vault B -> F2
+	const b = makeApp();
+	for (const [rel, content] of Object.entries(f1)) await b.vault.seed(`in/f1/${rel}`, content);
+	await importDir(b.app, "in/f1");
+	const f2 = await exportWorld(b.app, b.vault, "Barovia");
+
+	assert.deepEqual(Object.keys(f2).sort(), Object.keys(f1).sort(), "a file appeared or vanished");
+	for (const rel of Object.keys(f1)) assert.equal(f2[rel], f1[rel], `${rel} changed on the second pass`);
+
+	// Every key the source carried, with its value.
+	assert.equal(f1["world.json"], JSON.stringify(FULL_WORLD, null, 2) + "\n");
+	const byId = new Map(Object.values(f1).map((c) => JSON.parse(c)).map((j) => [j.id, j]));
+	for (const [rel, src] of Object.entries(ROUND_TRIP_FOLDER) as [string, Record<string, unknown>][]) {
+		const got = byId.get(src.id);
+		assert.ok(got, `${rel} lost`);
+		for (const [k, v] of Object.entries(src)) assert.deepEqual(got[k], v, `${rel}: ${k}`);
+		assert.equal(got.type, rel.split("/")[1]);
+	}
+	// spec §4 layout and §3.2 names, and no minted stamps on the way.
+	assert.deepEqual(
+		Object.keys(f1).sort(),
+		["elements/map/barovia--000000d1.json", "elements/marker/tser-pool--000000d3.json",
+			"elements/pin/ireena--000000d2.json", "elements/zone/svalich-woods--000000d4.json", "world.json"]
+	);
+	assert.equal("local_updated_at" in byId.get(MAP_ID), false);
+});
+
 void __modals;
