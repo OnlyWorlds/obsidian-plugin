@@ -224,7 +224,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       name: 'Save Element',
       // No default hotkey — Obsidian guidelines recommend letting users bind their own
       // to avoid conflicts. Suggest Ctrl/Cmd+Shift+S in the README/docs.
-      callback: () => saveElementCommand.execute(),
+      callback: () => saveElementCommand.execute(this.app.workspace.getActiveFile()),
   });
 
     const deleteElementCommand = new DeleteElementCommand(this.app, this);

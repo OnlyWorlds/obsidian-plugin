@@ -88,7 +88,14 @@ export type IdToName = (id: string) => string | null;
  * disambiguation) lives in the caller; this fn just maps a resolved Name -> id,
  * or null when the name resolves to no element / an element without an id.
  */
-export type NameToId = (name: string) => string | null;
+export type NameToId = (name: string, target?: string) => string | null | typeof AMBIGUOUS_LINK;
+
+/**
+ * What a NameToId returns when a name in a GENERIC-target link field (target
+ * `any`, e.g. a Pin's `element_id`) matches notes of more than one type. The
+ * link is never guessed: it is left out and reported (ReadLinkOptions.ambiguous).
+ */
+export const AMBIGUOUS_LINK: unique symbol = Symbol("ambiguous-link");
 
 /**
  * Render a single already-normalized link id as its readable frontmatter form:
@@ -134,9 +141,12 @@ export function bodyFieldForCategory(category: string): "story" | "description" 
  * a note is 3-7 sections of usually-short prose, and h2 renders large enough
  * to dominate the content it labels (Captain, 2026-08-22).
  *
- * ⚑ READING accepts `##` OR `###` — notes written by earlier 3.2 builds use
- * `##`, and a user may type either. Changing what we WRITE must never change
- * what we can READ, or every existing note silently loses its sections.
+ * ★ READING takes ONLY this level as a field boundary. Any other heading in a
+ * field's text (`#`, `##`, `####` and deeper) is the user's prose and stays in
+ * that field. Reading `##` as a boundary too split a description at a
+ * `## Notes` line into an `x_notes` field, and let a `## Background` line in a
+ * description be overwritten by the real Background section (OW Infra #166
+ * row 1, hop 9 #4). Every released 3.2+ build writes `###` (3.2.0 onward).
  */
 const SECTION_HEADING = "###";
 
@@ -297,22 +307,77 @@ function isBlockListItem(item: unknown): boolean {
 	);
 }
 
-/** Quote a scalar only when YAML would otherwise misread it. */
+/**
+ * Write a scalar so YAML reads back the SAME value. A string stays plain only
+ * when no parser could take it for anything else; otherwise it is double-quoted
+ * with escapes.
+ *
+ * ★ Obsidian's parser is js-yaml 4 (read off the shipped asar, hop 10). Plain
+ * `2024-01-01` came back a timestamp, `1e3` the number 1000, and ` #` started
+ * a comment that cut the value; a raw newline inside quotes broke the whole
+ * block, so the note could not be read and the save failed (OW Infra #166
+ * row 3, hop 9 #8). Quoting more than strictly needed costs nothing: quoted
+ * and plain read back as the same string.
+ */
 function yamlScalar(value: unknown): string {
 	if (typeof value === "number" || typeof value === "boolean") return String(value);
 	const s = String(value ?? "");
 	if (s === "") return '""';
-	// Quote anything that could parse as another type or break the line.
 	if (
-		/^[\s]|[\s]$/.test(s) ||
+		/^\s|\s$/.test(s) ||
+		// a leading indicator character (flow, anchor, tag, block, quote, comment)
 		/^[-?:,[\]{}#&*!|>'"%@`]/.test(s) ||
-		/: |\n|\r/.test(s) ||
-		/^(true|false|null|yes|no|on|off|~)$/i.test(s) ||
-		/^-?\d+(\.\d+)?$/.test(s)
+		// a leading digit, sign or dot: ints, floats, 1e3, 0x1F, .5, .inf, dates.
+		// A uuid stays plain (it parses as no other type, and every element
+		// note's `id:` line would otherwise churn).
+		(/^[+.\d]/.test(s) && !UUID_RE.test(s)) ||
+		// a mapping indicator or a comment start inside the value, or a trailing colon
+		/:\s|\s#|:$/.test(s) ||
+		// any control character, newlines included
+		/[\x00-\x1f\x7f]/.test(s) ||
+		// YAML 1.1 and 1.2 booleans and nulls
+		/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(s)
 	) {
-		return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+		return yamlDoubleQuoted(s);
 	}
 	return s;
+}
+
+/** A YAML double-quoted scalar: backslash, quote and control characters escaped. */
+function yamlDoubleQuoted(s: string): string {
+	const body = s
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/\n/g, "\\n")
+		.replace(/\r/g, "\\r")
+		.replace(/\t/g, "\\t")
+		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+	return `"${body}"`;
+}
+
+/**
+ * A Date that YAML made out of a string field, back to the string. js-yaml
+ * reads a plain `2024-01-01` as a timestamp; a date-only value (UTC midnight)
+ * returns as `YYYY-MM-DD`, exactly as typed. A value with a time cannot be
+ * recovered byte for byte and returns as its ISO form. Anything else passes
+ * through.
+ */
+export function dateToFieldString(value: unknown): unknown {
+	if (!(value instanceof Date) || Number.isNaN(value.getTime())) return value;
+	const iso = value.toISOString();
+	return iso.endsWith("T00:00:00.000Z") ? iso.slice(0, 10) : iso;
+}
+
+/**
+ * The value of a schema TEXT field as the string the user typed, where
+ * recoverable: a hand-typed `supertype: 5` or `subtype: true` parses as a
+ * number or boolean and goes to the server as "5" / "true", never as 5 / true
+ * (OW Infra #166 row 3). Dates as dateToFieldString. Only for text fields:
+ * link, number and extension values pass through untouched.
+ */
+export function textFieldString(value: unknown): unknown {
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return dateToFieldString(value);
 }
 
 /**
@@ -348,11 +413,12 @@ export interface ParsedBody {
 }
 
 /**
- * Parse a note body into its `##` sections.
+ * Parse a note body into its `###` field sections.
  *
- * Only level-2 headings are section boundaries; `###` and deeper belong to the
- * prose of whatever section they sit in, so a user's own sub-structure survives.
- * A fenced code block is skipped so a `##` inside ``` never splits a section.
+ * Only `###` (SECTION_HEADING, the level the plugin writes) starts a section;
+ * `#`, `##`, `####` and deeper belong to the prose of whatever section they sit
+ * in, so a user's own structure survives. A fenced code block is skipped so a
+ * heading inside ``` never splits a section.
  */
 export function parseElementBody(body: string, category: string): ParsedBody {
 	const known = new Set(bodyTextFields(category));
@@ -378,13 +444,12 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 
 	for (const line of lines) {
 		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-		// Accept `##` or `###` as a section boundary — we write `###`, earlier
-		// 3.2 builds wrote `##`, and users type whichever they like. `####` and
-		// deeper stay inside a section so the user's own sub-structure survives.
-		const m = !inFence ? /^(#{2,3})[ \t]+(.+?)\s*$/.exec(line) : null;
+		// Only `###` is a section boundary (row 1): `#`, `##` and `####`+ are
+		// prose and stay inside the section they sit in.
+		const m = !inFence ? /^###[ \t]+(.+?)\s*$/.exec(line) : null;
 		if (m) {
 			flush();
-			current = { heading: m[2], buf: [] };
+			current = { heading: m[1], buf: [] };
 			continue;
 		}
 		(current ? current.buf : preambleBuf).push(line);
@@ -589,17 +654,39 @@ export interface ReadLinkOptions {
 	 * in the note and tell the user what was kept.
 	 */
 	adopted?: Array<{ from: string; to: string }>;
+	/**
+	 * Collects `[[Name]]` targets in a generic-target link field (target `any`)
+	 * that matched notes of more than one type. Each is left out of the payload
+	 * (its field omitted on the upload path) and the caller names it to the user
+	 * (OW Infra #166 row 2).
+	 */
+	ambiguous?: string[];
+	/**
+	 * The type a generic-target link field (target `any`) names, from the note's
+	 * own `element_type` (a Pin). When set, that field resolves against notes of
+	 * this type only, like any typed link field; absent or empty, the generic
+	 * rule applies (ambiguous -> left out and named).
+	 */
+	genericTargetType?: string;
 }
 
 /**
  * Resolve one link value to an id, tolerating both shapes (R1):
  *   - `[[Name]]` / `[[Name|Alias]]` -> resolved id (or null + reported unresolved)
  *   - a bare id string (uuid or otherwise) -> itself (dangling/unmigrated tolerance)
+ *
+ * `fieldTarget` is the link field's schema target type (`location`, or `any`
+ * for a generic field); the resolver matches the name against notes of that
+ * type only, so a Location and a Collective sharing a name never cross.
  */
-function linkValueToId(value: unknown, opts: ReadLinkOptions): string | null {
+function linkValueToId(value: unknown, opts: ReadLinkOptions, fieldTarget?: string): string | null {
 	const target = wikilinkTarget(value);
 	if (target != null) {
-		const id = opts.resolveNameToId?.(target) ?? null;
+		const id = opts.resolveNameToId?.(target, fieldTarget) ?? null;
+		if (id === AMBIGUOUS_LINK) {
+			opts.ambiguous?.push(target);
+			return null;
+		}
 		if (!id) {
 			opts.unresolved?.push(target);
 			return null;
@@ -622,17 +709,26 @@ export function frontmatterToPayloadFields(
 	const schema = getCategorySchema(category);
 	const out: Record<string, unknown> = {};
 	const bodyField = bodyFieldForCategory(category);
+	const fmType = frontmatter.element_type;
+	const genericType =
+		opts.genericTargetType?.trim() ||
+		(typeof fmType === "string" && fmType.trim() ? fmType.trim() : undefined);
+	/** A link field's resolution target: `any` narrowed by element_type when the note carries one. */
+	const targetOf = (field: SchemaField): string | undefined =>
+		field.target === "any" && genericType ? normalizeCategory(genericType) : field.target;
 
 	for (const [key, value] of Object.entries(frontmatter)) {
 		if (NON_PAYLOAD_KEYS.has(key)) continue;
 		if (key === bodyField) continue; // body owns this field; skip the fm copy
 		if (isApiDroppedField(category, key)) continue; // a scaffold the API refuses: never sent, never adopted
+		// A Date here was a string in the note that YAML read as a timestamp
+		// (plain `2024-01-01`): it goes back as that string (row 3).
 		if (isExtensionKey(key)) {
-			out[key] = value; // verbatim, read-only
+			out[key] = dateToFieldString(value); // verbatim, read-only
 			continue;
 		}
 		if (!schema) {
-			out[key] = value; // unknown category — pass through, API arbitrates
+			out[key] = dateToFieldString(value); // unknown category — pass through, API arbitrates
 			continue;
 		}
 		const field = schema[key];
@@ -651,7 +747,7 @@ export function frontmatterToPayloadFields(
 			// (smaller) surprise.
 			const adoptedKey = `${EXTENSION_NAMESPACES[2]}${key}`;
 			if (adoptedKey in frontmatter) continue; // x_mood already exists — that one wins
-			out[adoptedKey] = value;
+			out[adoptedKey] = dateToFieldString(value);
 			opts.adopted?.push({ from: key, to: adoptedKey });
 			continue;
 		}
@@ -660,7 +756,7 @@ export function frontmatterToPayloadFields(
 			// value), then resolve the wikilink-or-id to a bare id.
 			const norm = normalizeLinkValue(value, "single_link");
 			if (norm == null) { out[key] = null; continue; }
-			const id = linkValueToId(norm, opts);
+			const id = linkValueToId(norm, opts, targetOf(field));
 			// A non-null input that resolved to null is unresolved. On the upload
 			// path, OMIT the field rather than write null — a null single-link on a
 			// full-field PATCH would clear the server's value.
@@ -669,7 +765,7 @@ export function frontmatterToPayloadFields(
 		} else if (field.type === "multi_link") {
 			const arr = normalizeLinkValue(value, "multi_link") as string[];
 			const ids = arr
-				.map((v) => linkValueToId(v, opts))
+				.map((v) => linkValueToId(v, opts, targetOf(field)))
 				.filter((v): v is string => v != null);
 			// If any input entry didn't resolve, the list is SHORTENED — and a
 			// full-field PATCH from a shortened list strips server links. Omit the
@@ -677,7 +773,7 @@ export function frontmatterToPayloadFields(
 			if (ids.length < arr.length && opts.omitFieldOnUnresolved) continue;
 			out[key] = ids;
 		} else {
-			out[key] = value;
+			out[key] = field.type === "text" ? textFieldString(value) : value;
 		}
 	}
 	return out;
@@ -830,8 +926,8 @@ export function apiDataToFrontmatter(
  * cold-cache staleness mid-bulk-write is the S9 bug this fixes).
  *
  * Only top-level `key: value` scalar lines are read; a single layer of matching
- * surrounding quotes is stripped (Obsidian quotes values with YAML-special chars,
- * e.g. a name containing ':'). Nested/list/multiline values are ignored. Returns
+ * surrounding quotes is stripped and its escapes read back (the serializer
+ * quotes values with YAML-special chars, e.g. a name containing ': ' or ' #'). Nested/list/multiline values are ignored. Returns
  * only the keys in `keys` that were found with a non-empty value.
  */
 export function parseRawFrontmatterScalars(
@@ -848,11 +944,14 @@ export function parseRawFrontmatterScalars(
 		const m = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
 		if (!m || !wanted.has(m[1])) continue;
 		let val = m[2].trim();
-		if (
-			(val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
-			(val.startsWith("'") && val.endsWith("'") && val.length >= 2)
-		) {
-			val = val.slice(1, -1);
+		if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) {
+			// The escapes yamlDoubleQuoted writes, read back (row 3).
+			val = val.slice(1, -1).replace(/\\(x[0-9a-fA-F]{2}|.)/g, (_, e: string) => {
+				if (e.length === 3) return String.fromCharCode(parseInt(e.slice(1), 16));
+				return e === "n" ? "\n" : e === "r" ? "\r" : e === "t" ? "\t" : e === "0" ? "\0" : e;
+			});
+		} else if (val.startsWith("'") && val.endsWith("'") && val.length >= 2) {
+			val = val.slice(1, -1).replace(/''/g, "'");
 		}
 		if (val) out[m[1]] = val;
 	}

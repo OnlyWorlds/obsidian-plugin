@@ -232,21 +232,28 @@ export class WorldService {
         }
     }
 
-    async generateUniqueFileName(categoryPath: string, elementName: string, elementId: string): Promise<string> {
+    /**
+     * `taken` (lowercased paths) holds names a caller has already handed to
+     * OTHER elements but not yet written — Download plans a whole pull before
+     * writing, so two same-name elements in one pull get `Twin.md` and
+     * `Twin (1).md` instead of both planning `Twin.md` (OW Infra #166 row 2).
+     */
+    async generateUniqueFileName(categoryPath: string, elementName: string, elementId: string, taken?: Set<string>): Promise<string> {
         const fs = this.app.vault.adapter;
         const safeName = sanitizeFileName(elementName);
+        const isTaken = (path: string) => taken?.has(path.toLowerCase()) ?? false;
 
         // First, try the base name
         const baseName = `${safeName}.md`;
         const basePath = normalizePath(`${categoryPath}/${baseName}`);
         
         // Check if file exists with this name
-        if (!await fs.exists(basePath)) {
+        if (!isTaken(basePath) && !await fs.exists(basePath)) {
             return baseName; // Use base name if available
         }
         
         // If base name exists, check if it's the same element (by ID)
-        try {
+        if (!isTaken(basePath)) try {
             const existingContent = await fs.read(basePath);
             const idMatch = existingContent.match(/^- \*\*ID:\*\* (.+)$/m);
             if (idMatch && idMatch[1].trim() === elementId) {
@@ -262,12 +269,12 @@ export class WorldService {
             const numberedName = `${safeName} (${counter}).md`;
             const numberedPath = normalizePath(`${categoryPath}/${numberedName}`);
             
-            if (!await fs.exists(numberedPath)) {
+            if (!isTaken(numberedPath) && !await fs.exists(numberedPath)) {
                 return numberedName; // Found available numbered name
             }
             
             // Check if existing numbered file is the same element
-            try {
+            if (!isTaken(numberedPath)) try {
                 const existingContent = await fs.read(numberedPath);
                 const idMatch = existingContent.match(/^- \*\*ID:\*\* (.+)$/m);
                 if (idMatch && idMatch[1].trim() === elementId) {

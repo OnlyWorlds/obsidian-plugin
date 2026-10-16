@@ -305,162 +305,177 @@ export class DownloadWorldCommand {
         // disk fallback and per-category below.
         const pathParts0 = worldFolderPath.split('/');
         const worldsIdx0 = pathParts0.findIndex(part => part === 'Worlds');
-        const mapWorldName = worldsIdx0 >= 0 && pathParts0.length > worldsIdx0 + 1
+        const worldName = worldsIdx0 >= 0 && pathParts0.length > worldsIdx0 + 1
             ? pathParts0[worldsIdx0 + 1]
             : pathParts0[pathParts0.length - 1];
 
-        // Build ONE complete id->name map for link rendering (the S9 fix). Built
-        // from the in-memory payload (freshest names) + a raw-disk fallback for
-        // ids outside an incremental pull's changed set. metadataCache is NOT
-        // consulted — its staleness mid-bulk-write IS the bug. The map returns the
-        // NOTE BASENAME form (sanitizeFileName) so the written [[Name]] wikilink
-        // resolves by filename to the actual note on disk.
-        const idToName = await this.buildIdToNameMap(mapWorldName, data);
+        // Pass 1 — PLAN every element's note path before writing any note.
+        //
+        // ★ A link must name the note it points at. Two elements of one type
+        // sharing a name get `Twin.md` and `Twin (1).md`; the link to the second
+        // must read `[[Twin (1)]]`, or Obsidian (and the upload) resolve it to
+        // the first (OW Infra #166 row 2, hop 9 #9). The paths are decided here,
+        // twins in the same pull kept apart by `planned`, so the id -> note-name
+        // map below knows every note's real filename before the first link is
+        // written.
+        const plans: {
+            category: string;
+            categoryDirectory: string;
+            element: any;
+            existingElementPath: string | null;
+            renameFrom: string | null;
+            notePath: string;
+        }[] = [];
+        const planned = new Set<string>(); // lowercased note paths claimed in this pull
 
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;
-    
+
             const elements = data[category];
-         //   console.log(`[DownloadWorldCommand] Processing category: ${category} with ${elements.length} elements`);
-            
+
             // Find existing category folder or create new one
-            // Extract world name more reliably
-            const pathParts = worldFolderPath.split('/');
-            const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
-            const worldName = worldsIndex >= 0 && pathParts.length > worldsIndex + 1 ? pathParts[worldsIndex + 1] : pathParts[pathParts.length - 1];
-            
-         //   console.log(`[DownloadWorldCommand] Extracted world name: ${worldName}`);
-            
             const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
             let categoryDirectory: string;
-            
+
             if (existingFolder) {
                 categoryDirectory = existingFolder.path;
-          //      console.log(`[DownloadWorldCommand] Using existing folder: ${existingFolder.path}`);
             } else {
                 // Create folder with base name initially (count will be added later)
                 categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
-             //   console.log(`[DownloadWorldCommand] Creating new folder: ${categoryDirectory}`);
                 await this.createFolderIfNeeded(categoryDirectory);
             }
-    
+
             for (const element of elements) {
-            //    console.log(`[DownloadWorldCommand] Processing element: ${element.name} (ID: ${element.id}) in category: ${category}`);
-                
                 // First check if an element with this ID already exists
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
-           //     console.log(`[DownloadWorldCommand] Existing element path for ID ${element.id}: ${existingElementPath}`);
-                
+                let notePath: string;
+                let renameFrom: string | null = null;
+
                 if (existingElementPath) {
                     // Element already exists, check if filename needs to be updated
                     const currentFileName = existingElementPath.split('/').pop()?.replace('.md', '') || '';
                     const expectedFileName = element.name;
-                    
+
                     if (currentFileName !== expectedFileName && !currentFileName.startsWith(expectedFileName + ' (')) {
-                        // Name has changed, rename the file
-                  //      console.log(`[DownloadWorldCommand] Element name changed from "${currentFileName}" to "${expectedFileName}"`);
-                        const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
-                        const newPath = `${categoryDirectory}/${newFileName}`;
-                        
-                        try {
-                            const existingFile = this.app.vault.getAbstractFileByPath(existingElementPath);
-                            if (existingFile) {
-                                await this.app.fileManager.renameFile(existingFile, newPath);
-                                var notePath = newPath;
-                           //     console.log(`[DownloadWorldCommand] Renamed element file from ${existingElementPath} to ${newPath}`);
-                            } else {
-                                var notePath = existingElementPath;
-                             //   console.log(`[DownloadWorldCommand] Could not find existing file to rename: ${existingElementPath}`);
-                            }
-                        } catch (error) {
-                            console.error(`[DownloadWorldCommand] Error renaming file: ${error}`);
-                            var notePath = existingElementPath; // Fall back to existing path
-                        }
+                        // Name has changed: the note moves to a fresh unique name (pass 2 renames it)
+                        const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id, planned);
+                        notePath = `${categoryDirectory}/${newFileName}`;
+                        renameFrom = existingElementPath;
                     } else {
-                        var notePath = existingElementPath;
-                    //(`[DownloadWorldCommand] Element exists, updating: ${notePath}`);
+                        notePath = existingElementPath;
                     }
                 } else {
                     // Generate unique filename for new element
-                    const uniqueFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
-                    var notePath = `${categoryDirectory}/${uniqueFileName}`; 
+                    const uniqueFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id, planned);
+                    notePath = `${categoryDirectory}/${uniqueFileName}`;
                 }
-    
-                if (overwrite || existingElementPath || !await fs.exists(notePath)) {
-                    // v2 frontmatter format (Phase B). writeElement owns the file
-                    // placement (it re-finds by embedded id), preserves extension
-                    // fields verbatim, normalizes link ids, and maps the body to
-                    // description (or story for Narrative). The raw v2 element body
-                    // (bare link ids, extension namespaces intact) goes straight in.
-                    await writeElement(
-                        this.app,
-                        worldName,
-                        category,
-                        element.id,
-                        element,
-                        {
-                            markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
-                            folderPath: categoryDirectory,
-                            fileName: notePath.split('/').pop(),
-                            idToName,
-                            // A downloaded note carries the SAME full field set as a
-                            // created one. Without this the note shows only fields
-                            // that happen to hold values, so a sparse element gives
-                            // the user no way to see what else it could carry —
-                            // exactly the "kinda useless" problem 3.2 exists to fix.
-                            scaffoldEmptyFields: true,
-                        }
-                    );
-                } else {
-                  //  console.log(`[DownloadWorldCommand] Skipping element (already exists and not overwriting): ${notePath}`);
+                planned.add(notePath.toLowerCase());
+                plans.push({ category, categoryDirectory, element, existingElementPath, renameFrom, notePath });
+            }
+        }
+
+        // Build ONE complete id->name map for link rendering (the S9 fix). Built
+        // from the plan (every pulled element's real note name) + a raw-disk
+        // fallback for ids outside an incremental pull's changed set.
+        // metadataCache is NOT consulted — its staleness mid-bulk-write IS the bug.
+        const idToName = await this.buildIdToNameMap(worldName, plans);
+
+        // Pass 2 — rename and write.
+        for (const plan of plans) {
+            const { category, categoryDirectory, element, existingElementPath } = plan;
+            let notePath = plan.notePath;
+
+            if (plan.renameFrom) {
+                try {
+                    const existingFile = this.app.vault.getAbstractFileByPath(plan.renameFrom);
+                    if (existingFile) {
+                        await this.app.fileManager.renameFile(existingFile, notePath);
+                    } else {
+                        notePath = plan.renameFrom;
+                    }
+                } catch (error) {
+                    console.error(`[DownloadWorldCommand] Error renaming file: ${error}`);
+                    notePath = plan.renameFrom; // Fall back to existing path
                 }
             }
-        } 
+
+            if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                // v2 frontmatter format (Phase B). writeElement owns the file
+                // placement (it re-finds by embedded id), preserves extension
+                // fields verbatim, normalizes link ids, and maps the body to
+                // description (or story for Narrative). The raw v2 element body
+                // (bare link ids, extension namespaces intact) goes straight in.
+                await writeElement(
+                    this.app,
+                    worldName,
+                    category,
+                    element.id,
+                    element,
+                    {
+                        markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
+                        folderPath: categoryDirectory,
+                        fileName: notePath.split('/').pop(),
+                        idToName,
+                        // A downloaded note carries the SAME full field set as a
+                        // created one. Without this the note shows only fields
+                        // that happen to hold values, so a sparse element gives
+                        // the user no way to see what else it could carry —
+                        // exactly the "kinda useless" problem 3.2 exists to fix.
+                        scaffoldEmptyFields: true,
+                    }
+                );
+            }
+        }
     }
-    
+
     /**
-     * Build the id -> note-basename map used to render link fields as [[Name]]
-     * wikilinks during download (the S9 fix). Two sources, payload wins:
+     * Build the id -> note-name map used to render link fields as [[Name]]
+     * wikilinks during download (the S9 fix). Two sources, the plan wins:
      *
-     *   1. The in-memory download payload — holds every element's id AND name for
-     *      THIS pull. Complete for a full download.
+     *   1. The download plan — every pulled element's note path, decided before
+     *      any note is written. The name is that note's BASENAME, so a twin's
+     *      link reads `[[Twin (1)]]`, not `[[Twin]]` (OW Infra #166 row 2).
      *   2. Raw-disk fallback — an incremental pull carries only CHANGED elements,
      *      so a link may point at an unchanged element absent from the payload.
-     *      Scan existing element notes for this world by READING each file and
-     *      parsing its `---` frontmatter block (id + name). metadataCache is never
+     *      Scan existing element notes for this world by READING each file for
+     *      its `id`; the name is the note's own basename. metadataCache is never
      *      touched: its cold-cache-mid-write staleness is precisely the bug.
      *
-     * The returned name is passed through sanitizeFileName so the [[Name]] target
-     * matches the note's on-disk basename and resolves by filename (portability:
-     * a moved vault keeps working, no plugin needed). Collision `(N)` suffixes are
-     * NOT reflected (a pre-existing limitation shared with the old linkifier).
-     * An id in neither source returns null, so writeElement keeps the raw id
-     * (dangling / cross-world links are never lost).
+     * A basename resolves by filename (portability: a moved vault keeps working,
+     * no plugin needed). An id in neither source returns null, so writeElement
+     * keeps the raw id (dangling / cross-world links are never lost).
+     *
+     * Same basename in two TYPES (a Location and a Collective both named
+     * Syracuse): both notes are `Syracuse.md` in different folders and the link
+     * stays plain `[[Syracuse]]` (ruling). Upload resolves a link FIELD against
+     * notes of its target type only (element-file.ts buildWikilinkResolver).
      */
-    private async buildIdToNameMap(worldName: string, data: any): Promise<(id: string) => string | null> {
+    private async buildIdToNameMap(
+        worldName: string,
+        plans: { element: any; notePath: string }[]
+    ): Promise<(id: string) => string | null> {
         const map = new Map<string, string>();
+        const basename = (path: string) => (path.split('/').pop() ?? path).replace(/\.md$/i, '');
 
-        // Source 2 (disk) first, so Source 1 (payload) overwrites with the
-        // freshest names on any id present in both.
+        // Source 2 (disk) first, so Source 1 (the plan) overwrites on any id
+        // present in both.
         const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const files = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(prefix));
         for (const file of files) {
             try {
                 const content = await this.app.vault.read(file);
-                const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
-                if (fm.id && fm.name) {
-                    map.set(fm.id, sanitizeFileName(fm.name));
+                const fm = parseRawFrontmatterScalars(content, ['id']);
+                if (fm.id) {
+                    map.set(fm.id, file.basename);
                 }
             } catch { /* unreadable note — skip */ }
         }
 
-        // Source 1 (payload) — every downloaded element, all categories.
-        for (const category in Category) {
-            if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
-            for (const element of data[category]) {
-                if (element && typeof element.id === 'string' && typeof element.name === 'string' && element.name) {
-                    map.set(element.id, sanitizeFileName(element.name));
-                }
+        // Source 1 (the plan) — every downloaded element, all categories.
+        for (const plan of plans) {
+            const element = plan.element;
+            if (element && typeof element.id === 'string') {
+                map.set(element.id, basename(plan.notePath));
             }
         }
 

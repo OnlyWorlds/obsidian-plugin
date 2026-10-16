@@ -20,6 +20,27 @@ interface WorldFileData {
     [key: string]: unknown;
 }
 
+/**
+ * What a save did. `ok` is true only when the server holds the note's state
+ * afterwards (created, updated, or already equal); every early return and every
+ * refused call is `ok: false` with the reason the user was shown. Auto-sync sets
+ * its status from this — a failure must never end on "synced" (OW Infra #166
+ * row 7).
+ */
+export type SaveResult =
+    | { ok: true; outcome: 'created' | 'updated' | 'unchanged' }
+    | { ok: false; reason: string };
+
+/** The Notice for links left out because their name matches several types. */
+export function ambiguousLinksMessage(links: string[]): string {
+    const names = [...new Set(links)];
+    const shown = names.slice(0, 3).join(', ');
+    const more = names.length > 3 ? ` +${names.length - 3} more` : '';
+    return `Not saved to those links: ${shown}${more}. ` +
+        `${names.length === 1 ? 'That name matches' : 'Those names match'} notes of more than one type — ` +
+        `rename one of the notes, then save again.`;
+}
+
 export class SaveElementCommand {
     app: App;
     plugin: OnlyWorldsPlugin;
@@ -45,19 +66,24 @@ export class SaveElementCommand {
             .replace(/_+/g, '_'); // Collapse multiple underscores (e.g., from acronyms)
     }
 
-    async execute() {
-        const activeFile = this.app.workspace.getActiveFile();
-
+    /**
+     * Save ONE note to the server. The caller names the note: the Save command
+     * passes the active file, auto-sync passes the file whose timer fired.
+     *
+     * ⚑ Never read `workspace.getActiveFile()` in here. Auto-sync used to swap
+     * the active note and let this method read it back; timers for several
+     * notes edited in the same second then all saved whichever note was active
+     * (one id hit ten times, seven never — OW Infra #166 row 4).
+     */
+    async execute(activeFile: TFile | null): Promise<SaveResult> {
         if (!activeFile || !(activeFile instanceof TFile)) {
-            new Notice("No active file selected or it's not a valid file.");
-            return;
+            return this.fail("No active file selected or it's not a valid file.");
         }
 
         // 1. Validate Path and Extract Info
         const pathInfo = this.extractPathInfo(activeFile.path);
         if (!pathInfo) {
-            new Notice("The current file is not a valid OnlyWorlds element note.");
-            return;
+            return this.fail("The current file is not a valid OnlyWorlds element note.");
         }
         const { worldName, category } = pathInfo;
 
@@ -82,22 +108,26 @@ export class SaveElementCommand {
                     12000
                 );
             }
+            // A generic link field (a Pin's element) whose name matches notes of
+            // more than one type is never guessed: left out, and named here
+            // (OW Infra #166 row 2).
+            if (v2.ambiguousLinks.length > 0) {
+                new Notice(ambiguousLinksMessage(v2.ambiguousLinks), 12000);
+            }
         } else {
             const fileContent = await this.app.vault.read(activeFile);
             elementData = await this.parseElementContent(fileContent, activeFile.path);
         }
 
         if (!elementData) {
-             new Notice("Could not parse element data from the note.");
              console.error("Parsing error in:", activeFile.path);
-             return;
+             return this.fail("Could not parse element data from the note.");
         }
 
         const elementUuid = elementData.id;
         if (!elementUuid) {
-            new Notice("Could not find element ID in the note after parsing.");
             console.error("Missing ID in parsed data:", elementData);
-            return;
+            return this.fail("Could not find element ID in the note after parsing.");
         }
 
         // Remove ID from payload as it's in the URL path
@@ -113,13 +143,11 @@ export class SaveElementCommand {
         if (resolved.source === 'local-world') {
             // Explicit local-only world: the note is already saved in the vault;
             // never fall through to the settings key (wrong-world class).
-            new Notice(LOCAL_WORLD_SYNC_MESSAGE, 8000);
-            return;
+            return this.fail(LOCAL_WORLD_SYNC_MESSAGE, 8000);
         }
         const apiKey = resolved.apiKey ?? undefined;
         if (!apiKey) {
-            new Notice("Error getting API key: no API key in this world's World.md or in plugin settings.");
-            return;
+            return this.fail("Error getting API key: no API key in this world's World.md or in plugin settings.");
         }
         if (!resolved.ownWorld) {
             new Notice(`This world has no API key of its own; using your default key. Add its key to World.md to be sure edits land in the right world.`, 8000);
@@ -128,8 +156,7 @@ export class SaveElementCommand {
         // 4. Build v2 client (pulls cached PIN, or prompts once per session)
         const client = await this.plugin.buildV2Client(apiKey);
         if (!client) {
-            new Notice("Save cancelled: PIN not provided.");
-            return;
+            return this.fail("Save cancelled: PIN not provided.");
         }
 
         // 5. v2 wire payload: bare link names (suffixes stripped), world stripped.
@@ -151,34 +178,40 @@ export class SaveElementCommand {
                     new Notice(`Creating ${category} "${label}"...`);
                     await client.create(type, { id: elementUuid, ...payload });
                     new Notice(`${category} created.`);
+                    return { ok: true, outcome: 'created' };
                 } catch (createError) {
                     console.error('Error during v2 create fallback:', createError);
                     const msg = createError instanceof Error ? createError.message : 'Unknown error';
-                    new Notice(`Failed to create ${category}: ${msg}`, 10000);
+                    return this.fail(`Failed to create ${category}: ${msg}`, 10000);
                 }
-                return;
             }
             console.error('Error during v2 GET (read-before-PATCH):', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
-            new Notice(`Failed to save ${category}: ${msg}`, 10000);
-            return;
+            return this.fail(`Failed to save ${category}: ${msg}`, 10000);
         }
 
         const changed = diffPayload(payload, current ?? {});
         if (Object.keys(changed).length === 0) {
             new Notice(`${category} "${label}" already up to date.`);
-            return;
+            return { ok: true, outcome: 'unchanged' };
         }
 
         try {
             new Notice(`Saving ${category} "${label}"...`);
             await client.update(type, elementUuid, changed);
             new Notice(`${category} saved.`);
+            return { ok: true, outcome: 'updated' };
         } catch (error) {
             console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
-            new Notice(`Failed to save ${category}: ${msg}`, 10000);
+            return this.fail(`Failed to save ${category}: ${msg}`, 10000);
         }
+    }
+
+    /** Show the reason (the Notice the user always got) and report the failure. */
+    private fail(reason: string, timeout?: number): SaveResult {
+        new Notice(reason, timeout);
+        return { ok: false, reason };
     }
 
     // Match a genuine 404 so we don't fall back to create() on other failures.
