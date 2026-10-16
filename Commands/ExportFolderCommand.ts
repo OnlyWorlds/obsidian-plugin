@@ -3,7 +3,8 @@ import { v7 as uuidv7 } from "uuid";
 import { readElement } from "../vault/element-file";
 import { bodyFieldForCategory } from "../vault/element-transform";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
-import { parseWorldUnits } from "../vault/world-units";
+import { readFolderSidecar } from "../vault/folder-sidecar";
+import { buildWorldJson } from "../vault/world-json";
 import {
 	worldFolderName,
 	elementRelPath,
@@ -40,7 +41,8 @@ import {
  * BACK to a paste-absolute-path modal — an acceptable ship (brief R1 / gate note).
  *
  * Conformance (R1, from the gold-standard writer azgaar-converter/src/folder.js):
- *   - world.json carries id + name (+ readable World.md meta);
+ *   - world.json carries id + name + every key the world has: World.md's
+ *     lines, plus what an import kept in the folder sidecar (spec §4.1);
  *   - spatial types under spatial/<type>/, others under elements/<type>/;
  *   - every element body stamps type + local_updated_at + created_at;
  *   - folder = <slug>-<id8>, files = <slug>--<id-tail>.json.
@@ -82,31 +84,25 @@ export class ExportFolderCommand {
 		return this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
 	}
 
-	/** Parse the readable meta out of World.md's span-list body (best-effort). */
-	private async readWorldMeta(world: string): Promise<Record<string, unknown>> {
-		const meta: Record<string, unknown> = {};
+	/**
+	 * world.json (OW Infra #166 row 5, spec §4.1): World.md's lines plus what an
+	 * import kept in the folder sidecar, so every key the world carries goes out
+	 * (vault/world-json.ts buildWorldJson says which source wins).
+	 */
+	private async buildWorldJson(world: string, worldId: string): Promise<Record<string, unknown>> {
+		let worldMd: string | null = null;
 		const file = this.app.vault.getAbstractFileByPath(
 			normalizePath(`OnlyWorlds/Worlds/${world}/World.md`)
 		);
-		if (!(file instanceof TFile)) return meta;
-		try {
-			const content = await this.app.vault.read(file);
-			const grab = (label: string): string | null => {
-				const m = new RegExp(`^-\\s*\\*\\*${label}:\\*\\*\\s*(.+)$`, "m").exec(content);
-				return m ? m[1].trim() : null;
-			};
-			const desc = grab("Description");
-			const version = grab("Version");
-			if (desc) meta.description = desc;
-			if (version) meta.version = version;
-			// World units (standard 00.31.00): only a set unit travels.
-			for (const [field, unit] of Object.entries(parseWorldUnits(content))) {
-				if (unit && unit.trim()) meta[field] = unit.trim();
+		if (file instanceof TFile) {
+			try {
+				worldMd = await this.app.vault.read(file);
+			} catch {
+				worldMd = null;
 			}
-		} catch {
-			/* best-effort meta */
 		}
-		return meta;
+		const kept = (await readFolderSidecar(this.app, world)).world ?? null;
+		return buildWorldJson({ worldId, worldName: world, worldMd, kept });
 	}
 
 	/**
@@ -153,12 +149,9 @@ export class ExportFolderCommand {
 
 		// Pass 2 — translate prose, stamp folder bodies, plan relative paths.
 		const stamp = new Date().toISOString();
-		const worldMeta = await this.readWorldMeta(world);
+		const worldJson = await this.buildWorldJson(world, worldId);
 		const planned: { rel: string; content: string }[] = [
-			{
-				rel: "world.json",
-				content: JSON.stringify({ id: worldId, name: world, ...worldMeta }, null, 2) + "\n",
-			},
+			{ rel: "world.json", content: JSON.stringify(worldJson, null, 2) + "\n" },
 		];
 		for (const el of elements) {
 			const bodyField = bodyFieldForCategory(el.type);

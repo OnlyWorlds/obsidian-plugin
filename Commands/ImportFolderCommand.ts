@@ -2,6 +2,8 @@ import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsi
 import { writeElement } from "../vault/element-file";
 import { bodyFieldForCategory, normalizeCategory } from "../vault/element-transform";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
+import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
+import { renderWorldMd, worldJsonToKeep } from "../vault/world-json";
 import {
 	parseFolderElementBody,
 	owMentionsToWikilinks,
@@ -25,6 +27,12 @@ import {
  *   - If a world of that name exists but with a DIFFERENT world id, ABORT with a
  *     clear message (never merge two worlds). The target world's id is recorded
  *     in a `.ow-world-id` marker note on first import so the check is stable.
+ *
+ * World fields (OW Infra #166 row 5, spec §4.1 no-drop): a world new to this
+ * vault gets a World.md showing its description, time settings and units, and
+ * the world.json itself (minus `api`) is kept in the folder sidecar so the
+ * export writes every key back. An existing World.md or sidecar is never
+ * overwritten.
  */
 export class ImportFolderCommand {
 	private app: App;
@@ -147,6 +155,7 @@ export class ImportFolderCommand {
 		const result = { created: [] as string[], skipped: [] as string[], failed };
 		const notePathOwner = new Map<string, string>(); // note path -> element id, this run
 		let createdMarker = existingId !== null;
+		let wroteWorldFields = false;
 		for (const el of parsed) {
 			const id = String(el.payload.id);
 			if (existingIds.has(id)) {
@@ -183,6 +192,10 @@ export class ImportFolderCommand {
 					await this.writeWorldIdMarker(targetWorld, worldId);
 					createdMarker = true;
 				}
+				if (!wroteWorldFields) {
+					await this.writeWorldFields(targetWorld, worldMeta);
+					wroteWorldFields = true;
+				}
 			} catch (e) {
 				result.failed.push({ path: id, reason: e instanceof Error ? e.message : String(e) });
 			}
@@ -201,6 +214,22 @@ export class ImportFolderCommand {
 			if (fm && typeof fm.id === "string") ids.add(fm.id);
 		}
 		return ids;
+	}
+
+	/**
+	 * World.md and the sidecar's world block, each only when absent: a re-import
+	 * into a world this vault already has never rewrites what the user holds.
+	 */
+	private async writeWorldFields(world: string, worldJson: Record<string, unknown>): Promise<void> {
+		const mdPath = normalizePath(`OnlyWorlds/Worlds/${world}/World.md`);
+		if (!this.app.vault.getAbstractFileByPath(mdPath) && !(await this.app.vault.adapter.exists(mdPath))) {
+			await this.app.vault.create(mdPath, renderWorldMd(worldJson, world));
+		}
+		const sidecar = await readFolderSidecar(this.app, world);
+		if (!sidecar.world) {
+			sidecar.world = worldJsonToKeep(worldJson);
+			await writeFolderSidecar(this.app, world, sidecar);
+		}
 	}
 
 	// Marker I/O lives in vault/world-id-marker.ts (shared with export — the
