@@ -88,7 +88,14 @@ export type IdToName = (id: string) => string | null;
  * disambiguation) lives in the caller; this fn just maps a resolved Name -> id,
  * or null when the name resolves to no element / an element without an id.
  */
-export type NameToId = (name: string) => string | null;
+export type NameToId = (name: string, target?: string) => string | null | typeof AMBIGUOUS_LINK;
+
+/**
+ * What a NameToId returns when a name in a GENERIC-target link field (target
+ * `any`, e.g. a Pin's `element_id`) matches notes of more than one type. The
+ * link is never guessed: it is left out and reported (ReadLinkOptions.ambiguous).
+ */
+export const AMBIGUOUS_LINK: unique symbol = Symbol("ambiguous-link");
 
 /**
  * Render a single already-normalized link id as its readable frontmatter form:
@@ -647,17 +654,32 @@ export interface ReadLinkOptions {
 	 * in the note and tell the user what was kept.
 	 */
 	adopted?: Array<{ from: string; to: string }>;
+	/**
+	 * Collects `[[Name]]` targets in a generic-target link field (target `any`)
+	 * that matched notes of more than one type. Each is left out of the payload
+	 * (its field omitted on the upload path) and the caller names it to the user
+	 * (OW Infra #166 row 2).
+	 */
+	ambiguous?: string[];
 }
 
 /**
  * Resolve one link value to an id, tolerating both shapes (R1):
  *   - `[[Name]]` / `[[Name|Alias]]` -> resolved id (or null + reported unresolved)
  *   - a bare id string (uuid or otherwise) -> itself (dangling/unmigrated tolerance)
+ *
+ * `fieldTarget` is the link field's schema target type (`location`, or `any`
+ * for a generic field); the resolver matches the name against notes of that
+ * type only, so a Location and a Collective sharing a name never cross.
  */
-function linkValueToId(value: unknown, opts: ReadLinkOptions): string | null {
+function linkValueToId(value: unknown, opts: ReadLinkOptions, fieldTarget?: string): string | null {
 	const target = wikilinkTarget(value);
 	if (target != null) {
-		const id = opts.resolveNameToId?.(target) ?? null;
+		const id = opts.resolveNameToId?.(target, fieldTarget) ?? null;
+		if (id === AMBIGUOUS_LINK) {
+			opts.ambiguous?.push(target);
+			return null;
+		}
 		if (!id) {
 			opts.unresolved?.push(target);
 			return null;
@@ -720,7 +742,7 @@ export function frontmatterToPayloadFields(
 			// value), then resolve the wikilink-or-id to a bare id.
 			const norm = normalizeLinkValue(value, "single_link");
 			if (norm == null) { out[key] = null; continue; }
-			const id = linkValueToId(norm, opts);
+			const id = linkValueToId(norm, opts, field.target);
 			// A non-null input that resolved to null is unresolved. On the upload
 			// path, OMIT the field rather than write null — a null single-link on a
 			// full-field PATCH would clear the server's value.
@@ -729,7 +751,7 @@ export function frontmatterToPayloadFields(
 		} else if (field.type === "multi_link") {
 			const arr = normalizeLinkValue(value, "multi_link") as string[];
 			const ids = arr
-				.map((v) => linkValueToId(v, opts))
+				.map((v) => linkValueToId(v, opts, field.target))
 				.filter((v): v is string => v != null);
 			// If any input entry didn't resolve, the list is SHORTENED — and a
 			// full-field PATCH from a shortened list strips server links. Omit the

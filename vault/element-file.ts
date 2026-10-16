@@ -18,6 +18,7 @@ import {
 	parseSpanNote,
 	spanFieldsToFrontmatter,
 	parseRawFrontmatterScalars,
+	AMBIGUOUS_LINK,
 } from "./element-transform";
 
 /**
@@ -52,6 +53,13 @@ export interface ParsedElement {
 	 * element created locally and not yet uploaded.
 	 */
 	unresolvedLinks: string[];
+	/**
+	 * `[[Name]]` targets in a generic-target link field (a Pin's `element_id`)
+	 * that matched notes of more than one type. Never guessed: the link is left
+	 * out of `fields`, and the CALLER must name these to the user, as it does
+	 * unresolvedLinks (OW Infra #166 row 2).
+	 */
+	ambiguousLinks: string[];
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
@@ -112,9 +120,11 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
 		// A bare-id link value passes through untouched (dangling/unmigrated).
 		const unresolved: string[] = [];
+		const ambiguous: string[] = [];
 		const fields = frontmatterToPayloadFields(fm, category, {
 			resolveNameToId: buildWikilinkResolver(app, file.path),
 			unresolved,
+			ambiguous,
 			// Upload safety: a field with any unresolvable [[Name]] is OMITTED, not
 			// shortened — a full-field bulk PATCH built from a reduced id list would
 			// strip the server's copy of the dropped link (the 2.3.0 smoke class,
@@ -162,6 +172,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			worldName: pathInfo.worldName,
 			fields,
 			unresolvedLinks: unresolved,
+			ambiguousLinks: ambiguous,
 		};
 	}
 
@@ -182,6 +193,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			worldName: pathInfo.worldName,
 			fields,
 			unresolvedLinks: [],
+			ambiguousLinks: [],
 		};
 	}
 
@@ -448,19 +460,75 @@ function buildIdToNameResolver(app: App, worldName: string): (id: string) => str
 }
 
 /**
- * Build a path-aware `[[Name]]` -> id resolver for READ (R1). Uses Obsidian's
- * own link resolution (getFirstLinkpathDest) from the SOURCE note's path, so a
- * link to "Ireena" resolves the same way Obsidian's graph would — same-name
- * notes disambiguate by proximity, exactly as the probe proved. The target
- * file's frontmatter `id` is the resolved value; a target with no id (or no
- * target) yields null (reported unresolved, never guessed).
+ * Build the `[[Name]]` -> id resolver for READ (R1), scoped by the link
+ * field's TARGET TYPE (OW Infra #166 row 2, ruling: option 2).
+ *
+ * ★ A Location and a Collective both named Syracuse are both `Syracuse.md`, in
+ * different folders, and download writes plain `[[Syracuse]]`. Obsidian's own
+ * resolution picks one of them for every link (live: the Location), so the
+ * Collective field got the Location's id. A link field names its target type
+ * in the schema, so the name is matched against notes of THAT type only,
+ * whatever the type's folder is named or counted ("Location (12)").
+ *
+ *   - target a type: the note of that type whose basename is the name
+ *     (case-insensitive, as Obsidian matches). A path-qualified link, or no
+ *     match, falls back to Obsidian's resolution, accepted only if the note it
+ *     finds is of the target type.
+ *   - target `any` (a Pin's `element_id`): the name across every type; one
+ *     match resolves, more than one is AMBIGUOUS_LINK (left out, named), none
+ *     falls back to Obsidian's resolution.
+ *   - no target (unknown category): Obsidian's resolution, as before.
+ *
+ * The note's frontmatter `id` is the resolved value; no note or no id yields
+ * null (reported unresolved, never guessed). Obsidian's own click on an
+ * ambiguous name stays Obsidian's.
  */
-function buildWikilinkResolver(app: App, sourcePath: string): (name: string) => string | null {
-	return (name: string) => {
+function buildWikilinkResolver(
+	app: App,
+	sourcePath: string
+): (name: string, target?: string) => string | null | typeof AMBIGUOUS_LINK {
+	const idOf = (f: TFile): string | null => {
+		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
+		return fm && typeof fm.id === "string" ? fm.id : null;
+	};
+	const typeOf = (f: TFile): string | null => {
+		const info = parseElementPath(f.path);
+		return info ? normalizeCategory(info.category) : null;
+	};
+	const obsidian = (name: string, target?: string): string | null => {
 		const dest = app.metadataCache.getFirstLinkpathDest(name, sourcePath);
 		if (!dest) return null;
-		const fm = app.metadataCache.getFileCache(dest)?.frontmatter;
-		return fm && typeof fm.id === "string" ? fm.id : null;
+		if (target && target !== "any" && typeOf(dest) !== target) return null;
+		return idOf(dest);
+	};
+	const worldName = parseElementPath(sourcePath)?.worldName ?? null;
+	/** Element notes of this world whose basename is `name`, by type folder. */
+	const notesNamed = (name: string, target: string): TFile[] => {
+		if (!worldName) return [];
+		const elements = app.vault.getAbstractFileByPath(normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`));
+		if (!(elements instanceof TFolder)) return [];
+		const want = name.toLowerCase();
+		const out: TFile[] = [];
+		for (const folder of elements.children) {
+			if (!(folder instanceof TFolder)) continue;
+			const folderType = normalizeCategory(folder.name.replace(/\s*\(\d+\)$/, ""));
+			if (target !== "any" && folderType !== target) continue;
+			for (const f of folder.children) {
+				if (f instanceof TFile && f.extension === "md" && f.basename.toLowerCase() === want) out.push(f);
+			}
+		}
+		return out;
+	};
+	return (name: string, target?: string) => {
+		const t = target ? normalizeCategory(target) : undefined;
+		if (!t || name.includes("/")) return obsidian(name, t);
+		const matches = notesNamed(name.replace(/\.md$/i, ""), t);
+		if (t === "any") {
+			const types = new Set(matches.map(typeOf));
+			if (types.size > 1) return AMBIGUOUS_LINK;
+		}
+		if (matches.length === 1) return idOf(matches[0]);
+		return obsidian(name, t);
 	};
 }
 

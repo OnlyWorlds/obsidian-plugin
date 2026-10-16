@@ -11,6 +11,7 @@ import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
+import { ambiguousLinksMessage } from './SaveElementCommand';
 
 export class ExportWorldCommand {
     app: App;
@@ -20,6 +21,8 @@ export class ExportWorldCommand {
     /** Link fields omitted from the current sweep because a link couldn't be
      *  resolved locally (server values preserved) — surfaced in the summary. */
     private skippedLinkFields = 0;
+    /** Generic-link names left out because they match several types (row 2). */
+    private ambiguousLinks: string[] = [];
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
@@ -226,6 +229,9 @@ export class ExportWorldCommand {
             if (this.skippedLinkFields > 0) {
                 new Notice(`${this.skippedLinkFields} link field${this.skippedLinkFields === 1 ? '' : 's'} skipped (unresolvable links) — server values kept. See console for details.`, 10000);
             }
+            if (this.ambiguousLinks.length > 0) {
+                new Notice(ambiguousLinksMessage(this.ambiguousLinks), 15000);
+            }
             if (failures.length > 0) {
                 console.error('Upload failures:', failures);
                 new Notice(`${failures.length} element${failures.length === 1 ? '' : 's'} failed — first: ${failures[0]}`, 15000);
@@ -250,6 +256,7 @@ export class ExportWorldCommand {
 
     async collectWorldData(worldFolder: string) {
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
+        this.ambiguousLinks = [];
         const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};
     
@@ -288,7 +295,10 @@ export class ExportWorldCommand {
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
-                        if (parsed) return { id: parsed.id, ...parsed.fields };
+                        if (parsed) {
+                            this.ambiguousLinks.push(...parsed.ambiguousLinks);
+                            return { id: parsed.id, ...parsed.fields };
+                        }
                     }
                     return await this.parseTemplate(fileContent, worldFolder);
                 }));

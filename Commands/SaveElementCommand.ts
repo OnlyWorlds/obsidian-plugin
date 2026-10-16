@@ -31,6 +31,16 @@ export type SaveResult =
     | { ok: true; outcome: 'created' | 'updated' | 'unchanged' }
     | { ok: false; reason: string };
 
+/** The Notice for links left out because their name matches several types. */
+export function ambiguousLinksMessage(links: string[]): string {
+    const names = [...new Set(links)];
+    const shown = names.slice(0, 3).join(', ');
+    const more = names.length > 3 ? ` +${names.length - 3} more` : '';
+    return `Not saved to those links: ${shown}${more}. ` +
+        `${names.length === 1 ? 'That name matches' : 'Those names match'} notes of more than one type — ` +
+        `rename one of the notes, then save again.`;
+}
+
 export class SaveElementCommand {
     app: App;
     plugin: OnlyWorldsPlugin;
@@ -97,6 +107,12 @@ export class SaveElementCommand {
                     `run "Export World" first, then save this note again.`,
                     12000
                 );
+            }
+            // A generic link field (a Pin's element) whose name matches notes of
+            // more than one type is never guessed: left out, and named here
+            // (OW Infra #166 row 2).
+            if (v2.ambiguousLinks.length > 0) {
+                new Notice(ambiguousLinksMessage(v2.ambiguousLinks), 12000);
             }
         } else {
             const fileContent = await this.app.vault.read(activeFile);

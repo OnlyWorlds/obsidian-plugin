@@ -368,9 +368,10 @@ export class DownloadWorldCommand {
      * no plugin needed). An id in neither source returns null, so writeElement
      * keeps the raw id (dangling / cross-world links are never lost).
      *
-     * ⚑ Same basename in two TYPES (a Location and a Collective both named
-     * Syracuse) is not disambiguated here: both notes are `Syracuse.md` in
-     * different folders and the link stays `[[Syracuse]]`.
+     * Same basename in two TYPES (a Location and a Collective both named
+     * Syracuse): both notes are `Syracuse.md` in different folders and the link
+     * stays plain `[[Syracuse]]` (ruling). Upload resolves a link FIELD against
+     * notes of its target type only (element-file.ts buildWikilinkResolver).
      */
     private async buildIdToNameMap(
         worldName: string,
