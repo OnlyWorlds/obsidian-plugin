@@ -23,9 +23,12 @@
  * verbatim. So a folder that comes in and goes out untouched is byte-identical,
  * and an edit in World.md still travels.
  *
- * `api` (sync switch + credential) is never kept: the plugin never keeps a
- * credential in the vault, so a world that came from a folder is a local world
- * here and its export is a local world (spec §4.1: absent `api` = local-only).
+ * `api` (sync switch + credential) is never kept. Where the plugin does keep
+ * credentials: a world's key in its World.md (API Key line), the account token
+ * and a saved PIN in this vault's plugin data (data.json). Neither ever goes
+ * into an export. A folder's `api` block is dropped at import, so a world that
+ * came from a folder is a local world here (World.md says `local`) and its
+ * export is a local world (spec §4.1: absent `api` = local-only).
  */
 import { worldTemplateString } from "../Scripts/WorldDataTemplate";
 import { LOCAL_WORLD_KEY_TOKEN } from "./world-key-core";
@@ -67,9 +70,10 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 export const FOLDER_FORMAT_VERSION = "0.3.8";
 
 /**
- * The world.json keys the plugin never keeps: `api` holds a credential, and the
- * plugin never keeps a credential in the vault, so the world is local here and
- * its export is a local world (no `api` = do not sync, spec §4.1).
+ * The world.json keys the plugin never keeps: `api` holds a folder's sync
+ * credential. Dropped at import (World.md gets `local`, not this key), so the
+ * world is local here and its export is a local world (no `api` = do not sync,
+ * spec §4.1). An export never carries any credential.
  */
 export const WORLD_KEYS_NOT_KEPT = ["api"] as const;
 
