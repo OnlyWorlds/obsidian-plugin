@@ -45,9 +45,16 @@ export class SaveElementCommand {
             .replace(/_+/g, '_'); // Collapse multiple underscores (e.g., from acronyms)
     }
 
-    async execute() {
-        const activeFile = this.app.workspace.getActiveFile();
-
+    /**
+     * Save ONE note to the server. The caller names the note: the Save command
+     * passes the active file, auto-sync passes the file whose timer fired.
+     *
+     * ⚑ Never read `workspace.getActiveFile()` in here. Auto-sync used to swap
+     * the active note and let this method read it back; timers for several
+     * notes edited in the same second then all saved whichever note was active
+     * (one id hit ten times, seven never — OW Infra #166 row 4).
+     */
+    async execute(activeFile: TFile | null) {
         if (!activeFile || !(activeFile instanceof TFile)) {
             new Notice("No active file selected or it's not a valid file.");
             return;

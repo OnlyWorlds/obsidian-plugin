@@ -86,8 +86,8 @@ export class AutoSyncEngine {
 	 */
 	private async syncFile(file: TFile): Promise<void> {
 		// Local-only worlds: skip SILENTLY, and before any workspace side effects.
-		// Going through SaveElementCommand would pop the file open and raise a
-		// notice on every debounced edit — auto-sync in a local world is simply
+		// Going through SaveElementCommand would raise a notice on every
+		// debounced edit — auto-sync in a local world is simply
 		// "there is nothing to do", not an error worth telling the user about.
 		const worldMatch = /^OnlyWorlds\/Worlds\/([^/]+)\//i.exec(file.path);
 		if (worldMatch) {
@@ -101,15 +101,11 @@ export class AutoSyncEngine {
 		try {
 			// Reuse the migrated SDK-based SaveElementCommand. It already handles
 			// path parsing, content parsing, API key lookup, PIN caching, SDK call.
+			// ★ It saves THIS timer's file, passed in. Swapping the active note and
+			// letting the command read it back made every timer in a burst save
+			// whichever note was active (OW Infra #166 row 4).
 			const cmd = new SaveElementCommand(this.app, this.plugin);
-			// Set the active file context so SaveElementCommand picks it up.
-			// (SaveElementCommand reads from workspace.getActiveFile(), so we briefly
-			// open the file if not already active. Cheap, no flash.)
-			const wasActive = this.app.workspace.getActiveFile()?.path === file.path;
-			if (!wasActive) {
-				await this.app.workspace.openLinkText(file.path, "", false);
-			}
-			await cmd.execute();
+			await cmd.execute(file);
 			this.plugin.setSyncStatus("synced");
 		} catch (error) {
 			console.error("Auto-sync error:", error);
