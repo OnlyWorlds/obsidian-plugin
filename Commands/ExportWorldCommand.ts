@@ -6,7 +6,7 @@ import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
-import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
@@ -33,6 +33,14 @@ export class ExportWorldCommand {
 
     async execute() {
         const activeWorldName = await this.worldService.getWorldName(); // Fetch the active world name
+
+        // A read-key world can never upload: say so before any PIN is asked
+        // (Kael's review 3.1). A world picked in the modal is checked again in
+        // the upload itself.
+        if (activeWorldName && (await resolveWorldKey(this.app, activeWorldName, this.plugin?.settings.apiKey)).readOnly) {
+            new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
+            return;
+        }
 
         // If a PIN is cached/persisted AND we have an active world, skip the picker.
         const cachedPin = this.plugin ? await this.plugin.pinCache.get() : null;
@@ -104,6 +112,10 @@ export class ExportWorldCommand {
         const resolved = await resolveWorldKey(this.app, worldFolder, this.plugin?.settings.apiKey);
         if (resolved.source === 'local-world') {
             new Notice(LOCAL_WORLD_SYNC_MESSAGE, 8000);
+            return;
+        }
+        if (resolved.readOnly) {
+            new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
             return;
         }
         if (!resolved.apiKey) {

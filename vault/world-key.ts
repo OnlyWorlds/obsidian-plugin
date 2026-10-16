@@ -20,8 +20,10 @@ import { App, TFile, normalizePath } from 'obsidian';
 // so the test build can compile it). Re-exported here so import sites are unchanged.
 export {
     classifyWorldKey,
+    isReadKey,
     LOCAL_WORLD_KEY_TOKEN,
     LOCAL_WORLD_SYNC_MESSAGE,
+    READ_ONLY_WORLD_MESSAGE,
 } from './world-key-core';
 export type { KeySource, ResolvedWorldKey } from './world-key-core';
 import { classifyWorldKey } from './world-key-core';

@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
-import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { V2ApiError } from '../client-v2';
 
 /**
@@ -63,6 +63,11 @@ export class DeleteElementCommand {
                 // Local-only world: nothing exists server-side; just trash the note.
                 await this.app.fileManager.trashFile(activeFile as TFile);
                 new Notice('Note moved to trash (local-only world — nothing to delete on onlyworlds.com).');
+                return;
+            }
+            if (resolved.readOnly) {
+                // Before any PIN; the note stays (Kael's review 3.1).
+                new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
                 return;
             }
             if (!resolved.apiKey) {

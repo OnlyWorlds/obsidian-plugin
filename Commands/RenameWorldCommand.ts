@@ -52,6 +52,10 @@ export class RenameWorldCommand {
             new Notice('World renamed in your vault (local-only world — nothing to update on onlyworlds.com).');
             return;
         }
+        if (resolved.readOnly) {
+            new Notice('World renamed in your vault. Not synced: this world is read-only in this vault (an ow_r_ key).');
+            return;
+        }
         if (!resolved.apiKey) {
             new Notice('World renamed in your vault. Not synced: no API key for this world.');
             return;

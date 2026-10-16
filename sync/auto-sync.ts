@@ -92,7 +92,10 @@ export class AutoSyncEngine {
 		const worldMatch = /^OnlyWorlds\/Worlds\/([^/]+)\//i.exec(file.path);
 		if (worldMatch) {
 			const resolved = await resolveWorldKey(this.app, worldMatch[1], this.plugin.settings.apiKey);
-			if (resolved.source === "local-world") {
+			// A read-key world (ow_r_) the same way: it can never write, so there
+			// is nothing to do, and asking for a PIN on every edit was the bug
+			// (Kael's review 3.1).
+			if (resolved.source === "local-world" || resolved.readOnly) {
 				this.plugin.setSyncStatus("idle");
 				return;
 			}

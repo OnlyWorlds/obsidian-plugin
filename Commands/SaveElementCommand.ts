@@ -1,7 +1,7 @@
 import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
-import { LOCAL_WORLD_SYNC_MESSAGE, resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
@@ -144,6 +144,10 @@ export class SaveElementCommand {
             // Explicit local-only world: the note is already saved in the vault;
             // never fall through to the settings key (wrong-world class).
             return this.fail(LOCAL_WORLD_SYNC_MESSAGE, 8000);
+        }
+        if (resolved.readOnly) {
+            // A read key can never write: refuse before any PIN (Kael's review 3.1).
+            return this.fail(READ_ONLY_WORLD_MESSAGE, 8000);
         }
         const apiKey = resolved.apiKey ?? undefined;
         if (!apiKey) {

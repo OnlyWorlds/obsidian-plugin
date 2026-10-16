@@ -22,6 +22,17 @@ export interface ResolvedWorldKey {
     source: KeySource;
     /** True when the key came from the world's own World.md (unambiguous). */
     ownWorld: boolean;
+    /**
+     * True when the key is a read key (`ow_r_`): it reads without a PIN and can
+     * never write. Every write path refuses it BEFORE asking for a PIN, and
+     * auto-sync skips the world silently (Kael's review 3.1).
+     */
+    readOnly: boolean;
+}
+
+/** A read-capability key: `ow_r_` (a player link, a guest, a member with no PIN). */
+export function isReadKey(key: string | null | undefined): boolean {
+    return typeof key === 'string' && key.trim().startsWith('ow_r_');
 }
 
 /**
@@ -34,17 +45,23 @@ export function classifyWorldKey(
 ): ResolvedWorldKey {
     const own = ownKey?.trim();
     if (own && own.toLowerCase() === LOCAL_WORLD_KEY_TOKEN) {
-        return { apiKey: null, source: 'local-world', ownWorld: true };
+        return { apiKey: null, source: 'local-world', ownWorld: true, readOnly: false };
     }
     if (own) {
-        return { apiKey: own, source: 'world-file', ownWorld: true };
+        return { apiKey: own, source: 'world-file', ownWorld: true, readOnly: isReadKey(own) };
     }
     const fallback = settingsKey?.trim();
     if (fallback) {
-        return { apiKey: fallback, source: 'settings', ownWorld: false };
+        return { apiKey: fallback, source: 'settings', ownWorld: false, readOnly: isReadKey(fallback) };
     }
-    return { apiKey: null, source: 'none', ownWorld: false };
+    return { apiKey: null, source: 'none', ownWorld: false, readOnly: false };
 }
+
+/** The one line every write path shows for a read key. */
+export const READ_ONLY_WORLD_MESSAGE =
+    'This world is read-only in this vault: its key (ow_r_) can read but not write, ' +
+    'so nothing was sent to onlyworlds.com. Your edits stay in your notes. ' +
+    'To write, download the world again with an account that can write.';
 
 /** Shared user-facing line for the local-world sync gate — one wording, everywhere. */
 /**
