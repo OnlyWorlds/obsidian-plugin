@@ -246,7 +246,17 @@ export class DownloadWorldCommand {
             return null;
         }
         if (minted.readForWantOfPin) new Notice(NO_PIN_YET, 10000);
-        return this.downloadWithKey(minted.key, '');
+        const landed = await this.downloadWithKey(minted.key, '');
+        if (!landed) {
+            // Nothing landed, so no World.md holds the new key: revoke it rather
+            // than leave a live key no vault keeps (Kael's review).
+            try {
+                await revokeAccountKey(token, world.id, { id: minted.id, last4: minted.key.slice(-4), scope: minted.scope });
+            } catch {
+                new Notice(`The key made for ${world.name} could not be revoked from here: revoke it on onlyworlds.com, on the world's keys page.`, 10000);
+            }
+        }
+        return landed;
     }
 
     /**

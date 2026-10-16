@@ -306,6 +306,23 @@ test("a member whose account has no PIN yet (409 pin_required) gets a read key, 
 
 // --- 2c. Download World from the account --------------------------------------
 
+test("a key minted for a download that then fails is revoked, so no live key is left that no vault holds (Kael nit)", async () => {
+	keel({
+		answers: {
+			...accountAnswers(),
+			"GET /world": { status: 500, json: { error: { message: "boom" } } },
+			[`DELETE /account/worlds/${OWNED}/keys/k1`]: { status: 204 },
+		},
+	});
+	const { app, vault } = makeApp();
+	const cmd = new DownloadWorldCommand(app, { version: "test" }, fakePlugin(app, true));
+	assert.equal(await cmd.downloadAccountWorld(WORLDS[0]), null);
+	assert.equal(sent(`/account/worlds/${OWNED}/keys`).filter((r) => r.method === "POST").length, 1);
+	const deletes = __requests.filter((r) => r.method === "DELETE").map((r) => pathOf(r.url));
+	assert.deepEqual(deletes, [`/account/worlds/${OWNED}/keys/k1`]);
+	assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion"), null);
+});
+
 test("download from the account: mint for the vault, download with it, the key lands in World.md, no PIN", async () => {
 	keel({ answers: accountAnswers() });
 	const { app, vault } = makeApp();
