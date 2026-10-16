@@ -14,8 +14,9 @@
  *     holds what World.md has no line for (image_url, created_at, public_read,
  *     the snapshot keys, format_version, extension keys), keeps each value's
  *     type (a list with a comma in an item, a multi-line description) and the
- *     key order and spelling the file used (spec §5: `time_range_current`
- *     stays `time_range_current`).
+ *     key order the file used. The import reads the wire's
+ *     `time_range_current`; the export writes it as the schema's `time_current`
+ *     (spec §5: an export is a new folder in the current dialect).
  *
  * On export, a key World.md shows is taken from World.md only when the user
  * changed its line; an unchanged line means the sidecar's value goes out
@@ -48,7 +49,7 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 	{ label: "Time Range Min", keys: ["time_range_min"], kind: "number" },
 	{ label: "Time Range Max", keys: ["time_range_max"], kind: "number" },
 	// spec §5: the schema says time_current; the wire says time_range_current.
-	// Readers accept both; a file's own spelling is written back.
+	// Both are read; an export writes time_current (buildWorldJson).
 	{ label: "Current Time", keys: ["time_current", "time_range_current"], kind: "number" },
 	{ label: "Length Unit", keys: ["length_unit"], kind: "text" },
 	{ label: "Mass Unit", keys: ["mass_unit"], kind: "text" },
@@ -154,8 +155,9 @@ export function renderWorldMd(worldJson: Record<string, unknown>, worldName: str
  *
  * `kept` is the sidecar's world block (null for a world made in the vault).
  * Without it: id, name, and every World.md line that has a value. With it: the
- * kept world.json, key order and spelling as they were, each World.md-shown key
- * replaced only where the user changed its line. Both end with
+ * kept world.json in its key order (`time_range_current` written as
+ * `time_current`), each World.md-shown key replaced only where the user
+ * changed its line. Both end with
  * `format_version` = FOLDER_FORMAT_VERSION, whatever the world carried.
  *
  * The name is the world's folder name (the plugin's world identity, as before);
@@ -193,6 +195,20 @@ export function buildWorldJson(opts: {
 			out[key] = coerceWorldLine(text, line.kind);
 		} else if (text.trim() !== "") {
 			out[key] = coerceWorldLine(text, line.kind);
+		}
+	}
+	// An export is a new folder, so it speaks the current dialect (spec §5):
+	// the wire's `time_range_current` goes out as the schema's `time_current`,
+	// at the same position. When both were carried, `time_current` stands
+	// (Kael's review 3.6, the coordinator's ruling).
+	if ("time_range_current" in out) {
+		if ("time_current" in out) {
+			delete out.time_range_current;
+		} else {
+			const renamed: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(out)) renamed[k === "time_range_current" ? "time_current" : k] = v;
+			for (const k of Object.keys(out)) delete out[k];
+			Object.assign(out, renamed);
 		}
 	}
 	// Every export is a birth: both sinks refuse an existing folder, so the

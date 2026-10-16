@@ -116,15 +116,25 @@ test("row 5: an edit made in World.md travels; untouched keys stay verbatim", as
 	assert.deepEqual(Object.keys(world), Object.keys(FULL_WORLD));
 });
 
-test("row 5: a world.json spelling the wire's time_range_current keeps that spelling (§5)", async () => {
+test("row 5: a world.json spelling the wire's time_range_current is read, and exported as time_current in its place (§5, Kael 3.6)", async () => {
 	const { app, vault } = makeApp();
 	const wire = { id: WID, name: "Barovia", time_range_current: 12, time_basic_unit: "Year" };
 	await seedFolder(vault, "in/barovia", wire, { "elements/character/ireena--000000c1.json": CHAR_FILE });
 	await importDir(app, "in/barovia");
 	assert.match(vault.contentAt("OnlyWorlds/Worlds/Barovia/World.md") ?? "", /^- \*\*Current Time:\*\* 12$/m);
 	const out = await exportWorld(app, vault, "Barovia");
-	// its own keys as they were, plus the format_version of this birth
-	assert.equal(out["world.json"], JSON.stringify({ ...wire, format_version: "0.3.8" }, null, 2) + "\n");
+	// An export is a new folder, so it speaks the current dialect: the
+	// schema's time_current, at the key's own position.
+	const expected = { id: WID, name: "Barovia", time_current: 12, time_basic_unit: "Year", format_version: "0.3.8" };
+	assert.equal(out["world.json"], JSON.stringify(expected, null, 2) + "\n");
+	// An edit in World.md lands on time_current too.
+	const md = "OnlyWorlds/Worlds/Barovia/World.md";
+	vault.files.get(md)!.content = (vault.contentAt(md) ?? "").replace("- **Current Time:** 12", "- **Current Time:** 13");
+	for (const p of [...vault.files.keys()]) if (p.startsWith("OW-folder-export/")) vault.files.delete(p);
+	for (const p of [...vault.folders.keys()]) if (p.startsWith("OW-folder-export")) vault.folders.delete(p);
+	const edited = JSON.parse((await exportWorld(app, vault, "Barovia"))["world.json"]);
+	assert.equal(edited.time_current, 13);
+	assert.equal("time_range_current" in edited, false);
 });
 
 test("row 5: the api block (a credential) is never kept in the vault nor exported: the export is a local world", async () => {
