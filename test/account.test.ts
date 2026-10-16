@@ -168,6 +168,37 @@ test("sign in keeps the token and the username; sign out clears both", async () 
 	assert.equal(plugin.settings.accountUsername, "");
 });
 
+test("sign out revokes the token on onlyworlds.com, found by its last four, with itself as the Bearer (Kael 3.3)", async () => {
+	keel({
+		answers: {
+			...accountAnswers(),
+			"GET /account/tokens": { status: 200, json: { data: [
+				{ id: "t-other", name: "phone", last4: "abcd", revoked: false },
+				{ id: "t-mine", name: "obsidian", last4: TOKEN.slice(-4), revoked: false },
+			] } },
+			"DELETE /account/tokens/t-mine": { status: 204 },
+		},
+	});
+	const { app } = makeApp();
+	const plugin = fakePlugin(app, true);
+	const out = await signOut(plugin);
+	assert.equal(out.revoked, true);
+	assert.equal(plugin.settings.accountToken, "");
+	const del = __requests.filter((r) => r.method === "DELETE");
+	assert.deepEqual(del.map((r) => pathOf(r.url)), ["/account/tokens/t-mine"]);
+	assert.equal(del[0].headers.Authorization, `Bearer ${TOKEN}`);
+});
+
+test("sign out whose revoke fails still forgets the token, and says to revoke it on onlyworlds.com (Kael 3.3)", async () => {
+	keel({ answers: { "GET /account/tokens": { status: 503, json: { error: { message: "down" } } } } });
+	const { app } = makeApp();
+	const plugin = fakePlugin(app, true);
+	const out = await signOut(plugin);
+	assert.equal(out.revoked, false);
+	assert.equal(plugin.settings.accountToken, "");
+	assert.match(out.message, /revoke it on onlyworlds\.com/);
+});
+
 // --- 2. the account's worlds, owned and member -------------------------------
 
 test("the world list: owned and member worlds rendered from keel's answer, and a pick", async () => {

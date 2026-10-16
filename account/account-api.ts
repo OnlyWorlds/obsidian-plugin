@@ -139,11 +139,40 @@ export async function signIn(store: AccountStore, token: string): Promise<string
 	return username;
 }
 
-/** Forget the token. The world keys already in World.md stay: they are the worlds', not the token's. */
-export async function signOut(store: AccountStore): Promise<void> {
+/**
+ * Where the token lives, said under it in settings (Kael's review 3.3).
+ * Obsidian's SecretStorage (app.secretStorage) arrived in 1.11.4 and this
+ * plugin's minAppVersion is 1.4.0, so the token stays in plugin data, and the
+ * user is told so, and sign-out revokes it.
+ */
+export const TOKEN_STORAGE_NOTE =
+	"The token is stored in this vault's plugin data (data.json), which Obsidian Sync and git carry with the vault. " +
+	"Signing out revokes it on onlyworlds.com.";
+
+/**
+ * Forget the token, then revoke it on onlyworlds.com (best effort: GET
+ * /account/tokens, the row with its last four, DELETE it, the token itself as
+ * the Bearer). The token is forgotten even when the revoke fails, and the
+ * message says to revoke it by hand. The world keys already in World.md stay:
+ * they are the worlds', not the token's.
+ */
+export async function signOut(store: AccountStore): Promise<{ revoked: boolean; message: string }> {
+	const token = store.settings.accountToken.trim();
 	store.settings.accountToken = "";
 	store.settings.accountUsername = "";
 	await store.saveSettings();
+	const byHand =
+		"Signed out. The token could not be revoked from here: revoke it on onlyworlds.com, in Account settings under Account tokens.";
+	if (!isAccountToken(token)) return { revoked: false, message: byHand };
+	try {
+		const listed = await owRequest<{ data?: Array<{ id: string; last4: string; revoked: boolean }> }>("GET", "/account/tokens", { token });
+		const mine = (listed?.data ?? []).filter((t) => !t.revoked && t.last4 === token.slice(-4));
+		if (mine.length !== 1) return { revoked: false, message: byHand };
+		await owRequest("DELETE", `/account/tokens/${encodeURIComponent(mine[0].id)}`, { token });
+		return { revoked: true, message: "Signed out, and the token was revoked on onlyworlds.com." };
+	} catch {
+		return { revoked: false, message: byHand };
+	}
 }
 
 export async function listAccountWorlds(token: string): Promise<AccountWorld[]> {

@@ -1,6 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type OnlyWorldsPlugin from "../main";
-import { signIn, signOut, signedInLabel } from "../account/account-api";
+import { TOKEN_STORAGE_NOTE, signIn, signOut, signedInLabel } from "../account/account-api";
 
 export class OnlyWorldsSettingTab extends PluginSettingTab {
 	plugin: OnlyWorldsPlugin;
@@ -181,11 +181,14 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 				.setName(signedInLabel(settings.accountUsername || "your account"))
 				.setDesc(
 					"Download World offers your onlyworlds.com worlds, and Join a world with a link joins with this account. " +
-						"Signing out keeps the worlds in this vault and their keys."
+						"Signing out keeps the worlds in this vault and their keys. " +
+						TOKEN_STORAGE_NOTE
 				)
 				.addButton((b) =>
 					b.setButtonText("Sign out").onClick(async () => {
-						await signOut(this.plugin);
+						b.setDisabled(true);
+						const out = await signOut(this.plugin);
+						new Notice(out.message, out.revoked ? 5000 : 12000);
 						this.display();
 					})
 				);
