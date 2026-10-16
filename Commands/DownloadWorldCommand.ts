@@ -1,8 +1,10 @@
 import Handlebars from 'handlebars';
-import { WorldDownloadData, WorldDownloadModal } from 'Modals/WorldDownloadModal';
+import { WorldDownloadAccount, WorldDownloadData, WorldDownloadModal } from '../Modals/WorldDownloadModal';
+import { AccountWorld, MintedKey, NO_PIN_YET, listAccountWorlds, mintVaultKey } from '../account/account-api';
+import { worldFileApiKey } from '../vault/world-key';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
-import { worldTemplateString } from 'Scripts/WorldDataTemplate';
-import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
+import { worldTemplateString } from '../Scripts/WorldDataTemplate';
+import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
 import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client } from '../client-v2';
 import type OnlyWorldsPlugin from '../main';
@@ -32,9 +34,23 @@ export class DownloadWorldCommand {
             }
 
             if (data.apiKey.trim().length > 0) {
+                await this.downloadWithKey(data.apiKey, data.pin, overwrite);
+            } else {
+                new Notice('Please enter a world API key.');
+            }
+        }, this.accountChoice()).open();
+    }
+
+    /**
+     * Download one world with a key (and its PIN, or "" for none): the
+     * key-and-PIN form's path, and the one an account world or a join link
+     * takes once it holds its key. Returns the world's folder name, or null
+     * when nothing landed (the reason is already said in a Notice).
+     */
+    async downloadWithKey(apiKeyInput: string, pin: string, overwrite: boolean = false): Promise<string | null> {
                 try {
                     new Notice('Downloading world...');
-                    const client = new V2Client(data.apiKey.trim(), String(data.pin));
+                    const client = new V2Client(apiKeyInput.trim(), String(pin));
 
                     // World meta first — also validates the credential pair with a
                     // precise error before any element traffic.
@@ -44,7 +60,7 @@ export class DownloadWorldCommand {
 
                     if (!worldName) {
                         new Notice('No valid world data found.');
-                        return;
+                        return null;
                     }
 
                     // Incremental pull when we hold a cursor for this world; a
@@ -102,10 +118,10 @@ export class DownloadWorldCommand {
                     // (v2 never echoes credentials).
                     worldData.World = {
                         ...worldMeta,
-                        api_key: data.apiKey.trim(),
+                        api_key: apiKeyInput.trim(),
                         time_current: worldMeta.time_range_current,
                     };
-                    const worldApiKey = data.apiKey.trim();
+                    const worldApiKey = apiKeyInput.trim();
     
                     // Generate unique world name to prevent conflicts
                     const uniqueWorldName = await this.worldService.generateUniqueWorldName(worldName, worldApiKey);
@@ -154,6 +170,7 @@ export class DownloadWorldCommand {
                     if (deleteCount > 0) {
                         new Notice(`${deleteCount} element${deleteCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
                     }
+                    return uniqueWorldName;
                 } catch (error) {
                     console.error('Error during world download:', error);
                     if (error instanceof V2ApiError) {
@@ -170,12 +187,72 @@ export class DownloadWorldCommand {
                         new Notice('An unknown error occurred during download.');
                     }
                 }
-            } else {
-                new Notice('Please enter a world API key.');
-            }
-        }).open();
+                return null;
     }
-    
+
+    /** The account choice the Download World modal offers, when this vault is signed in. */
+    private accountChoice(): WorldDownloadAccount | undefined {
+        const token = this.plugin?.settings.accountToken;
+        if (!token) return undefined;
+        return {
+            username: this.plugin?.settings.accountUsername || 'your account',
+            loadWorlds: () => listAccountWorlds(token),
+            onPick: (w) => { void this.downloadAccountWorld(w); },
+        };
+    }
+
+    /**
+     * Download a world from the signed-in account (OW Infra #358). A world this
+     * vault already holds under one of its live keys downloads again with that
+     * key; otherwise a key is minted for this vault (named for it, so it can be
+     * found and revoked on the account's keys page) and the world downloads
+     * with it, the key landing in World.md like a pasted one. Downloading is a
+     * read: no PIN is asked or sent; Save Element asks for it as it always has.
+     */
+    async downloadAccountWorld(world: AccountWorld): Promise<string | null> {
+        const token = this.plugin?.settings.accountToken;
+        if (!token) {
+            new Notice('Sign in first: Settings, OnlyWorlds account.');
+            return null;
+        }
+        const held = await this.heldKeyFor(world);
+        if (held) return this.downloadWithKey(held, '');
+
+        let minted: MintedKey;
+        try {
+            minted = await mintVaultKey(token, world, this.app.vault.getName());
+        } catch (error) {
+            new Notice(`Download failed: ${error instanceof Error ? error.message : String(error)}`, 10000);
+            return null;
+        }
+        if (minted.readForWantOfPin) new Notice(NO_PIN_YET, 10000);
+        return this.downloadWithKey(minted.key, '');
+    }
+
+    /**
+     * An ow_ key in one of this vault's World.md files that is a live key of
+     * `world`: its last four characters are among the keys keel lists for the
+     * world (last4s only, a member's own), and keel opens `world` with it.
+     */
+    private async heldKeyFor(world: AccountWorld): Promise<string | null> {
+        const live = (world.keys ?? []).filter((k) => !k.revoked).map((k) => k.last4);
+        if (live.length === 0) return null;
+        const worlds = this.app.vault.getAbstractFileByPath(normalizePath('OnlyWorlds/Worlds'));
+        if (!(worlds instanceof TFolder)) return null;
+        for (const child of worlds.children) {
+            if (!(child instanceof TFolder)) continue;
+            const key = await worldFileApiKey(this.app, child.name);
+            if (!key || !/^ow_[rw]_/.test(key) || !live.some((l) => key.endsWith(l))) continue;
+            try {
+                const meta = await new V2Client(key, '').getWorld();
+                if (meta.id === world.id) return key;
+            } catch {
+                // a key keel no longer opens: not this world's
+            }
+        }
+        return null;
+    }
+
     async createFolderIfNeeded(folderPath: string) {
         const normalizedPath = normalizePath(folderPath);
         let existingFolder = this.app.vault.getAbstractFileByPath(normalizedPath);

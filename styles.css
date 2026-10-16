@@ -357,3 +357,51 @@
 .key-selection-submit-button:hover {
     background-color: var(--interactive-hover);
 }
+
+/* ==========================================================================
+   OnlyWorlds account (OW Infra #358): the Download World modal's list of the
+   account's worlds (Modals/AccountWorldList.ts) and its section around it.
+   ========================================================================== */
+.ow-account-section {
+    margin-bottom: 15px;
+}
+
+.ow-account-label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.ow-account-hint {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.ow-account-world {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.ow-account-world-role {
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
+
+.ow-account-divider {
+    margin: 15px 0;
+}
+
+.ow-join-input {
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+.ow-join-buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+}

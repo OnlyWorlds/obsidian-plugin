@@ -1,10 +1,19 @@
 import { App, Modal, Notice } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
+import { signedInLabel, type AccountWorld } from '../account/account-api';
+import { renderAccountWorlds } from './AccountWorldList';
 
 export interface WorldDownloadData {
     apiKey: string;
     /** 4-digit PIN as a string, or "" for a read key (which needs no PIN). */
     pin: string;
+}
+
+/** The signed-in account's worlds, offered beside the key-and-PIN form (OW Infra #358). */
+export interface WorldDownloadAccount {
+    username: string;
+    loadWorlds: () => Promise<AccountWorld[]>;
+    onPick: (world: AccountWorld) => void;
 }
 
 /** A read-capability key (`ow_r_`) or a demo key (0000000000–0000000009) reads
@@ -17,16 +26,43 @@ function isPinlessReadKey(apiKey: string): boolean {
 
 export class WorldDownloadModal extends Modal {
     onSubmit: (data: WorldDownloadData | null) => void;
+    private account: WorldDownloadAccount | null;
 
-    constructor(app: App, onSubmit: (data: WorldDownloadData | null) => void) {
+    constructor(app: App, onSubmit: (data: WorldDownloadData | null) => void, account?: WorldDownloadAccount) {
         super(app);
         this.onSubmit = onSubmit;
+        this.account = account ?? null;
     }
 
     onOpen() {
         let { contentEl } = this;
         contentEl.createEl('h3', { text: 'Download World from OnlyWorlds' });
         contentEl.addClass('world-download-modal');
+
+        // Signed in: the account's worlds first; the key-and-PIN form below is unchanged.
+        if (this.account) {
+            const account = this.account;
+            const section = contentEl.createDiv({ cls: 'ow-account-section' });
+            section.createEl('label', { text: 'From your account', cls: 'ow-account-label' });
+            section.createEl('p', {
+                text: `${signedInLabel(account.username)}. Pick a world: this vault gets its own key for it, named for the vault.`,
+                cls: 'ow-account-hint',
+            });
+            const list = section.createDiv();
+            list.createEl('p', { text: 'Loading your worlds…', cls: 'ow-account-hint' });
+            account.loadWorlds().then(
+                (worlds) => renderAccountWorlds(list, worlds, (w) => {
+                    this.close();
+                    account.onPick(w);
+                }),
+                (e: unknown) => {
+                    list.empty();
+                    list.createEl('p', { text: e instanceof Error ? e.message : 'Your worlds could not be read.', cls: 'ow-account-hint' });
+                }
+            );
+            contentEl.createEl('hr', { cls: 'ow-account-divider' });
+            contentEl.createEl('label', { text: 'Or with a key', cls: 'ow-account-label' });
+        }
 
         // Add description text
         const description = contentEl.createEl('p');

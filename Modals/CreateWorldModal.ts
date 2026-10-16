@@ -2,6 +2,7 @@ import { App, Modal, Notice, TFolder, normalizePath } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
 import { WorldService } from '../Scripts/WorldService';
 import { classifyWorldKey, worldFileApiKey } from '../vault/world-key';
+import { signedInLabel } from '../account/account-api';
 
 export interface WorldCreationData {
     name: string;
@@ -17,11 +18,14 @@ export interface WorldCreationData {
 export class CreateWorldModal extends Modal {
     onSubmit: (data: WorldCreationData | null) => void;
     private worldService: WorldService;
+    /** Signed in (OW Infra #358): the world goes under this account, and no email is asked. */
+    private account: { username: string } | null;
 
-    constructor(app: App, onSubmit: (data: WorldCreationData | null) => void) {
+    constructor(app: App, onSubmit: (data: WorldCreationData | null) => void, account?: { username: string }) {
         super(app);
         this.onSubmit = onSubmit;
         this.worldService = new WorldService(app);
+        this.account = account ?? null;
     }
 
     async onOpen() {
@@ -62,6 +66,11 @@ export class CreateWorldModal extends Modal {
         if (defaultEmail) {
             emailInput.value = defaultEmail;
         }
+        // Signed in: the account names the owner, so there is no email to give.
+        if (this.account) {
+            emailLabel.hide();
+            emailInput.hide();
+        }
         
         // PIN Field
         const pinLabel = contentEl.createEl('label', { text: 'OnlyWorlds PIN' });
@@ -91,7 +100,11 @@ export class CreateWorldModal extends Modal {
         
         // Description
         const description = contentEl.createEl('p', {
-            text: 'Email and PIN link the world to your OnlyWorlds account for syncing. ' +
+            text: this.account
+                ? `${signedInLabel(this.account.username)}: the world is created under that account. ` +
+                  'The PIN is your account PIN; an account without one yet takes this one. ' +
+                  'Or create a local-only world: everything stays in your vault.'
+                : 'Email and PIN link the world to your OnlyWorlds account for syncing. ' +
                   'No account? Create a local-only world — everything stays in your vault, ' +
                   'and you can add an API key to World.md later to enable sync.'
         });
@@ -138,7 +151,7 @@ export class CreateWorldModal extends Modal {
             publishLabel.style.fontWeight = 'bold';
 
             const publishDesc = contentEl.createEl('p', {
-                text: 'Creates the world on onlyworlds.com under your account (email and PIN above), ' +
+                text: 'Creates the world on onlyworlds.com under your account (' + (this.account ? 'the PIN above' : 'email and PIN above') + '), ' +
                       'links this vault\'s copy to it, and uploads your elements.'
             });
             publishDesc.style.fontSize = '0.85em';
@@ -162,7 +175,7 @@ export class CreateWorldModal extends Modal {
         nameInput.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                emailInput.focus();
+                (this.account ? pinInput : emailInput).focus();
             }
         });
         
@@ -192,8 +205,8 @@ export class CreateWorldModal extends Modal {
             return;
         }
         
-        // Validate email
-        if (!this.isValidEmail(email)) {
+        // Validate email (signed in: the account names the owner, no email)
+        if (!this.account && !this.isValidEmail(email)) {
             new Notice('Please enter a valid email address');
             return;
         }
@@ -209,7 +222,7 @@ export class CreateWorldModal extends Modal {
         this.close();
         this.onSubmit({
             name: name.trim(),
-            email: email.trim(),
+            email: this.account ? '' : email.trim(),
             pin: pin
         });
     }
@@ -249,7 +262,7 @@ export class CreateWorldModal extends Modal {
             new Notice('No local world selected');
             return;
         }
-        if (!this.isValidEmail(email)) {
+        if (!this.account && !this.isValidEmail(email)) {
             new Notice('Please enter a valid email address (account fields above are used to create the world online)');
             return;
         }
@@ -261,7 +274,7 @@ export class CreateWorldModal extends Modal {
         this.close();
         this.onSubmit({
             name: worldName,
-            email: email.trim(),
+            email: this.account ? '' : email.trim(),
             pin: pin,
             fromLocal: true
         });

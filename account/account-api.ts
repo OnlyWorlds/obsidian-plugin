@@ -1,0 +1,222 @@
+import { requestUrl, RequestUrlParam } from "obsidian";
+import { V2ApiError } from "../client-v2";
+
+/**
+ * Signing a vault in with an OnlyWorlds account (OW Infra #358).
+ *
+ * The credential is an account token (`ow_a_`, made on onlyworlds.com in
+ * Account settings under Account tokens), sent as `Authorization: Bearer`. It
+ * never goes on a world route: the account lists its worlds, and each world
+ * this vault downloads gets its own key, minted on the account and named for
+ * the vault, which then works like any pasted key (World.md, Save Element,
+ * auto-sync, the PIN asked only for a write).
+ *
+ * Routes, as keel's OpenAPI document declares them (accounts/api.py):
+ *   GET  /api/v2/account                        the profile (username)
+ *   GET  /api/v2/account/worlds                 owned and member worlds
+ *   POST /api/v2/account/worlds                 create a world {name, pin?}
+ *   POST /api/v2/account/worlds/{id}/keys       mint a key {scope, name}; for a
+ *        member keel binds it to their own membership (409 pin_required when a
+ *        member without an account PIN asks for a write key)
+ *
+ * Reference: Lantern's src/account.ts (Forge), which does the same on a phone.
+ */
+
+export const API_V2 = "https://www.onlyworlds.com/api/v2";
+
+export interface AccountWorldKey {
+	name: string;
+	last4: string;
+	scope: string;
+	revoked: boolean;
+}
+
+export interface AccountWorld {
+	id: string;
+	name: string;
+	/** keel's recorded value: "owner", or "collaborator" for a membership. */
+	role: "owner" | "collaborator";
+	/** A membership's role; absent for the owner. A guest is a player. */
+	member_role?: "co_builder" | "contributor" | "guest";
+	public_read?: boolean;
+	/** last4s only (a member sees only their own keys); never a full key. */
+	keys?: AccountWorldKey[];
+}
+
+export interface MintedKey {
+	key: string;
+	scope: "write" | "read";
+	/** A member whose account has no PIN yet: keel refused the write key, so this one reads. */
+	readForWantOfPin: boolean;
+}
+
+/** One request to keel's v2 surface over Obsidian's requestUrl. Errors are keel's envelope, as V2ApiError. */
+export async function owRequest<T>(
+	method: string,
+	path: string,
+	opts: { token?: string; body?: unknown } = {}
+): Promise<T> {
+	const headers: Record<string, string> = { "Content-Type": "application/json" };
+	if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+	const req: RequestUrlParam = { url: `${API_V2}${path}`, method, headers, throw: false };
+	if (opts.body !== undefined) req.body = JSON.stringify(opts.body);
+
+	const response = await requestUrl(req);
+	if (response.status >= 400) {
+		let code = `http_${response.status}`;
+		let message = `API error ${response.status}`;
+		let docUrl: string | null = null;
+		let param: string | null = null;
+		try {
+			const parsed = JSON.parse(response.text) as {
+				error?: { code?: string; message?: string; doc_url?: string; param?: string };
+			} | null;
+			const e = parsed && typeof parsed === "object" ? parsed.error : undefined;
+			if (e) {
+				code = e.code ?? code;
+				message = e.message ?? message;
+				docUrl = e.doc_url ?? null;
+				param = e.param ?? null;
+			}
+		} catch {
+			/* not keel's envelope: the status says enough */
+		}
+		const err = new V2ApiError(response.status, code, message, docUrl);
+		(err as V2ApiError & { param: string | null }).param = param;
+		throw err;
+	}
+	if (response.status === 204) return undefined as unknown as T;
+	return response.json as T;
+}
+
+export function isAccountToken(token: string): boolean {
+	return token.trim().startsWith("ow_a_");
+}
+
+export const NOT_A_TOKEN = "That is not an account token. Account tokens start with ow_a_.";
+
+function networkWords(e: unknown, fallback: string): Error {
+	if (e instanceof V2ApiError) {
+		if (e.status === 401) return new Error("OnlyWorlds does not know that token: it was revoked, or copied wrong. Make a new one on onlyworlds.com, in Account settings under Account tokens.");
+		if (e.status === 429) return new Error("Too many requests. Try again in a minute.");
+		return new Error(e.message || fallback);
+	}
+	if (e instanceof Error && e.message) return new Error(`${fallback} (${e.message})`);
+	return new Error(fallback);
+}
+
+/** Check a token against keel (GET /account) and say who it is. Sends nothing for a non-token. */
+export async function checkAccountToken(token: string): Promise<{ username: string }> {
+	const t = token.trim();
+	if (!isAccountToken(t)) throw new Error(NOT_A_TOKEN);
+	let me: { username?: string };
+	try {
+		me = await owRequest<{ username?: string }>("GET", "/account", { token: t });
+	} catch (e) {
+		throw networkWords(e, "Signing in did not work. Try again.");
+	}
+	return { username: me?.username || "your account" };
+}
+
+export function signedInLabel(username: string): string {
+	return `Signed in as ${username}`;
+}
+
+interface AccountStore {
+	settings: { accountToken: string; accountUsername: string };
+	saveSettings(): Promise<void>;
+}
+
+/** Check the token, then keep it and its username. Nothing is kept for a token keel refuses. */
+export async function signIn(store: AccountStore, token: string): Promise<string> {
+	const t = token.trim();
+	const { username } = await checkAccountToken(t);
+	store.settings.accountToken = t;
+	store.settings.accountUsername = username;
+	await store.saveSettings();
+	return username;
+}
+
+/** Forget the token. The world keys already in World.md stay: they are the worlds', not the token's. */
+export async function signOut(store: AccountStore): Promise<void> {
+	store.settings.accountToken = "";
+	store.settings.accountUsername = "";
+	await store.saveSettings();
+}
+
+export async function listAccountWorlds(token: string): Promise<AccountWorld[]> {
+	try {
+		const res = await owRequest<{ data?: AccountWorld[] }>("GET", "/account/worlds", { token });
+		return Array.isArray(res?.data) ? res.data : [];
+	} catch (e) {
+		throw networkWords(e, "Your worlds could not be read. Try again.");
+	}
+}
+
+/** The role in words, as the world list shows it. */
+export function roleWords(w: AccountWorld): string {
+	if (w.role === "owner") return "Owner";
+	if (w.member_role === "co_builder") return "Co-builder";
+	if (w.member_role === "contributor") return "Contributor";
+	if (w.member_role === "guest") return "Player";
+	return "Member";
+}
+
+/** The name a minted key carries on the account's keys page, so it can be found and revoked there. */
+export function vaultKeyName(vaultName: string): string {
+	return `obsidian: ${vaultName}`;
+}
+
+/**
+ * Mint this vault's key for a world on the account: a write key for an owner,
+ * a co-builder or a contributor (keel binds a member's key to their own
+ * membership on the same route), a read key for a player (guest). A member
+ * whose account has no PIN yet is refused a write key (409 pin_required) and
+ * reads until they set one, as on Lantern.
+ */
+export async function mintVaultKey(token: string, world: AccountWorld, vaultName: string): Promise<MintedKey> {
+	const name = vaultKeyName(vaultName);
+	const path = `/account/worlds/${encodeURIComponent(world.id)}/keys`;
+	const mint = (scope: "write" | "read") => owRequest<{ key: string }>("POST", path, { token, body: { scope, name } });
+	if (world.member_role === "guest") {
+		return { key: (await mint("read")).key, scope: "read", readForWantOfPin: false };
+	}
+	try {
+		return { key: (await mint("write")).key, scope: "write", readForWantOfPin: false };
+	} catch (e) {
+		if (e instanceof V2ApiError && e.code === "pin_required" && world.role !== "owner") {
+			return { key: (await mint("read")).key, scope: "read", readForWantOfPin: true };
+		}
+		throw networkWords(e, `A key for ${world.name} could not be made. Try again.`);
+	}
+}
+
+export const NO_PIN_YET =
+	"Your account has no PIN yet, so this vault reads the world for now. Set a PIN on onlyworlds.com, in Account settings, then download the world again to write.";
+
+/**
+ * Create a world on the account (POST /account/worlds). keel wants `pin` only
+ * from an account that has none yet (it becomes the account PIN) and refuses
+ * it from one that has (422, param pin both ways), so the PIN is sent only
+ * when keel says the account has none.
+ */
+export async function createAccountWorld(
+	token: string,
+	name: string,
+	pin: string
+): Promise<{ id: string; name: string; key: string }> {
+	type Created = { id: string; name: string; key: string };
+	try {
+		return await owRequest<Created>("POST", "/account/worlds", { token, body: { name } });
+	} catch (e) {
+		const param = (e as { param?: string | null }).param;
+		if (e instanceof V2ApiError && e.status === 422 && param === "pin" && pin) {
+			try {
+				return await owRequest<Created>("POST", "/account/worlds", { token, body: { name, pin } });
+			} catch (e2) {
+				throw networkWords(e2, "The world could not be created. Try again.");
+			}
+		}
+		throw networkWords(e, "The world could not be created. Try again.");
+	}
+}

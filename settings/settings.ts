@@ -22,6 +22,14 @@ export interface OnlyWorldsPluginSettings {
 	 * (restore-from-backup) — a lower head than stored forces a cold re-walk.
 	 */
 	syncCursors: Record<string, { cursor: string; head: number }>;
+
+	/**
+	 * An OnlyWorlds account token (`ow_a_`), kept like the API key (masked in
+	 * the UI), and the username it signed in as. Empty: not signed in, and every
+	 * command works as it did before accounts (key and PIN per world).
+	 */
+	accountToken: string;
+	accountUsername: string;
 }
 
 export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
@@ -37,4 +45,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	showStatusBar: true,
 
 	syncCursors: {},
+
+	accountToken: "",
+	accountUsername: "",
 };

@@ -5,6 +5,7 @@ import { UpdateWorldFormatCommand } from 'Commands/UpdateWorldFormatCommand';
 import { CreateElementCommand } from 'Commands/CreateElementCommand';
 import { CreateWorldCommand } from 'Commands/CreateWorldCommand';
 import { DownloadWorldCommand } from 'Commands/DownloadWorldCommand';
+import { JoinWorldCommand } from './Commands/JoinWorldCommand';
 import { ExportWorldCommand } from 'Commands/ExportWorldCommand';
 import { PasteWorldCommand } from 'Commands/PasteWorldCommand';
 import { RenameWorldCommand } from 'Commands/RenameWorldCommand';
@@ -138,7 +139,13 @@ export default class OnlyWorldsPlugin extends Plugin {
         // 2.2.0 had restored this pull path on the legacy worldsync route.
         const downloadWorldCommand = new DownloadWorldCommand(this.app, this.manifest, this);
         const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
-        const createWorldCommand = new CreateWorldCommand(this.app, this.manifest, sendWorldCommand);
+        // Signed in (OW Infra #358), Create World online goes through the account.
+        const createWorldCommand = new CreateWorldCommand(this.app, this.manifest, sendWorldCommand, () =>
+            this.settings.accountToken
+                ? { token: this.settings.accountToken, username: this.settings.accountUsername }
+                : null
+        );
+        const joinWorldCommand = new JoinWorldCommand(this.app, this, downloadWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
@@ -158,6 +165,13 @@ export default class OnlyWorldsPlugin extends Plugin {
             id: 'download-world',
             name: 'Download World',
             callback: () => downloadWorldCommand.execute(),
+        });
+
+             // A join link (person, player); no default hotkey
+        this.addCommand({
+            id: 'join-world-link',
+            name: 'Join a world with a link',
+            callback: () => joinWorldCommand.execute(),
         });
 
              // Register a command to create a new world and OW file structures
