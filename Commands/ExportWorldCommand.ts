@@ -1,7 +1,7 @@
-import { ValidateExportResultModal } from 'Modals/ValidateExportResultModal';
-import { WorldPinSelectionModal } from 'Modals/WorldPinSelectionModal';
+import { ValidateExportResultModal } from '../Modals/ValidateExportResultModal';
+import { WorldPinSelectionModal } from '../Modals/WorldPinSelectionModal';
 import { App, normalizePath, Notice, PluginManifest, TFile } from 'obsidian';
-import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
+import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
@@ -155,16 +155,40 @@ export class ExportWorldCommand {
             // Progress feedback — the sweep can run for a minute on a big world.
             new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
 
-            // Creates first (atomic /bulk — FK targets exist before updates run).
+            // Creates first (/bulk — FK targets exist before updates run; links
+            // among the batch's own items resolve server-side).
+            //
+            // ★ Count what keel ANSWERED, item by item. /bulk is HTTP 200 always,
+            // non-atomic by default, with one result per item in request order:
+            // { errors, items: [{ status: 201 created | 200 replaced | <error>,
+            // id, error? }] } (keel core/bulk_api.py BulkResult). Counting
+            // toCreate.length reported every refused item as created (OW Infra
+            // #166 row 9). An item with no result is a failure, never a guess.
             let created = 0;
+            let replaced = 0;
+            const failures: string[] = [];
             if (toCreate.length > 0) {
-                await client.bulkCreate(toCreate);
-                created = toCreate.length;
+                const body = await client.bulkCreate(toCreate);
+                const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
+                toCreate.forEach((item, i) => {
+                    const r = (results[i] ?? null) as { status?: unknown; error?: { message?: unknown } } | null;
+                    const status = typeof r?.status === 'number' ? r.status : null;
+                    if (status === 201) {
+                        created++;
+                    } else if (status === 200) {
+                        replaced++; // the id already existed: keel replaced it
+                    } else {
+                        const name = item.element.name ? String(item.element.name) : String(item.element.id);
+                        const why = typeof r?.error?.message === 'string'
+                            ? r.error.message
+                            : status !== null ? `status ${status}` : 'no result from the server';
+                        failures.push(`${item.type} "${name}": ${why}`);
+                    }
+                });
             }
 
             // Updates, per element; collect failures instead of aborting the sweep.
             let updated = 0;
-            const failures: string[] = [];
             const progressEvery = 50;
             for (const item of toUpdate) {
                 try {
@@ -193,7 +217,8 @@ export class ExportWorldCommand {
                 unitsNote = ` World units not sent: ${why}.`;
             }
 
-            let summary = `Upload complete: ${created} created, ${updated} updated.${unitsNote}`;
+            const failedNote = failures.length > 0 ? `, ${failures.length} failed` : '';
+            let summary = `Upload complete: ${created} created, ${updated + replaced} updated${failedNote}.${unitsNote}`;
             if (serverOnly > 0) {
                 summary += ` ${serverOnly} element${serverOnly === 1 ? '' : 's'} exist only on the server (not deleted).`;
             }
