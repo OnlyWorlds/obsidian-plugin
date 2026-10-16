@@ -45,6 +45,8 @@ export interface AccountWorld {
 
 export interface MintedKey {
 	key: string;
+	/** The key's id on the account (for revoking it), when keel says it. */
+	id?: string;
 	scope: "write" | "read";
 	/** A member whose account has no PIN yet: keel refused the write key, so this one reads. */
 	readForWantOfPin: boolean;
@@ -177,18 +179,50 @@ export function vaultKeyName(vaultName: string): string {
 export async function mintVaultKey(token: string, world: AccountWorld, vaultName: string): Promise<MintedKey> {
 	const name = vaultKeyName(vaultName);
 	const path = `/account/worlds/${encodeURIComponent(world.id)}/keys`;
-	const mint = (scope: "write" | "read") => owRequest<{ key: string }>("POST", path, { token, body: { scope, name } });
-	if (world.member_role === "guest") {
-		return { key: (await mint("read")).key, scope: "read", readForWantOfPin: false };
-	}
+	const mint = async (scope: "write" | "read", readForWantOfPin: boolean): Promise<MintedKey> => {
+		const k = await owRequest<{ key: string; id?: string }>("POST", path, { token, body: { scope, name } });
+		return { key: k.key, id: k.id, scope, readForWantOfPin };
+	};
+	if (world.member_role === "guest") return mint("read", false);
 	try {
-		return { key: (await mint("write")).key, scope: "write", readForWantOfPin: false };
+		return await mint("write", false);
 	} catch (e) {
 		if (e instanceof V2ApiError && e.code === "pin_required" && world.role !== "owner") {
-			return { key: (await mint("read")).key, scope: "read", readForWantOfPin: true };
+			return mint("read", true);
 		}
 		throw networkWords(e, `A key for ${world.name} could not be made. Try again.`);
 	}
+}
+
+/** POST /account/worlds's 201: the world row (keys as last4s) and its write key, shown once. */
+export interface CreatedWorld {
+	id: string;
+	name: string;
+	key?: string;
+	keys?: AccountWorldKey[];
+}
+
+/** A full write key's secret, as keel shows it once (ow_w_ and more than a prefix). */
+export function isFullWriteKey(key: unknown): key is string {
+	return typeof key === "string" && /^ow_w_\S{4,}$/.test(key);
+}
+
+/**
+ * Revoke the keys of a just-created world that are not `keepId`: those whose
+ * last4 the create answer listed (the create route's own key). Used only when
+ * that key could not serve as the vault's (no full write secret in the answer).
+ */
+export async function revokeCreateKeys(token: string, created: CreatedWorld, keepId: string | undefined): Promise<number> {
+	const last4s = (created.keys ?? []).map((k) => k.last4);
+	const path = `/account/worlds/${encodeURIComponent(created.id)}/keys`;
+	const listed = await owRequest<{ data?: Array<{ id: string; last4: string; revoked: boolean }> }>("GET", path, { token });
+	let n = 0;
+	for (const k of listed?.data ?? []) {
+		if (k.revoked || k.id === keepId || !last4s.includes(k.last4)) continue;
+		await owRequest("DELETE", `${path}/${encodeURIComponent(k.id)}`, { token });
+		n++;
+	}
+	return n;
 }
 
 export const NO_PIN_YET =
@@ -204,8 +238,8 @@ export async function createAccountWorld(
 	token: string,
 	name: string,
 	pin: string
-): Promise<{ id: string; name: string; key: string }> {
-	type Created = { id: string; name: string; key: string };
+): Promise<CreatedWorld> {
+	type Created = CreatedWorld;
 	try {
 		return await owRequest<Created>("POST", "/account/worlds", { token, body: { name } });
 	} catch (e) {

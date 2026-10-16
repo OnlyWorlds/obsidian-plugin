@@ -390,7 +390,7 @@ test("an agent code is refused with words: it is for an AI, not a vault", async 
 
 // --- 4. Create World online ----------------------------------------------------
 
-test("Create World online, signed in: the account's create-world route, then a key minted for the vault", async () => {
+test("Create World online, signed in: the account's create-world route, and its own write key is the vault's (no second key)", async () => {
 	keel({
 		answers: {
 			...accountAnswers(),
@@ -405,9 +405,38 @@ test("Create World online, signed in: the account's create-world route, then a k
 	assert.equal(create.length, 1);
 	assert.equal(create[0].headers.Authorization, `Bearer ${TOKEN}`);
 	assert.deepEqual(JSON.parse(create[0].body ?? "{}"), { name: "Fresh" }, "the PIN went where keel did not ask for it");
-	assert.equal(JSON.parse(sent(`/account/worlds/${OWNED}/keys`)[0].body ?? "{}").name, "obsidian: Test Vault");
-	assert.equal(res.api_key, "ow_w_minted_hyperion");
+	assert.equal(sent(`/account/worlds/${OWNED}/keys`).length, 0, "a second key was made on the account");
+	assert.equal(res.api_key, "ow_w_created_by_create");
 	assert.ok(!__requests.some((r) => r.url.includes("worldsync")), "the old route was called");
+});
+
+test("Create World online, signed in, a create answer without a full write key: mint the vault's key, then revoke the create key", async () => {
+	keel({
+		answers: {
+			...accountAnswers(),
+			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [{ name: "", last4: "ab12", scope: "WRITE", revoked: false }] } },
+			[`GET /account/worlds/${OWNED}/keys`]: {
+				status: 200,
+				json: { data: [
+					{ id: "k0", name: "", last4: "ab12", scope: "WRITE", revoked: false },
+					{ id: "k1", name: "obsidian: Test Vault", last4: "rion", scope: "WRITE", revoked: false },
+				] },
+			},
+			[`DELETE /account/worlds/${OWNED}/keys/k0`]: { status: 204 },
+		},
+	});
+	const { app } = makeApp();
+	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }));
+	const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin: 1234 });
+	assert.equal(res.api_key, "ow_w_minted_hyperion");
+	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0, "the create key went before the vault key landed");
+	await res.afterLanding();
+	const mint = sent(`/account/worlds/${OWNED}/keys`).filter((r) => r.method === "POST");
+	assert.equal(JSON.parse(mint[0].body ?? "{}").name, "obsidian: Test Vault");
+	const revoked = __requests.filter((r) => r.method === "DELETE");
+	assert.equal(revoked.length, 1);
+	assert.equal(pathOf(revoked[0].url), `/account/worlds/${OWNED}/keys/k0`);
+	assert.equal(revoked[0].headers.Authorization, `Bearer ${TOKEN}`);
 });
 
 test("Create World online, signed in, an account with no PIN yet: keel asks (422 param pin), the PIN goes once", async () => {
