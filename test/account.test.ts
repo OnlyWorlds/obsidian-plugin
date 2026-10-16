@@ -259,7 +259,9 @@ test("download from the account: mint for the vault, download with it, the key l
 	assert.ok(vault.getMarkdownFiles().some((f) => f.path.includes("Hero of Hyperion")));
 });
 
-test("downloading the same account world again reuses the vault's key, no second mint", async () => {
+// A held WRITE key is reused; a held READ key is upgraded when the role can
+// write (the next test), and kept when keel still wants a PIN (the one after).
+test("downloading the same account world again reuses the vault's write key, no second mint", async () => {
 	const { app, vault } = makeApp();
 	const plugin = fakePlugin(app, true);
 	const cmd = new DownloadWorldCommand(app, { version: "test" }, plugin);
@@ -271,6 +273,52 @@ test("downloading the same account world again reuses the vault's key, no second
 	assert.equal(again, "Hyperion", __notices.join(" / "));
 	assert.equal(sent(`/account/worlds/${OWNED}/keys`).length, 0, "a second key was minted");
 	assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion (1)"), null);
+});
+
+test("downloading again holding only a READ key, as a role that can write: a write key is minted, replaces it in World.md, and the read key is revoked (Kael 3.2)", async () => {
+	const { app, vault } = makeApp();
+	const plugin = fakePlugin(app, true);
+	const cmd = new DownloadWorldCommand(app, { version: "test" }, plugin);
+	keel({ answers: accountAnswers() });
+	assert.equal(await cmd.downloadWithKey("ow_r_hyperion_rk01", ""), "Hyperion"); // read for want of a PIN, earlier
+	const listedKeys = { data: [{ id: "kr1", last4: "rk01", scope: "READ", revoked: false }, { id: "k1", last4: "rion", scope: "WRITE", revoked: false }] };
+	keel({
+		answers: {
+			...accountAnswers(),
+			[`GET /account/worlds/${OWNED}/keys`]: { status: 200, json: listedKeys },
+			[`DELETE /account/worlds/${OWNED}/keys/kr1`]: { status: 204 },
+		},
+	});
+	const again = await cmd.downloadAccountWorld(WORLDS[0]); // the owner: can write
+	assert.equal(again, "Hyperion", __notices.join(" / "));
+	const mints = sent(`/account/worlds/${OWNED}/keys`).filter((r) => r.method === "POST");
+	assert.equal(mints.length, 1);
+	assert.equal(JSON.parse(mints[0].body ?? "{}").scope, "write");
+	assert.match(worldMd(vault, "Hyperion"), /- \*\*API Key:\*\* ow_w_minted_hyperion/);
+	const deletes = __requests.filter((r) => r.method === "DELETE").map((r) => pathOf(r.url));
+	assert.deepEqual(deletes, [`/account/worlds/${OWNED}/keys/kr1`]);
+	assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion (1)"), null);
+});
+
+test("a held read key, still no account PIN: no new key, the read key stays, and the user is told (Kael 3.2)", async () => {
+	const { app, vault } = makeApp();
+	const plugin = fakePlugin(app, true);
+	const cmd = new DownloadWorldCommand(app, { version: "test" }, plugin);
+	keel({ answers: accountAnswers() });
+	await cmd.downloadWithKey("ow_r_sikelia_rk02", "");
+	keel({
+		answers: accountAnswers(),
+		route: (r, path) =>
+			r.method === "POST" && path === `/account/worlds/${SHARED}/keys`
+				? { status: 409, json: { error: { code: "pin_required", message: "pin" } } }
+				: undefined,
+	});
+	__notices.length = 0;
+	assert.equal(await cmd.downloadAccountWorld(WORLDS[1]), "Sikelia");
+	const posts = sent(`/account/worlds/${SHARED}/keys`).filter((r) => r.method === "POST");
+	assert.deepEqual(posts.map((r) => JSON.parse(r.body ?? "{}").scope), ["write"], "a read key was minted on top");
+	assert.match(worldMd(vault, "Sikelia"), /- \*\*API Key:\*\* ow_r_sikelia_rk02/);
+	assert.ok(__notices.some((n) => /no PIN yet/.test(n)));
 });
 
 test("a world already in the vault under a legacy key, or a key the account does not list, is found by its id: no mint, no 'Name (1)' (Kael 3.4)", async () => {

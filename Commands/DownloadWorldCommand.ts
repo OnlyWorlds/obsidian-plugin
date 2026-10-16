@@ -1,7 +1,17 @@
 import Handlebars from 'handlebars';
 import { WorldDownloadAccount, WorldDownloadData, WorldDownloadModal } from '../Modals/WorldDownloadModal';
-import { AccountWorld, MintedKey, NO_PIN_YET, listAccountWorlds, mintVaultKey } from '../account/account-api';
-import { LOCAL_WORLD_KEY_TOKEN, worldFileApiKey } from '../vault/world-key';
+import {
+    AccountWorld,
+    MintedKey,
+    NO_PIN_YET,
+    REVOKE_BY_HAND,
+    canWrite,
+    listAccountWorlds,
+    mintVaultKey,
+    mintWriteKey,
+    revokeAccountKey,
+} from '../account/account-api';
+import { LOCAL_WORLD_KEY_TOKEN, isReadKey, worldFileApiKey, writeWorldFileApiKey } from '../vault/world-key';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from '../Scripts/WorldDataTemplate';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
@@ -216,7 +226,16 @@ export class DownloadWorldCommand {
             return null;
         }
         const held = await this.heldKeyFor(world);
-        if (held) return this.downloadWithKey(held.key, '');
+        if (held) {
+            // A read key held by a role that can write (read for want of a PIN,
+            // earlier): the advice was "set a PIN, then download again to
+            // write", so this download upgrades it (Kael's review 3.2).
+            if (isReadKey(held.key) && canWrite(world)) {
+                const upgraded = await this.upgradeToWriteKey(token, world, held);
+                return this.downloadWithKey(upgraded ?? held.key, '');
+            }
+            return this.downloadWithKey(held.key, '');
+        }
 
         let minted: MintedKey;
         try {
@@ -227,6 +246,43 @@ export class DownloadWorldCommand {
         }
         if (minted.readForWantOfPin) new Notice(NO_PIN_YET, 10000);
         return this.downloadWithKey(minted.key, '');
+    }
+
+    /**
+     * Mint a write key for a world this vault holds under a read key, put it in
+     * that world's World.md in place of the read key, then revoke the read key
+     * (best effort: a failure says to revoke it on onlyworlds.com). Returns the
+     * new key, or null when keel still refuses a write key (no account PIN yet)
+     * or World.md could not take it; the read key then stays as it was.
+     */
+    private async upgradeToWriteKey(token: string, world: AccountWorld, held: { key: string; folder: string }): Promise<string | null> {
+        let minted: MintedKey | null;
+        try {
+            minted = await mintWriteKey(token, world, this.app.vault.getName());
+        } catch (error) {
+            new Notice(`No write key for ${world.name}: ${error instanceof Error ? error.message : String(error)}`, 10000);
+            return null;
+        }
+        if (!minted) {
+            new Notice(NO_PIN_YET, 10000);
+            return null;
+        }
+        if (!(await writeWorldFileApiKey(this.app, held.folder, minted.key))) {
+            // Nowhere to keep it: do not leave a live key no vault holds.
+            try {
+                await revokeAccountKey(token, world.id, { id: minted.id, last4: minted.key.slice(-4), scope: 'write' });
+            } catch {
+                /* the new key is named for this vault on the account's keys page */
+            }
+            return null;
+        }
+        try {
+            await revokeAccountKey(token, world.id, { last4: held.key.slice(-4), scope: 'read' }, minted.id);
+        } catch {
+            new Notice(REVOKE_BY_HAND(world.name), 10000);
+        }
+        new Notice(`${world.name} can now be written from this vault.`);
+        return minted.key;
     }
 
     /**

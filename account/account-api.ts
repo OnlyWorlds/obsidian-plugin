@@ -194,6 +194,58 @@ export async function mintVaultKey(token: string, world: AccountWorld, vaultName
 	}
 }
 
+/** True when the account's role on `world` can write: the owner, a co-builder, a contributor. */
+export function canWrite(world: AccountWorld): boolean {
+	return world.role === "owner" || world.member_role === "co_builder" || world.member_role === "contributor";
+}
+
+/**
+ * Mint a WRITE key for this vault, or null when keel refuses it for want of an
+ * account PIN (409 pin_required). Never falls back to a read key: the caller
+ * already holds one (Kael's review 3.2).
+ */
+export async function mintWriteKey(token: string, world: AccountWorld, vaultName: string): Promise<MintedKey | null> {
+	const path = `/account/worlds/${encodeURIComponent(world.id)}/keys`;
+	try {
+		const k = await owRequest<{ key: string; id?: string }>("POST", path, {
+			token,
+			body: { scope: "write", name: vaultKeyName(vaultName) },
+		});
+		return { key: k.key, id: k.id, scope: "write", readForWantOfPin: false };
+	} catch (e) {
+		if (e instanceof V2ApiError && e.code === "pin_required") return null;
+		throw networkWords(e, `A key for ${world.name} could not be made. Try again.`);
+	}
+}
+
+/**
+ * Revoke one of the account's keys on `worldId`: by its id when known, else
+ * every live key with this last4 (and scope, when given) except `keepId`.
+ * Returns how many were revoked; 0 when the account does not list the key
+ * (a player link's key is the link's, not the account's).
+ */
+export async function revokeAccountKey(
+	token: string,
+	worldId: string,
+	match: { id?: string; last4?: string; scope?: "read" | "write" },
+	keepId?: string
+): Promise<number> {
+	const path = `/account/worlds/${encodeURIComponent(worldId)}/keys`;
+	if (match.id) {
+		await owRequest("DELETE", `${path}/${encodeURIComponent(match.id)}`, { token });
+		return 1;
+	}
+	const listed = await owRequest<{ data?: Array<{ id: string; last4: string; scope?: string; revoked: boolean }> }>("GET", path, { token });
+	let n = 0;
+	for (const k of listed?.data ?? []) {
+		if (k.revoked || k.id === keepId || k.last4 !== match.last4) continue;
+		if (match.scope && k.scope && k.scope.toLowerCase() !== match.scope) continue;
+		await owRequest("DELETE", `${path}/${encodeURIComponent(k.id)}`, { token });
+		n++;
+	}
+	return n;
+}
+
 /** POST /account/worlds's 201: the world row (keys as last4s) and its write key, shown once. */
 export interface CreatedWorld {
 	id: string;
@@ -227,6 +279,9 @@ export async function revokeCreateKeys(token: string, created: CreatedWorld, kee
 
 export const NO_PIN_YET =
 	"Your account has no PIN yet, so this vault reads the world for now. Set a PIN on onlyworlds.com, in Account settings, then download the world again to write.";
+
+export const REVOKE_BY_HAND = (world: string) =>
+	`The old read key for ${world} could not be revoked from here: revoke it on onlyworlds.com, in Account settings under the world's keys.`;
 
 /**
  * Create a world on the account (POST /account/worlds). keel wants `pin` only
