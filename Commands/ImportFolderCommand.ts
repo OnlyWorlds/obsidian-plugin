@@ -121,7 +121,7 @@ export class ImportFolderCommand {
 		}
 
 		// Pass 1 — parse every element, build the id -> ref index for ow:// resolution.
-		const parsed: { type: string; payload: Record<string, unknown> }[] = [];
+		const parsed: { type: string; payload: Record<string, unknown>; carried: Record<string, unknown> }[] = [];
 		const idIndex = new Map<string, ElementRef>();
 		const failed: { path: string; reason: string }[] = [];
 		for (const file of elementFiles) {
@@ -130,14 +130,14 @@ export class ImportFolderCommand {
 				// Fallback type from the containing bucket folder: <dir>/<bucket>/<type>/file.
 				const rel = file.path.slice(dir.length + 1); // strip "<dir>/"
 				const fallbackType = normalizeCategory(rel.split("/")[1] ?? "");
-				const { type, payload } = parseFolderElementBody(json, fallbackType);
+				const { type, payload, carried } = parseFolderElementBody(json, fallbackType);
 				const id = payload.id;
 				const name = payload.name;
 				if (!isUuid(id) || typeof name !== "string") {
 					failed.push({ path: file.path, reason: "missing valid id or name" });
 					continue;
 				}
-				parsed.push({ type, payload });
+				parsed.push({ type, payload, carried });
 				idIndex.set(id, { id, name, type });
 			} catch (e) {
 				failed.push({ path: file.path, reason: e instanceof Error ? e.message : String(e) });
@@ -156,6 +156,7 @@ export class ImportFolderCommand {
 		const notePathOwner = new Map<string, string>(); // note path -> element id, this run
 		let createdMarker = existingId !== null;
 		let wroteWorldFields = false;
+		const carriedById = new Map<string, Record<string, unknown>>();
 		for (const el of parsed) {
 			const id = String(el.payload.id);
 			if (existingIds.has(id)) {
@@ -185,6 +186,7 @@ export class ImportFolderCommand {
 				}
 				notePathOwner.set(file.path, id);
 				result.created.push(id);
+				carriedById.set(id, el.carried);
 				existingIds.add(id);
 				// Stamp the world-id marker once, after the first successful write
 				// (so the folder exists) — makes the id-mismatch guard stable.
@@ -199,6 +201,21 @@ export class ImportFolderCommand {
 			} catch (e) {
 				result.failed.push({ path: id, reason: e instanceof Error ? e.message : String(e) });
 			}
+		}
+
+		// What each created element carried that its note has no home for (server
+		// and sync fields), kept for the folder export (OW Infra #166 row 6).
+		// Skipped elements keep whatever an earlier import recorded.
+		if (carriedById.size > 0) {
+			const sidecar = await readFolderSidecar(this.app, targetWorld);
+			const elements = { ...(sidecar.elements ?? {}) };
+			for (const id of result.created) {
+				const carried = carriedById.get(id);
+				if (carried && Object.keys(carried).length > 0) elements[id] = carried;
+				else delete elements[id];
+			}
+			sidecar.elements = elements;
+			await writeFolderSidecar(this.app, targetWorld, sidecar);
 		}
 
 		new ImportReportModal(this.app, targetWorld, result).open();

@@ -15,8 +15,10 @@
  *   (a) world.json carries `id` + `name` (+ world meta).
  *   (b) spatial types (map/pin/zone/marker) live under spatial/<type>/, all
  *       others under elements/<type>/.
- *   (c) every element body carries in-file `type`, `local_updated_at`,
- *       `created_at` — the FOLDER dialect only; these never ride the API/bulk.
+ *   (c) every element body carries in-file `type` (the FOLDER dialect only; it
+ *       never rides the API/bulk). No timestamp is minted: server and sync
+ *       fields an import carried are written back as received, nothing else
+ *       (OW Infra #166 row 6, spec §4.1/§5).
  *   (d) folder name = <slug>-<first 8 chars of world id>; element files =
  *       <slug>--<8-char id tail>.json (filename = presentation, id = identity).
  *
@@ -26,6 +28,7 @@
  * `[[name]]`. On import the reverse; an ow:// whose uuid does not resolve is
  * KEPT VERBATIM (never destroy a reference).
  */
+import { getCategorySchema, isExtensionKey } from "./element-transform";
 
 /**
  * Spatial types — copied verbatim from folder.js SPATIAL_TYPES. Atlas's reader
@@ -34,11 +37,33 @@
 export const SPATIAL_TYPES = new Set(["map", "pin", "zone", "marker"]);
 
 /**
- * The three fields the folder dialect stamps into every element body that the
- * API dialect does NOT carry (folder.js: without `type` in the body Atlas shows
- * an empty world). Stamped on the folder-write path only.
+ * Keys of a folder element body that a note has no home for: anything that is
+ * not `id`, `name` or `type`, not a schema field of the element's type and not
+ * an extension key. In practice the server's and Atlas's own fields
+ * (`created_at`, `updated_at`, `change_seq`, `created_by`, `local_updated_at`,
+ * `server_updated_at`, `image_media_id`). The note would drop them (and must:
+ * an upload must never send them), so the import keeps them in the folder
+ * sidecar and the export writes them back as received (spec §4.1: a writer MUST
+ * NOT drop data it has, MUST NOT synthesize a timestamp it does not have;
+ * §4.2/§5: server fields kept as received). OW Infra #166 row 6.
+ *
+ * An unknown type (no schema) carries nothing here: the note passes every key
+ * of an unknown type through as it is.
  */
-export const FOLDER_BODY_STAMP_KEYS = ["type", "local_updated_at", "created_at"] as const;
+export function splitCarriedFields(
+	type: string,
+	payload: Record<string, unknown>
+): { payload: Record<string, unknown>; carried: Record<string, unknown> } {
+	const schema = getCategorySchema(type);
+	if (!schema) return { payload: { ...payload }, carried: {} };
+	const kept: Record<string, unknown> = {};
+	const carried: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(payload)) {
+		if (k === "id" || k === "name" || isExtensionKey(k) || k in schema) kept[k] = v;
+		else carried[k] = v;
+	}
+	return { payload: kept, carried };
+}
 
 /**
  * Slugify a name for filesystem use — transcribed from folder.js `slugify` so
@@ -139,47 +164,48 @@ export function owMentionsToWikilinks(
  * Build an element's folder-dialect JSON body from its API-shaped payload.
  *
  * `payload` is API-shaped (snake_case fields, links as ids, extension keys
- * present, body-field description/story included). The stamp keys (type,
- * local_updated_at, created_at) are added here — folder dialect only (R1c).
- * `type` always reflects the true element type; any stray `type` in the payload
- * is overwritten. The three stamp keys lead the object (folder.js order).
+ * present, body-field description/story included). `type` leads and always
+ * reflects the true element type; any stray `type` in the payload is
+ * overwritten. `carried` is what an import kept for this element
+ * (splitCarriedFields), written back after the payload as received.
  *
- * The payload is otherwise passed through verbatim so extension namespaces
- * round-trip (R4) and `story`/`description` land as fields, not lost prose.
+ * No timestamp is minted (spec §4.1: a writer MUST NOT synthesize
+ * `local_updated_at`/`created_at` it does not have; §5: new files carry
+ * neither sync stamp). OW Infra #166 row 6.
  */
 export function buildFolderElementBody(
 	type: string,
 	payload: Record<string, unknown>,
-	stamp: string
+	carried: Record<string, unknown> = {}
 ): Record<string, unknown> {
-	const { type: _stray, local_updated_at: lu, created_at: ca, ...rest } = payload;
-	return {
-		type,
-		local_updated_at: typeof lu === "string" ? lu : stamp,
-		created_at: typeof ca === "string" ? ca : stamp,
-		...rest,
-	};
+	const { type: _stray, ...rest } = payload;
+	const body: Record<string, unknown> = { type, ...rest };
+	for (const [k, v] of Object.entries(carried)) {
+		if (k === "type" || k in body) continue; // the note's own value wins
+		body[k] = v;
+	}
+	return body;
 }
 
 /**
- * Parse a folder-dialect element JSON body into (type, API-shaped payload).
- * Strips the three folder-only stamp keys so what remains is what the plugin's
- * writeElement/frontmatter path expects. The `type` field (folder-only) is
- * lifted out and returned separately; if absent, `fallbackType` (derived from
- * the containing spatial/<type> or elements/<type> folder) is used.
+ * Parse a folder-dialect element JSON body into (type, API-shaped payload,
+ * carried). The `type` field is lifted out and returned separately; if absent,
+ * `fallbackType` (derived from the containing elements/<type> or legacy
+ * spatial/<type> folder) is used. What the note has no home for is split off
+ * as `carried` (splitCarriedFields) for the import to keep.
  *
- * Extension keys and every schema field (including description/story) survive
- * verbatim (R4) — this function does no field filtering; the frontmatter writer
- * arbitrates fields downstream.
+ * Extension keys and every schema field (including description/story) stay in
+ * the payload verbatim (R4); the frontmatter writer arbitrates downstream.
  */
 export function parseFolderElementBody(
 	json: Record<string, unknown>,
 	fallbackType: string
-): { type: string; payload: Record<string, unknown> } {
-	const { type, local_updated_at: _lu, created_at: _ca, ...payload } = json;
+): { type: string; payload: Record<string, unknown>; carried: Record<string, unknown> } {
+	const { type, ...rest } = json;
 	const resolvedType =
 		typeof type === "string" && type.trim() ? type.trim().toLowerCase() : fallbackType;
-	return { type: resolvedType, payload };
+	const { payload, carried } = splitCarriedFields(resolvedType, rest);
+	return { type: resolvedType, payload, carried };
 }
 
 /** Is this a valid UUID string (used to validate world.json / mention ids). */

@@ -6,13 +6,17 @@ import { App, normalizePath } from "obsidian";
  * What an imported OnlyWorlds folder carried that the notes have no home for,
  * kept so the folder export writes it back instead of dropping it (spec §4.1:
  * a writer MUST NOT drop data it has):
- *   - `world`: the imported world.json minus `api` (world-json.ts).
+ *   - `world`: the imported world.json minus `api` (world-json.ts; row 5).
+ *   - `elements`: per element id, the body keys a note has no home for, the
+ *     server's and Atlas's own fields (folder-format.ts splitCarriedFields;
+ *     row 6). Never in the note: an upload must not send them.
  *
  * Adapter I/O only, for the reasons world-id-marker.ts gives: Obsidian's vault
  * index skips dot-prefixed files, and an unindexed file fires no vault events.
  */
 export interface FolderSidecar {
 	world?: Record<string, unknown>;
+	elements?: Record<string, Record<string, unknown>>;
 }
 
 function sidecarPath(world: string): string {

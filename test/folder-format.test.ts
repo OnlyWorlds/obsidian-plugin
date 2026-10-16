@@ -46,33 +46,42 @@ test("R1b: spatial types bucket under spatial/, others under elements/", () => {
 	assert.ok(elementRelPath("character", el).startsWith("elements/character/"));
 });
 
-// --- R1c: body stamp keys (folder dialect only) -------------------------------
-test("R1c: every element body carries type + local_updated_at + created_at", () => {
-	const stamp = "2026-07-16T00:00:00.000Z";
-	const body = buildFolderElementBody("character", { id: WID, name: "Aria", traits: ["t1"] }, stamp);
+// --- R1c: body keys (folder dialect only; OW Infra #166 row 6) ----------------
+test("R1c: an element body leads with type and mints no timestamp", () => {
+	const body = buildFolderElementBody("character", { id: WID, name: "Aria", traits: ["t1"] });
 	assert.equal(body.type, "character");
-	assert.equal(body.local_updated_at, stamp);
-	assert.equal(body.created_at, stamp);
-	// stamp keys lead the serialized object (folder.js order).
-	assert.deepEqual(Object.keys(body).slice(0, 3), ["type", "local_updated_at", "created_at"]);
+	assert.equal(Object.keys(body)[0], "type");
+	assert.equal("local_updated_at" in body, false);
+	assert.equal("created_at" in body, false);
 	// payload fields survive.
 	assert.equal(body.name, "Aria");
 	assert.deepEqual(body.traits, ["t1"]);
 });
 
 test("R1c: a stray type in the payload never overrides the true element type", () => {
-	const body = buildFolderElementBody("location", { id: WID, name: "X", type: "wrong" }, "s");
+	const body = buildFolderElementBody("location", { id: WID, name: "X", type: "wrong" });
 	assert.equal(body.type, "location");
 });
 
-test("R1c: existing local_updated_at/created_at on the payload are preserved", () => {
+test("R1c: carried server fields are written back as received, after the payload", () => {
 	const body = buildFolderElementBody(
 		"character",
-		{ id: WID, name: "A", created_at: "2020-01-01T00:00:00.000Z" },
-		"2026-07-16T00:00:00.000Z"
+		{ id: WID, name: "A" },
+		{ created_at: "2020-01-01T00:00:00.000Z", change_seq: 9 }
 	);
-	assert.equal(body.created_at, "2020-01-01T00:00:00.000Z"); // kept, not restamped
-	assert.equal(body.local_updated_at, "2026-07-16T00:00:00.000Z"); // absent -> stamp
+	assert.equal(body.created_at, "2020-01-01T00:00:00.000Z");
+	assert.equal(body.change_seq, 9);
+	assert.deepEqual(Object.keys(body), ["type", "id", "name", "created_at", "change_seq"]);
+});
+
+test("R1c: parse splits what a note has no home for from the payload", () => {
+	const { type, payload, carried } = parseFolderElementBody(
+		{ id: WID, type: "character", name: "A", traits: [], x_mood: "dark", created_at: "c", change_seq: 1 },
+		"character"
+	);
+	assert.equal(type, "character");
+	assert.deepEqual(payload, { id: WID, name: "A", traits: [], x_mood: "dark" });
+	assert.deepEqual(carried, { created_at: "c", change_seq: 1 });
 });
 
 // --- R1d: filename = <slug>--<8-char id tail> ---------------------------------
@@ -143,7 +152,6 @@ test("isUuid gates world.json identity", () => {
 // to recover API-shaped payloads, and assert object equality on the data that
 // matters: ids, links, extension keys, story/description, prose references.
 test("RT: world survives export serializers -> import serializers (object equality)", () => {
-	const stamp = "2026-07-16T12:00:00.000Z";
 	// The world: two characters, a location, a narrative (body=story), a map.
 	const world = [
 		{
@@ -197,7 +205,7 @@ test("RT: world survives export serializers -> import serializers (object equali
 	// The body field per type (mirrors bodyFieldForCategory: story for narrative).
 	const bodyField = (t: string) => (t === "narrative" ? "story" : "description");
 
-	// EXPORT: split body prose out, translate wikilinks, stamp folder body.
+	// EXPORT: split body prose out, translate wikilinks, build the folder body.
 	const exported = world.map((e) => {
 		const bf = bodyField(e.type);
 		const payload = { ...e.payload } as Record<string, unknown>;
@@ -206,16 +214,16 @@ test("RT: world survives export serializers -> import serializers (object equali
 		if (typeof payload[bf] === "string") {
 			payload[bf] = wikilinksToOwMentions(payload[bf] as string, (n) => nameIdx.get(n) ?? null);
 		}
-		const body = buildFolderElementBody(e.type, payload, stamp);
+		const body = buildFolderElementBody(e.type, payload);
 		return { relPath: elementRelPath(e.type, e.payload), body };
 	});
 
-	// Conformance: spatial map bucketed, stamp keys present, filenames well-formed.
+	// Conformance: spatial map bucketed, no minted stamp, filenames well-formed.
 	const mapEntry = exported.find((x) => x.relPath.includes("/map/"))!;
 	assert.ok(mapEntry.relPath.startsWith("spatial/map/"));
 	for (const x of exported) {
 		assert.equal(typeof x.body.type, "string");
-		assert.equal(x.body.local_updated_at, stamp);
+		assert.equal("local_updated_at" in x.body, false);
 		assert.ok(/--[0-9a-f]{8}\.json$/.test(x.relPath));
 	}
 

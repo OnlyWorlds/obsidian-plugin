@@ -184,5 +184,48 @@ test("row 5: a world made in the vault exports its World.md time settings", asyn
 	assert.equal("description" in world, false);
 });
 
+// --- Row 6: export writes what the element carries, never a minted stamp ----
+
+const NATIVE_MD = (name: string, id: string) => `---\nname: ${name}\nid: ${id}\n---\n\n### Description\n\nA noble.\n`;
+
+test("row 6: an element made in the vault exports with no timestamp invented (spec §4.1, §5)", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Native/World.md", "- **Name:** Native\n");
+	await vault.seed("OnlyWorlds/Worlds/Native/Elements/Character/Ireena.md", NATIVE_MD("Ireena", CHAR_ID));
+	const out = await exportWorld(app, vault, "Native");
+	const rel = Object.keys(out).find((p) => p.startsWith("elements/character/"));
+	assert.ok(rel, "no character file");
+	const body = JSON.parse(out[rel]);
+	for (const k of ["local_updated_at", "created_at", "updated_at", "server_updated_at", "change_seq"]) {
+		assert.equal(k in body, false, `${k} was minted`);
+	}
+	assert.equal(body.type, "character");
+	assert.equal(body.id, CHAR_ID);
+});
+
+test("row 6: server and sync fields an imported element carried come back out verbatim", async () => {
+	const { app, vault } = makeApp();
+	const carried = {
+		created_at: "2026-01-02T03:04:05.123456Z",
+		updated_at: "2026-01-03T03:04:05.123456Z",
+		change_seq: 4401,
+		created_by: null,
+		local_updated_at: "2026-01-04T00:00:00.000Z",
+		server_updated_at: "2026-01-03T03:04:05.123456Z",
+		image_media_id: "m-77",
+	};
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/ireena--000000c1.json": { ...CHAR_FILE, ...carried },
+	});
+	await importDir(app, "in/barovia");
+	const out = await exportWorld(app, vault, "Barovia");
+	const rel = Object.keys(out).find((p) => p.startsWith("elements/character/"))!;
+	const body = JSON.parse(out[rel]);
+	for (const [k, v] of Object.entries(carried)) assert.deepEqual(body[k], v, k);
+	// and nothing about them leaked into the note, where an upload would send them
+	const note = [...vault.files.keys()].find((p) => p.includes("/Elements/Character/"))!;
+	assert.ok(!/created_at|change_seq|updated_at/.test(vault.contentAt(note) ?? ""), "server fields in the note");
+});
+
 void __modals;
 void __notices;

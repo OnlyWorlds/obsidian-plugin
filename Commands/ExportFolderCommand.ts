@@ -44,7 +44,9 @@ import {
  *   - world.json carries id + name + every key the world has: World.md's
  *     lines, plus what an import kept in the folder sidecar (spec §4.1);
  *   - spatial types under spatial/<type>/, others under elements/<type>/;
- *   - every element body stamps type + local_updated_at + created_at;
+ *   - every element body carries `type`; no timestamp is minted, and the
+ *     server/sync fields an import carried go back out as received (spec
+ *     §4.1, §4.2, §5; OW Infra #166 row 6);
  *   - folder = <slug>-<id8>, files = <slug>--<id-tail>.json.
  *
  * Prose (R3): note body -> description (story for Narrative); [[WikiLink]] ->
@@ -147,8 +149,9 @@ export class ExportFolderCommand {
 			return null;
 		}
 
-		// Pass 2 — translate prose, stamp folder bodies, plan relative paths.
-		const stamp = new Date().toISOString();
+		// Pass 2 — translate prose, build folder bodies, plan relative paths. No
+		// timestamp is minted; what an import carried goes back out (row 6).
+		const carriedById = (await readFolderSidecar(this.app, world)).elements ?? {};
 		const worldJson = await this.buildWorldJson(world, worldId);
 		const planned: { rel: string; content: string }[] = [
 			{ rel: "world.json", content: JSON.stringify(worldJson, null, 2) + "\n" },
@@ -162,7 +165,7 @@ export class ExportFolderCommand {
 					(n) => nameIndex.get(n) ?? null
 				);
 			}
-			const body = buildFolderElementBody(el.type, payload, stamp);
+			const body = buildFolderElementBody(el.type, payload, carriedById[String(el.payload.id)] ?? {});
 			const rel = elementRelPath(el.type, { id: String(el.payload.id), name: el.payload.name });
 			planned.push({ rel, content: JSON.stringify(body, null, 2) + "\n" });
 		}
