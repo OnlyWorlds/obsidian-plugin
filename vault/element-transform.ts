@@ -297,22 +297,65 @@ function isBlockListItem(item: unknown): boolean {
 	);
 }
 
-/** Quote a scalar only when YAML would otherwise misread it. */
+/**
+ * Write a scalar so YAML reads back the SAME value. A string stays plain only
+ * when no parser could take it for anything else; otherwise it is double-quoted
+ * with escapes.
+ *
+ * ★ Obsidian's parser is js-yaml 4 (read off the shipped asar, hop 10). Plain
+ * `2024-01-01` came back a timestamp, `1e3` the number 1000, and ` #` started
+ * a comment that cut the value; a raw newline inside quotes broke the whole
+ * block, so the note could not be read and the save failed (OW Infra #166
+ * row 3, hop 9 #8). Quoting more than strictly needed costs nothing: quoted
+ * and plain read back as the same string.
+ */
 function yamlScalar(value: unknown): string {
 	if (typeof value === "number" || typeof value === "boolean") return String(value);
 	const s = String(value ?? "");
 	if (s === "") return '""';
-	// Quote anything that could parse as another type or break the line.
 	if (
-		/^[\s]|[\s]$/.test(s) ||
+		/^\s|\s$/.test(s) ||
+		// a leading indicator character (flow, anchor, tag, block, quote, comment)
 		/^[-?:,[\]{}#&*!|>'"%@`]/.test(s) ||
-		/: |\n|\r/.test(s) ||
-		/^(true|false|null|yes|no|on|off|~)$/i.test(s) ||
-		/^-?\d+(\.\d+)?$/.test(s)
+		// a leading digit, sign or dot: ints, floats, 1e3, 0x1F, .5, .inf, dates.
+		// A uuid stays plain (it parses as no other type, and every element
+		// note's `id:` line would otherwise churn).
+		(/^[+.\d]/.test(s) && !UUID_RE.test(s)) ||
+		// a mapping indicator or a comment start inside the value, or a trailing colon
+		/:\s|\s#|:$/.test(s) ||
+		// any control character, newlines included
+		/[\x00-\x1f\x7f]/.test(s) ||
+		// YAML 1.1 and 1.2 booleans and nulls
+		/^(true|false|null|yes|no|on|off|y|n|~)$/i.test(s)
 	) {
-		return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+		return yamlDoubleQuoted(s);
 	}
 	return s;
+}
+
+/** A YAML double-quoted scalar: backslash, quote and control characters escaped. */
+function yamlDoubleQuoted(s: string): string {
+	const body = s
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/\n/g, "\\n")
+		.replace(/\r/g, "\\r")
+		.replace(/\t/g, "\\t")
+		.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+	return `"${body}"`;
+}
+
+/**
+ * A Date that YAML made out of a string field, back to the string. js-yaml
+ * reads a plain `2024-01-01` as a timestamp; a date-only value (UTC midnight)
+ * returns as `YYYY-MM-DD`, exactly as typed. A value with a time cannot be
+ * recovered byte for byte and returns as its ISO form. Anything else passes
+ * through.
+ */
+export function dateToFieldString(value: unknown): unknown {
+	if (!(value instanceof Date) || Number.isNaN(value.getTime())) return value;
+	const iso = value.toISOString();
+	return iso.endsWith("T00:00:00.000Z") ? iso.slice(0, 10) : iso;
 }
 
 /**
@@ -627,12 +670,14 @@ export function frontmatterToPayloadFields(
 		if (NON_PAYLOAD_KEYS.has(key)) continue;
 		if (key === bodyField) continue; // body owns this field; skip the fm copy
 		if (isApiDroppedField(category, key)) continue; // a scaffold the API refuses: never sent, never adopted
+		// A Date here was a string in the note that YAML read as a timestamp
+		// (plain `2024-01-01`): it goes back as that string (row 3).
 		if (isExtensionKey(key)) {
-			out[key] = value; // verbatim, read-only
+			out[key] = dateToFieldString(value); // verbatim, read-only
 			continue;
 		}
 		if (!schema) {
-			out[key] = value; // unknown category — pass through, API arbitrates
+			out[key] = dateToFieldString(value); // unknown category — pass through, API arbitrates
 			continue;
 		}
 		const field = schema[key];
@@ -651,7 +696,7 @@ export function frontmatterToPayloadFields(
 			// (smaller) surprise.
 			const adoptedKey = `${EXTENSION_NAMESPACES[2]}${key}`;
 			if (adoptedKey in frontmatter) continue; // x_mood already exists — that one wins
-			out[adoptedKey] = value;
+			out[adoptedKey] = dateToFieldString(value);
 			opts.adopted?.push({ from: key, to: adoptedKey });
 			continue;
 		}
@@ -677,7 +722,7 @@ export function frontmatterToPayloadFields(
 			if (ids.length < arr.length && opts.omitFieldOnUnresolved) continue;
 			out[key] = ids;
 		} else {
-			out[key] = value;
+			out[key] = field.type === "text" ? dateToFieldString(value) : value;
 		}
 	}
 	return out;
@@ -830,8 +875,8 @@ export function apiDataToFrontmatter(
  * cold-cache staleness mid-bulk-write is the S9 bug this fixes).
  *
  * Only top-level `key: value` scalar lines are read; a single layer of matching
- * surrounding quotes is stripped (Obsidian quotes values with YAML-special chars,
- * e.g. a name containing ':'). Nested/list/multiline values are ignored. Returns
+ * surrounding quotes is stripped and its escapes read back (the serializer
+ * quotes values with YAML-special chars, e.g. a name containing ': ' or ' #'). Nested/list/multiline values are ignored. Returns
  * only the keys in `keys` that were found with a non-empty value.
  */
 export function parseRawFrontmatterScalars(
@@ -848,11 +893,14 @@ export function parseRawFrontmatterScalars(
 		const m = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
 		if (!m || !wanted.has(m[1])) continue;
 		let val = m[2].trim();
-		if (
-			(val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
-			(val.startsWith("'") && val.endsWith("'") && val.length >= 2)
-		) {
-			val = val.slice(1, -1);
+		if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) {
+			// The escapes yamlDoubleQuoted writes, read back (row 3).
+			val = val.slice(1, -1).replace(/\\(x[0-9a-fA-F]{2}|.)/g, (_, e: string) => {
+				if (e.length === 3) return String.fromCharCode(parseInt(e.slice(1), 16));
+				return e === "n" ? "\n" : e === "r" ? "\r" : e === "t" ? "\t" : e === "0" ? "\0" : e;
+			});
+		} else if (val.startsWith("'") && val.endsWith("'") && val.length >= 2) {
+			val = val.slice(1, -1).replace(/''/g, "'");
 		}
 		if (val) out[m[1]] = val;
 	}
