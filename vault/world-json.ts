@@ -22,9 +22,9 @@
  * verbatim. So a folder that comes in and goes out untouched is byte-identical,
  * and an edit in World.md still travels.
  *
- * `api` (sync switch + credential) is never kept: the plugin's export is a
- * portable copy (spec §4.1, "the one drop the no-drop law allows"), and a key
- * does not belong in a vault dotfile.
+ * `api` (sync switch + credential) is never kept: the plugin never keeps a
+ * credential in the vault, so a world that came from a folder is a local world
+ * here and its export is a local world (spec §4.1: absent `api` = local-only).
  */
 import { worldTemplateString } from "../Scripts/WorldDataTemplate";
 import { LOCAL_WORLD_KEY_TOKEN } from "./world-key-core";
@@ -58,12 +58,17 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 /**
  * The folder format spec version this writer follows (spec §4.2's
  * `format_version` row: "SHOULD be written by any writer"; it moves when the
- * spec's version moves). Stamped on an export whose world carries none; a
- * value the world already carries is kept as it is.
+ * spec's version moves). Every plugin export is a folder's birth (both
+ * sinks refuse an existing folder), so every export stamps it, replacing any
+ * value the imported world carried: the bytes are this version's.
  */
 export const FOLDER_FORMAT_VERSION = "0.3.8";
 
-/** The world.json keys the plugin never keeps (spec §4.1, a portable copy). */
+/**
+ * The world.json keys the plugin never keeps: `api` holds a credential, and the
+ * plugin never keeps a credential in the vault, so the world is local here and
+ * its export is a local world (no `api` = do not sync, spec §4.1).
+ */
 export const WORLD_KEYS_NOT_KEPT = ["api"] as const;
 
 function escapeRe(s: string): string {
@@ -151,7 +156,7 @@ export function renderWorldMd(worldJson: Record<string, unknown>, worldName: str
  * Without it: id, name, and every World.md line that has a value. With it: the
  * kept world.json, key order and spelling as they were, each World.md-shown key
  * replaced only where the user changed its line. Both end with
- * `format_version` (FOLDER_FORMAT_VERSION) unless the world carries one.
+ * `format_version` = FOLDER_FORMAT_VERSION, whatever the world carried.
  *
  * The name is the world's folder name (the plugin's world identity, as before);
  * the kept spelling wins when it trims to the same name.
@@ -190,8 +195,9 @@ export function buildWorldJson(opts: {
 			out[key] = coerceWorldLine(text, line.kind);
 		}
 	}
-	// A value the world carried stays as it is; none means this export is the
-	// folder's birth, so it gets this writer's version.
-	if (!("format_version" in out)) out.format_version = FOLDER_FORMAT_VERSION;
+	// Every export is a birth: both sinks refuse an existing folder, so the
+	// folder is new and written now, against this writer's version. A carried
+	// value is replaced in place (its key keeps its position).
+	out.format_version = FOLDER_FORMAT_VERSION;
 	return out;
 }

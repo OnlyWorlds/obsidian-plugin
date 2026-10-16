@@ -84,7 +84,8 @@ test("row 5: import then export carries every world.json key, values and order u
 	await importDir(app, "in/barovia");
 	const out = await exportWorld(app, vault, "Barovia");
 	assert.ok(out["world.json"], "no world.json exported");
-	assert.equal(out["world.json"], JSON.stringify(FULL_WORLD, null, 2) + "\n");
+	// every key kept in place; format_version is this export's (every export is a birth)
+	assert.equal(out["world.json"], JSON.stringify({ ...FULL_WORLD, format_version: "0.3.8" }, null, 2) + "\n");
 });
 
 test("row 5: the imported world gets a World.md showing its fields", async () => {
@@ -126,7 +127,7 @@ test("row 5: a world.json spelling the wire's time_range_current keeps that spel
 	assert.equal(out["world.json"], JSON.stringify({ ...wire, format_version: "0.3.8" }, null, 2) + "\n");
 });
 
-test("row 5: the api block (a credential) is never kept in the vault nor exported (§4.1 portable copy)", async () => {
+test("row 5: the api block (a credential) is never kept in the vault nor exported: the export is a local world", async () => {
 	const { app, vault } = makeApp();
 	const linked = { id: WID, name: "Barovia", api: { world_id: WID, api_key: "ow_w_SECRET" }, time_current: 3 };
 	await seedFolder(vault, "in/barovia", linked, { "elements/character/ireena--000000c1.json": CHAR_FILE });
@@ -407,7 +408,7 @@ test("round trip: export, import, export again is byte-identical, and every key 
 	for (const rel of Object.keys(f1)) assert.equal(f2[rel], f1[rel], `${rel} changed on the second pass`);
 
 	// Every key the source carried, with its value.
-	assert.equal(f1["world.json"], JSON.stringify(FULL_WORLD, null, 2) + "\n");
+	assert.equal(f1["world.json"], JSON.stringify({ ...FULL_WORLD, format_version: "0.3.8" }, null, 2) + "\n");
 	const byId = new Map(Object.values(f1).map((c) => JSON.parse(c)).map((j) => [j.id, j]));
 	for (const [rel, src] of Object.entries(ROUND_TRIP_FOLDER) as [string, Record<string, unknown>][]) {
 		const got = byId.get(src.id);
@@ -482,8 +483,8 @@ test("format_version: a world made in the vault exports format_version 0.3.8", a
 	assert.equal(world.format_version, "0.3.8");
 });
 
-test("format_version: a source folder without one gets 0.3.8; one that carried a value keeps it", async () => {
-	for (const [carried, expected] of [[undefined, "0.3.8"], ["0.3.6", "0.3.6"]] as const) {
+test("format_version: every export is a birth: 0.3.8 whether the source carried none or an older value", async () => {
+	for (const [carried, expected] of [[undefined, "0.3.8"], ["0.3.6", "0.3.8"]] as const) {
 		const { app, vault } = makeApp();
 		const src: Record<string, unknown> = { id: WID, name: "Barovia" };
 		if (carried) src.format_version = carried;
