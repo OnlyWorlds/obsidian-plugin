@@ -1,5 +1,6 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type OnlyWorldsPlugin from "../main";
+import { signIn, signOut, signedInLabel } from "../account/account-api";
 
 export class OnlyWorldsSettingTab extends PluginSettingTab {
 	plugin: OnlyWorldsPlugin;
@@ -14,6 +15,8 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl).setName("OnlyWorlds").setHeading();
+
+		this.displayAccount(containerEl);
 
 		new Setting(containerEl)
 			.setName("API key")
@@ -163,6 +166,60 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 					this.plugin.settings.showStatusBar = value;
 					await this.plugin.saveSettings();
 				})
+			);
+	}
+
+	/**
+	 * The OnlyWorlds account (OW Infra #358): sign in with an account token, or
+	 * Signed in as <username> with Sign out. The token is kept like the API key
+	 * (masked, in data.json). Signed out, nothing else in the plugin changes.
+	 */
+	private displayAccount(containerEl: HTMLElement): void {
+		const settings = this.plugin.settings;
+		if (settings.accountToken) {
+			new Setting(containerEl)
+				.setName(signedInLabel(settings.accountUsername || "your account"))
+				.setDesc(
+					"Download World offers your onlyworlds.com worlds, and Join a world with a link joins with this account. " +
+						"Signing out keeps the worlds in this vault and their keys."
+				)
+				.addButton((b) =>
+					b.setButtonText("Sign out").onClick(async () => {
+						await signOut(this.plugin);
+						this.display();
+					})
+				);
+			return;
+		}
+
+		let draft = "";
+		new Setting(containerEl)
+			.setName("OnlyWorlds account")
+			.setDesc(
+				"Sign in with an account token to see your onlyworlds.com worlds here. " +
+					"Make a token on onlyworlds.com, in Account settings under Account tokens."
+			)
+			.addText((text) => {
+				text.inputEl.type = "password";
+				text.setPlaceholder("ow_a_…").onChange((value) => {
+					draft = value;
+				});
+			})
+			.addButton((b) =>
+				b
+					.setButtonText("Sign in")
+					.setCta()
+					.onClick(async () => {
+						b.setDisabled(true);
+						try {
+							const username = await signIn(this.plugin, draft);
+							new Notice(signedInLabel(username));
+							this.display();
+						} catch (e) {
+							new Notice(e instanceof Error ? e.message : String(e), 8000);
+							b.setDisabled(false);
+						}
+					})
 			);
 	}
 }

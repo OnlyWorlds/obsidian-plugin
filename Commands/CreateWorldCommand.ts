@@ -2,14 +2,15 @@ import { App, Notice, PluginManifest, requestUrl } from 'obsidian';
 
 import Handlebars from 'handlebars';
 import { v7 as uuidv7 } from 'uuid';
-import { ApiResponseModal } from 'Modals/ApiResponseModal';
-import { CreateWorldModal, WorldCreationData } from 'Modals/CreateWorldModal';
-import { worldTemplateString } from 'Scripts/WorldDataTemplate';
+import { ApiResponseModal } from '../Modals/ApiResponseModal';
+import { CreateWorldModal, WorldCreationData } from '../Modals/CreateWorldModal';
+import { worldTemplateString } from '../Scripts/WorldDataTemplate';
 import { Category } from '../enums';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey, worldFileApiKey, writeWorldFileApiKey } from '../vault/world-key';
 import { writeWorldIdMarker } from '../vault/world-id-marker';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import type { ExportWorldCommand } from './ExportWorldCommand';
+import { createAccountWorld, isFullWriteKey, mintVaultKey, revokeCreateKeys, type CreatedWorld } from '../account/account-api';
 
 export class CreateWorldCommand {
     app: App;
@@ -20,10 +21,19 @@ export class CreateWorldCommand {
      private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
 
 
-    constructor(app: App, manifest: PluginManifest, exportCommand?: ExportWorldCommand) {
+    /** The signed-in account, or null: signed in, Create World online goes through the account (OW Infra #358). */
+    private account: () => { token: string; username: string } | null;
+
+    constructor(
+        app: App,
+        manifest: PluginManifest,
+        exportCommand?: ExportWorldCommand,
+        account?: () => { token: string; username: string } | null
+    ) {
         this.app = app;
         this.manifest = manifest;
         this.exportCommand = exportCommand ?? null;
+        this.account = account ?? (() => null);
     }
 
     async execute() { 
@@ -64,6 +74,8 @@ export class CreateWorldCommand {
 
             // Create local directories and files with the returned data
             await this.createLocalWorldFiles(worldData.name, apiResponse);
+            // Signed in, a stand-in key: the create route's own key goes once the vault's has landed.
+            await apiResponse.afterLanding?.();
 
             new Notice('Successfully created world: ' + worldData.name);
         } catch (error) {
@@ -101,6 +113,7 @@ export class CreateWorldCommand {
             new Notice(`World created on onlyworlds.com, but World.md could not be updated. Paste this key into World.md manually: ${apiResponse.api_key}`, 0);
             return;
         }
+        await apiResponse.afterLanding?.();
         new Notice(`"${worldData.name}" is now linked to onlyworlds.com. Uploading elements...`, 6000);
 
         if (this.exportCommand) {
@@ -113,14 +126,22 @@ export class CreateWorldCommand {
     }
 
     async getWorldCreationData(): Promise<WorldCreationData | null> {
+        const account = this.activeAccount();
         return new Promise((resolve) => {
-            const modal = new CreateWorldModal(this.app, resolve);
+            const modal = new CreateWorldModal(this.app, resolve, account ? { username: account.username } : undefined);
             modal.open();
         });
     }
 
+    private activeAccount(): { token: string; username: string } | null {
+        const a = this.account();
+        return a && a.token ? a : null;
+    }
+
     async createWorldOnServer(worldData: WorldCreationData): Promise<any | null> {
-        try { 
+        const account = this.activeAccount();
+        if (account) return this.createWorldOnAccount(account, worldData);
+        try {
 
             const response = await requestUrl({
                 url: this.apiUrl,
@@ -311,6 +332,74 @@ export class CreateWorldCommand {
             ).open();
             return null;
         }
+    }
+
+    /**
+     * Signed in: POST /api/v2/account/worlds creates the world under the
+     * account (the PIN goes only if keel says the account has none yet), and
+     * the write key it answers with, shown once, IS this vault's key: no
+     * second key is made, so the account's keys page holds one per vault.
+     * Should the answer carry no full write key, the vault mints its own
+     * (named for it, as Download World does) and `afterLanding`, called once
+     * that key is in World.md, revokes the create route's key
+     * (DELETE /api/v2/account/worlds/{id}/keys/{key_id}).
+     * Answers in the old route's shape ({api_key}) so both callers go on as before.
+     */
+    private async createWorldOnAccount(
+        account: { token: string; username: string },
+        worldData: WorldCreationData
+    ): Promise<{ api_key: string; afterLanding?: () => Promise<void> } | null> {
+        let created: CreatedWorld;
+        try {
+            created = await createAccountWorld(account.token, worldData.name, worldData.pin ? String(worldData.pin) : '');
+        } catch (error) {
+            new ApiResponseModal(
+                this.app,
+                false,
+                error instanceof Error ? error.message : 'The world could not be created.',
+                null,
+                () => {},
+                'World Create Failed'
+            ).open();
+            return null;
+        }
+        if (isFullWriteKey(created.key)) {
+            new Notice(`World "${worldData.name}" created on onlyworlds.com under ${account.username}.`, 6000);
+            return { api_key: created.key };
+        }
+
+        new Notice(`World "${worldData.name}" was created, but onlyworlds.com gave no write key with it; making this vault's own key.`, 8000);
+        let minted;
+        try {
+            minted = await mintVaultKey(
+                account.token,
+                { id: created.id, name: created.name, role: 'owner' },
+                this.app.vault.getName()
+            );
+        } catch (error) {
+            new ApiResponseModal(
+                this.app,
+                false,
+                `World "${worldData.name}" was created on onlyworlds.com, but no key for this vault could be made: ` +
+                    `${error instanceof Error ? error.message : String(error)}. Download it with Download World.`,
+                null,
+                () => {},
+                'World Create Failed'
+            ).open();
+            return null;
+        }
+        const keepId = minted.id;
+        return {
+            api_key: minted.key,
+            afterLanding: async () => {
+                try {
+                    await revokeCreateKeys(account.token, created, keepId);
+                } catch (error) {
+                    console.error('OnlyWorlds: the create key could not be revoked; revoke it on the account keys page.', error);
+                    new Notice("The key the world was created with could not be revoked here; revoke it on onlyworlds.com, on the world's keys page.", 10000);
+                }
+            },
+        };
     }
 
     async createLocalWorldFiles(worldName: string, worldData: any) {

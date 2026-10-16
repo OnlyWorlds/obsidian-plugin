@@ -20,6 +20,14 @@
  *     `yaml` 2.x package. Which of the two Obsidian's own parseYaml behaves like
  *     is not known here, so tests that care run under BOTH.
  *   - Modal / Setting / Notice: record-only stubs, no DOM.
+ *   - requestUrl: no network. Every call is recorded in `__requests` (url,
+ *     method, headers, body) and answered by the handler a test sets with
+ *     `setRequestUrl`; with none set, a call fails the test. `throw` behaves as
+ *     Obsidian's does: a status of 400 or more throws unless `throw: false`.
+ *   - adapter.write to a path with no dot-segment writes a real note (Obsidian
+ *     creates a file the vault then lists); a dot-path stays a hidden file.
+ *   - vault.getName() is "Test Vault"; fileManager.renameFile and
+ *     workspace.openLinkText only record or do nothing.
  */
 import type { App as ObsidianApp } from "obsidian";
 // Both parsers are in node_modules through the eslint toolchain, not as
@@ -94,6 +102,48 @@ export class Setting {
 }
 export const Platform = { isMobile: false, isDesktop: true };
 
+export interface MockRequest {
+	url: string;
+	method: string;
+	headers: Record<string, string>;
+	body?: string;
+}
+export interface MockResponse {
+	status: number;
+	json?: unknown;
+	text?: string;
+}
+export const __requests: MockRequest[] = [];
+let requestHandler: ((r: MockRequest) => MockResponse) | null = null;
+/** Answer every requestUrl call with `h` from now on, and clear the record. */
+export function setRequestUrl(h: (r: MockRequest) => MockResponse): void {
+	requestHandler = h;
+	__requests.length = 0;
+}
+export async function requestUrl(req: {
+	url: string;
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string;
+	throw?: boolean;
+}): Promise<{ status: number; text: string; json: unknown; headers: Record<string, string> }> {
+	const r: MockRequest = { url: req.url, method: req.method ?? "GET", headers: { ...(req.headers ?? {}) }, body: req.body };
+	__requests.push(r);
+	if (!requestHandler) throw new Error(`no requestUrl stub for ${r.method} ${r.url}`);
+	const res = requestHandler(r);
+	const text = res.text ?? (res.json === undefined ? "" : JSON.stringify(res.json));
+	if (req.throw !== false && res.status >= 400) throw new Error(`Request failed, status ${res.status}`);
+	let json: unknown = res.json;
+	if (json === undefined && text) {
+		try {
+			json = JSON.parse(text);
+		} catch {
+			json = undefined;
+		}
+	}
+	return { status: res.status, text, json, headers: {} };
+}
+
 export class MockVault {
 	files = new Map<string, { file: TFile; content: string }>();
 	folders = new Map<string, TFolder>();
@@ -111,9 +161,19 @@ export class MockVault {
 			throw new Error("ENOENT " + p);
 		},
 		write: async (p: string, data: string) => {
-			this.dotfiles.set(normalizePath(p), String(data));
+			p = normalizePath(p);
+			if (p.split("/").some((seg) => seg.startsWith("."))) {
+				this.dotfiles.set(p, String(data));
+				return;
+			}
+			const e = this.files.get(p);
+			if (e) e.content = String(data);
+			else await this.seed(p, String(data));
 		},
 	};
+	getName(): string {
+		return "Test Vault";
+	}
 	constructor() {
 		this.folders.set("/", new TFolder(this, "/"));
 	}
@@ -218,7 +278,16 @@ export class MockMetadataCache {
 export class App {
 	vault = new MockVault();
 	metadataCache = new MockMetadataCache(this.vault);
-	workspace = { getActiveFile: (): TFile | null => null };
+	workspace = {
+		getActiveFile: (): TFile | null => null,
+		openLinkText: async (): Promise<void> => {},
+	};
+	renames: string[] = [];
+	fileManager = {
+		renameFile: async (f: TAbstractFile, to: string): Promise<void> => {
+			this.renames.push(`${f.path} -> ${to}`);
+		},
+	};
 }
 
 /**
