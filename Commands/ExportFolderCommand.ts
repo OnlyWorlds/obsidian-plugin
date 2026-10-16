@@ -155,7 +155,9 @@ export class ExportFolderCommand {
 
 		// Pass 2 — translate prose, build folder bodies, plan relative paths. No
 		// timestamp is minted; what an import carried goes back out (row 6).
-		const carriedById = (await readFolderSidecar(this.app, world)).elements ?? {};
+		const sidecar = await readFolderSidecar(this.app, world);
+		const carriedById = sidecar.elements ?? {};
+		const orderById = sidecar.order ?? {};
 		const worldJson = await this.buildWorldJson(world, worldId);
 		const planned: { rel: string; content: string }[] = [
 			{ rel: "world.json", content: JSON.stringify(worldJson, null, 2) + "\n" },
@@ -173,7 +175,12 @@ export class ExportFolderCommand {
 					(n) => nameIndex.get(n) ?? null
 				);
 			}
-			const body = buildFolderElementBody(el.type, payload, carriedById[String(el.payload.id)] ?? {});
+			const body = buildFolderElementBody(
+				el.type,
+				payload,
+				carriedById[String(el.payload.id)] ?? {},
+				orderById[String(el.payload.id)]
+			);
 			const rel = paths.get(String(el.payload.id)) as string;
 			planned.push({ rel, content: JSON.stringify(body, null, 2) + "\n" });
 		}

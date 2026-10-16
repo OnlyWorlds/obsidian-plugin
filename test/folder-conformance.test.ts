@@ -13,6 +13,7 @@ import { makeApp, __modals, __notices, type MockVault } from "./support/obsidian
 import { ImportFolderCommand } from "../Commands/ImportFolderCommand";
 import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
 import { readElement, writeElement } from "../vault/element-file";
+import { bodyTextFields } from "../vault/element-transform";
 
 const WID = "0199b000-0000-7000-8000-0000000000aa";
 
@@ -401,10 +402,27 @@ const ROUND_TRIP_FOLDER: Record<string, unknown> = {
 	},
 };
 
+/**
+ * The fixture as a complete source file: `type` and every text field present
+ * (a note's body scaffold brings an absent text field back as "", row 18), in
+ * a key order unlike the plugin's own (`id` first, `type` last), so that a byte
+ * match proves key order as received (spec §5, Kael's review).
+ */
+function completeSource(rel: string, src: Record<string, unknown>): Record<string, unknown> {
+	const type = rel.split("/")[1];
+	const out: Record<string, unknown> = { id: src.id };
+	for (const [k, v] of Object.entries(src)) if (k !== "id") out[k] = v;
+	for (const f of bodyTextFields(type)) if (!(f in out)) out[f] = "";
+	out.type = type;
+	return out;
+}
+
 test("round trip: export, import, export again is byte-identical, and every key of the source survives", async () => {
 	// F0 -> vault A -> F1
 	const a = makeApp();
-	await seedFolder(a.vault, "in/barovia", FULL_WORLD, ROUND_TRIP_FOLDER);
+	const f0: Record<string, Record<string, unknown>> = {};
+	for (const [rel, src] of Object.entries(ROUND_TRIP_FOLDER)) f0[rel] = completeSource(rel, src as Record<string, unknown>);
+	await seedFolder(a.vault, "in/barovia", FULL_WORLD, f0);
 	await importDir(a.app, "in/barovia");
 	const f1 = await exportWorld(a.app, a.vault, "Barovia");
 
@@ -433,6 +451,10 @@ test("round trip: export, import, export again is byte-identical, and every key 
 			"elements/pin/ireena--000000d2.json", "elements/zone/svalich-woods--000000d4.json", "world.json"]
 	);
 	assert.equal("local_updated_at" in byId.get(MAP_ID), false);
+	// Bytes, not just values: each element file is its source, key order as received.
+	for (const [rel, src] of Object.entries(f0)) {
+		assert.equal(f1[rel], JSON.stringify(src, null, 2) + "\n", `${rel}: not the source's bytes`);
+	}
 });
 
 // --- Row 12: a tool's extension key is never shadowed as the user's x_ ------

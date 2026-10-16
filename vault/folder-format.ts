@@ -215,7 +215,8 @@ export function owMentionsToWikilinks(
  * present, body-field description/story included). `type` leads and always
  * reflects the true element type; any stray `type` in the payload is
  * overwritten. `carried` is what an import kept for this element
- * (splitCarriedFields), written back after the payload as received.
+ * (splitCarriedFields), written back after the payload as received. `order`
+ * is the source file's key order, when the element came from a folder.
  *
  * No timestamp is minted (spec §4.1: a writer MUST NOT synthesize
  * `local_updated_at`/`created_at` it does not have; §5: new files carry
@@ -224,7 +225,8 @@ export function owMentionsToWikilinks(
 export function buildFolderElementBody(
 	type: string,
 	payload: Record<string, unknown>,
-	carried: Record<string, unknown> = {}
+	carried: Record<string, unknown> = {},
+	order?: string[]
 ): Record<string, unknown> {
 	const { type: _stray, ...rest } = payload;
 	const body: Record<string, unknown> = { type, ...rest };
@@ -232,7 +234,13 @@ export function buildFolderElementBody(
 		if (k === "type" || k in body) continue; // the note's own value wins
 		body[k] = v;
 	}
-	return body;
+	if (!order) return body;
+	// Key order as received (spec §5): the source file's keys in its order,
+	// then any key it did not have, in the plugin's order (Kael's review).
+	const ordered: Record<string, unknown> = {};
+	for (const k of order) if (k in body) ordered[k] = body[k];
+	for (const [k, v] of Object.entries(body)) if (!(k in ordered)) ordered[k] = v;
+	return ordered;
 }
 
 /**

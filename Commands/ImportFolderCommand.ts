@@ -125,7 +125,7 @@ export class ImportFolderCommand {
 		}
 
 		// Pass 1 — parse every element, build the id -> ref index for ow:// resolution.
-		const parsed: { type: string; payload: Record<string, unknown>; carried: Record<string, unknown>; rel: string }[] = [];
+		const parsed: { type: string; payload: Record<string, unknown>; carried: Record<string, unknown>; rel: string; order: string[] }[] = [];
 		const idIndex = new Map<string, ElementRef>();
 		const failed: { path: string; reason: string }[] = [];
 		// spec §4 (v0.3.8) "one id, one file": an id in both layouts is read from
@@ -160,10 +160,10 @@ export class ImportFolderCommand {
 						continue;
 					}
 					duplicates.push({ id, read: rel, ignored: other });
-					parsed[slot] = { type, payload, carried, rel };
+					parsed[slot] = { type, payload, carried, rel, order: Object.keys(json) };
 				} else {
 					slotById.set(id, parsed.length);
-					parsed.push({ type, payload, carried, rel });
+					parsed.push({ type, payload, carried, rel, order: Object.keys(json) });
 				}
 				idIndex.set(id, { id, name, type });
 			} catch (e) {
@@ -184,6 +184,7 @@ export class ImportFolderCommand {
 		let createdMarker = existingId !== null;
 		let wroteWorldFields = false;
 		const carriedById = new Map<string, Record<string, unknown>>();
+		const orderById = new Map<string, string[]>();
 		for (const el of parsed) {
 			const id = String(el.payload.id);
 			if (existingIds.has(id)) {
@@ -214,6 +215,7 @@ export class ImportFolderCommand {
 				notePathOwner.set(file.path, id);
 				result.created.push(id);
 				carriedById.set(id, el.carried);
+				orderById.set(id, el.order);
 				existingIds.add(id);
 				// Stamp the world-id marker once, after the first successful write
 				// (so the folder exists) — makes the id-mismatch guard stable.
@@ -231,17 +233,22 @@ export class ImportFolderCommand {
 		}
 
 		// What each created element carried that its note has no home for (server
-		// and sync fields), kept for the folder export (OW Infra #166 row 6).
-		// Skipped elements keep whatever an earlier import recorded.
+		// and sync fields; OW Infra #166 row 6), and its file's key order (spec
+		// §5: an export writes keys as received; Kael's review), kept for the
+		// folder export. Skipped elements keep whatever an earlier import recorded.
 		if (carriedById.size > 0) {
 			const sidecar = await readFolderSidecar(this.app, targetWorld);
 			const elements = { ...(sidecar.elements ?? {}) };
+			const order = { ...(sidecar.order ?? {}) };
 			for (const id of result.created) {
 				const carried = carriedById.get(id);
 				if (carried && Object.keys(carried).length > 0) elements[id] = carried;
 				else delete elements[id];
+				const keys = orderById.get(id);
+				if (keys) order[id] = keys;
 			}
 			sidecar.elements = elements;
+			sidecar.order = order;
 			await writeFolderSidecar(this.app, targetWorld, sidecar);
 		}
 

@@ -10,6 +10,8 @@ import { App, normalizePath } from "obsidian";
  *   - `elements`: per element id, the body keys a note has no home for, the
  *     server's and Atlas's own fields (folder-format.ts splitCarriedFields;
  *     row 6). Never in the note: an upload must not send them.
+ *   - `order`: per element id, its file's key order, so the export writes
+ *     keys as received (spec §5; Kael's review).
  *
  * Adapter I/O only, for the reasons world-id-marker.ts gives: Obsidian's vault
  * index skips dot-prefixed files, and an unindexed file fires no vault events.
@@ -17,6 +19,7 @@ import { App, normalizePath } from "obsidian";
 export interface FolderSidecar {
 	world?: Record<string, unknown>;
 	elements?: Record<string, Record<string, unknown>>;
+	order?: Record<string, string[]>;
 }
 
 function sidecarPath(world: string): string {
