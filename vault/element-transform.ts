@@ -134,9 +134,12 @@ export function bodyFieldForCategory(category: string): "story" | "description" 
  * a note is 3-7 sections of usually-short prose, and h2 renders large enough
  * to dominate the content it labels (Captain, 2026-08-22).
  *
- * ⚑ READING accepts `##` OR `###` — notes written by earlier 3.2 builds use
- * `##`, and a user may type either. Changing what we WRITE must never change
- * what we can READ, or every existing note silently loses its sections.
+ * ★ READING takes ONLY this level as a field boundary. Any other heading in a
+ * field's text (`#`, `##`, `####` and deeper) is the user's prose and stays in
+ * that field. Reading `##` as a boundary too split a description at a
+ * `## Notes` line into an `x_notes` field, and let a `## Background` line in a
+ * description be overwritten by the real Background section (OW Infra #166
+ * row 1, hop 9 #4). Every released 3.2+ build writes `###` (3.2.0 onward).
  */
 const SECTION_HEADING = "###";
 
@@ -391,11 +394,12 @@ export interface ParsedBody {
 }
 
 /**
- * Parse a note body into its `##` sections.
+ * Parse a note body into its `###` field sections.
  *
- * Only level-2 headings are section boundaries; `###` and deeper belong to the
- * prose of whatever section they sit in, so a user's own sub-structure survives.
- * A fenced code block is skipped so a `##` inside ``` never splits a section.
+ * Only `###` (SECTION_HEADING, the level the plugin writes) starts a section;
+ * `#`, `##`, `####` and deeper belong to the prose of whatever section they sit
+ * in, so a user's own structure survives. A fenced code block is skipped so a
+ * heading inside ``` never splits a section.
  */
 export function parseElementBody(body: string, category: string): ParsedBody {
 	const known = new Set(bodyTextFields(category));
@@ -421,13 +425,12 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 
 	for (const line of lines) {
 		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-		// Accept `##` or `###` as a section boundary — we write `###`, earlier
-		// 3.2 builds wrote `##`, and users type whichever they like. `####` and
-		// deeper stay inside a section so the user's own sub-structure survives.
-		const m = !inFence ? /^(#{2,3})[ \t]+(.+?)\s*$/.exec(line) : null;
+		// Only `###` is a section boundary (row 1): `#`, `##` and `####`+ are
+		// prose and stay inside the section they sit in.
+		const m = !inFence ? /^###[ \t]+(.+?)\s*$/.exec(line) : null;
 		if (m) {
 			flush();
-			current = { heading: m[2], buf: [] };
+			current = { heading: m[1], buf: [] };
 			continue;
 		}
 		(current ? current.buf : preambleBuf).push(line);

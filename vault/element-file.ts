@@ -130,13 +130,14 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 				`[OnlyWorlds] ${file.path}: ${unresolved.length} unresolved link(s); their fields omitted from upload to preserve server values: ${unresolved.join(", ")}`
 			);
 		}
-		// v3.2: the body carries text fields as `## Heading` sections. Unknown
+		// v3.2: the body carries text fields as `### Heading` sections (only that
+		// level is a field boundary; `#`, `##`, `####`+ stay prose). Unknown
 		// headings and any preamble are folded back into description/story rather
 		// than dropped (never-drop, R2) — a user who renames a heading loses no
 		// prose. A legacy body with no headings at all parses to a lone preamble,
 		// which lands in the body field exactly as it did before.
 		if (body) {
-			// A `## Looks` section is a user-added custom TEXT field and must reach
+			// A `### Looks` section is a user-added custom TEXT field and must reach
 			// the API as `x_looks`, not be salvaged into description. We cannot know
 			// from the note alone which unknown headings are deliberate, so treat
 			// every unknown heading whose name is a clean single token as a custom

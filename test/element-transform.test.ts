@@ -719,7 +719,7 @@ test("buildElementBody: every text field gets a section, empty ones included (th
 });
 
 test("parseElementBody: sections map to their fields", () => {
-	const body = "## Description\n\nA knight.\n\n## Physicality\n\nTall and weathered.\n";
+	const body = "### Description\n\nA knight.\n\n### Physicality\n\nTall and weathered.\n";
 	const p = parseElementBody(body, "character");
 	assert.equal(p.fields.description, "A knight.");
 	assert.equal(p.fields.physicality, "Tall and weathered.");
@@ -728,7 +728,7 @@ test("parseElementBody: sections map to their fields", () => {
 });
 
 test("★ never-drop: an unknown heading keeps its prose in the body field", () => {
-	const body = "## Description\n\nA knight.\n\n## Backstory\n\nRenamed by the user.\n";
+	const body = "### Description\n\nA knight.\n\n### Backstory\n\nRenamed by the user.\n";
 	const out = bodyToFieldValues(body, "character");
 	assert.match(out.description, /A knight\./);
 	// The renamed section is NOT lost — heading and prose both survive
@@ -737,15 +737,15 @@ test("★ never-drop: an unknown heading keeps its prose in the body field", () 
 });
 
 test("★ never-drop: preamble before the first heading survives", () => {
-	const body = "Stray text someone typed at the top.\n\n## Description\n\nA knight.\n";
+	const body = "Stray text someone typed at the top.\n\n### Description\n\nA knight.\n";
 	const out = bodyToFieldValues(body, "character");
 	assert.match(out.description, /Stray text someone typed at the top\./);
 	assert.match(out.description, /A knight\./);
 });
 
 test("body sections: #### and deeper stay inside their section", () => {
-	// `##` and `###` are BOTH boundaries (we write ###; earlier 3.2 builds wrote
-	// ##), so a user's own sub-structure starts at ####.
+	// Only `###` (the level we write) is a boundary; every other level is the
+	// user's own structure (OW Infra #166 row 1).
 	const body = "### Background\n\nBorn in Waterdeep.\n\n#### Childhood\n\nUneventful.\n";
 	const p = parseElementBody(body, "character");
 	assert.match(p.fields.background, /Born in Waterdeep\./);
@@ -753,11 +753,11 @@ test("body sections: #### and deeper stay inside their section", () => {
 	assert.deepEqual(p.unknown, []);
 });
 
-test("body sections: ## and ### both read as boundaries (back-compat)", () => {
-	const h2 = parseElementBody("## Description\n\nA knight.\n\n## Physicality\n\nTall.\n", "character");
-	const h3 = parseElementBody("### Description\n\nA knight.\n\n### Physicality\n\nTall.\n", "character");
-	assert.deepEqual(h2.fields, h3.fields);
-	assert.equal(h3.fields.physicality, "Tall.");
+test("body sections: only ### is a boundary; a ## line is prose inside its section (row 1)", () => {
+	const p = parseElementBody("### Description\n\nA knight.\n\n## Physicality\n\nTall.\n", "character");
+	assert.equal(p.fields.description, "A knight.\n\n## Physicality\n\nTall.");
+	assert.equal(p.fields.physicality, undefined);
+	assert.deepEqual(p.unknown, []);
 });
 
 test("buildElementBody writes ### and puts a blank line under every heading", () => {
@@ -766,10 +766,10 @@ test("buildElementBody writes ### and puts a blank line under every heading", ()
 	assert.match(body, /### Mentality\n\n/); // empty sections get the gap too
 });
 
-test("body sections: a ## inside a fenced code block does not split a section", () => {
-	const body = "## Description\n\n```md\n## Not A Heading\n```\n\nstill description\n";
+test("body sections: a ### inside a fenced code block does not split a section", () => {
+	const body = "### Description\n\n```md\n### Not A Heading\n```\n\nstill description\n";
 	const p = parseElementBody(body, "character");
-	assert.match(p.fields.description, /## Not A Heading/);
+	assert.match(p.fields.description, /### Not A Heading/);
 	assert.match(p.fields.description, /still description/);
 	assert.deepEqual(p.unknown, []);
 });
@@ -848,14 +848,14 @@ test("scaffold: a real value always beats the empty seed", () => {
 });
 
 test("custom body sections round-trip as x_ fields when known", () => {
-	const body = "## Description\n\nA knight.\n\n## Looks\n\nWeathered.\n";
+	const body = "### Description\n\nA knight.\n\n### Looks\n\nWeathered.\n";
 	const out = bodyToFieldValues(body, "character", ["x_looks"]);
 	assert.equal(out.x_looks, "Weathered.");
 	assert.equal(out.description, "A knight."); // not salvaged into description
 });
 
 test("custom body sections: unknown-and-untracked still salvages (never-drop holds)", () => {
-	const body = "## Description\n\nA knight.\n\n## Looks\n\nWeathered.\n";
+	const body = "### Description\n\nA knight.\n\n### Looks\n\nWeathered.\n";
 	const out = bodyToFieldValues(body, "character"); // no known custom keys
 	assert.match(out.description, /## Looks/);
 	assert.match(out.description, /Weathered\./);
