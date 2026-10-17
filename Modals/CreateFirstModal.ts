@@ -25,7 +25,9 @@ export class CreateFirstModal extends Modal {
         readonly leftOut: CreateFirstItem[],
         private onChoice: (create: boolean) => void,
         /** No stored change-feed cursor: a 404 cannot be told from a delete here (Kael's second read, N3). */
-        readonly cannotTell = false
+        readonly cannotTell = false,
+        /** Why it cannot tell: never downloaded here, or the feed read failed (Kael's third read, 9). */
+        readonly cannotTellReason: 'no-cursor' | 'failed' = 'no-cursor'
     ) {
         super(app);
     }
@@ -42,7 +44,7 @@ export class CreateFirstModal extends Modal {
         const list = contentEl.createEl('ul');
         for (const item of this.items) list.createEl('li', { text: itemLabel(item) });
         for (const line of leftOutLines(this.leftOut)) contentEl.createEl('p', { text: line });
-        if (this.cannotTell) contentEl.createEl('p', { text: CANNOT_TELL_LINE });
+        if (this.cannotTell) contentEl.createEl('p', { text: cannotTellLine(this.cannotTellReason) });
         new Setting(contentEl)
             .addButton((b) => b.setButtonText('Create').setCta().onClick(() => this.choose(true)))
             .addButton((b) => b.setButtonText('Cancel').onClick(() => this.choose(false)));
@@ -66,6 +68,16 @@ export class CreateFirstModal extends Modal {
 export const CANNOT_TELL_LINE =
     'This device has not downloaded this world, so the plugin cannot tell a note never uploaded ' +
     'from one deleted on onlyworlds.com. Download World first if any of these may have been deleted.';
+
+/** What the plugin says when the change feed could not be read just now. */
+export const FEED_FAILED_LINE =
+    "The plugin could not read onlyworlds.com's change feed just now, so it cannot tell a note never uploaded " +
+    'from one deleted on onlyworlds.com.';
+
+/** The cannot-tell line for its reason. */
+export function cannotTellLine(reason: 'no-cursor' | 'failed' | undefined): string {
+    return reason === 'failed' ? FEED_FAILED_LINE : CANNOT_TELL_LINE;
+}
 
 /** `Location "Vallaki"`. */
 export function itemLabel(item: CreateFirstItem): string {

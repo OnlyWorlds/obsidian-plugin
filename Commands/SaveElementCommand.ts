@@ -6,7 +6,7 @@ import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
-import { CreateFirstModal, type CreateFirstItem } from '../Modals/CreateFirstModal';
+import { CreateFirstModal, cannotTellLine, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { confirm } from '../Modals/ConfirmModal';
 
@@ -55,6 +55,7 @@ interface CreateFirstPlan {
     overflow?: boolean;
     /** This device cannot tell a never-uploaded note from a deleted one (no stored cursor). */
     cannotTell?: boolean;
+    cannotTellReason?: 'no-cursor' | 'failed';
     /** The ids of `leftOut`: stripped from this save's link fields (Kael's second read, N5). */
     leftOutIds?: string[];
 }
@@ -317,6 +318,28 @@ export class SaveElementCommand {
                         );
                         if (!again) return this.fail(CANCELLED_MESSAGE);
                         recreated = true;
+                    } else if (!view.known) {
+                        // This device cannot tell "never uploaded" from "deleted"
+                        // (Kael's third read, 2). A failed feed read: auto-sync
+                        // waits for its next tick. No stored cursor: auto-sync
+                        // creates, as a kept note of a deleted element only comes
+                        // from a Download, which leaves a cursor. The manual Save
+                        // asks either way, saying why.
+                        if (!manual && view.reason === 'failed') {
+                            return this.fail(
+                                `Could not check onlyworlds.com for a delete of ${label}; not created this time. Auto-sync tries again on the next edit.`,
+                                8000
+                            );
+                        }
+                        if (manual) {
+                            const go = await confirm(
+                                this.app,
+                                `Create ${capitalize(type)} "${label}" on onlyworlds.com?`,
+                                [cannotTellLine(view.reason)],
+                                'Create'
+                            );
+                            if (!go) return this.fail(CANCELLED_MESSAGE);
+                        }
                     }
                     // Link targets that are notes in this vault but not on the
                     // server go first, or keel refuses the note (row 8).
@@ -482,7 +505,7 @@ export class SaveElementCommand {
             }
         };
         await visit(rootType, rootPayload, keep);
-        return { firsts: out, leftOut, leftOutIds, overflow, cannotTell: view ? !view.known : false };
+        return { firsts: out, leftOut, leftOutIds, overflow, cannotTell: view ? !view.known : false, cannotTellReason: view?.reason };
     }
 
     /**
@@ -540,7 +563,8 @@ export class SaveElementCommand {
                 plan.firsts.map((f) => ({ type: f.type, name: f.name })),
                 plan.leftOut,
                 resolve,
-                plan.cannotTell === true
+                plan.cannotTell === true,
+                plan.cannotTellReason ?? 'no-cursor'
             ).open();
         });
     }

@@ -23,9 +23,15 @@ async function sentDescription(content: string): Promise<unknown> {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n");
 	const file = (await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Mark2.md", content)) as unknown as TFile;
-	setRequestUrl((r) => (r.method === "GET" ? { status: 404, json: { error: { code: "not_found", message: "nope" } } } : { status: 201, json: {} }));
+	setRequestUrl((r) => {
+		if (r.method === "GET" && /\/world$/.test(new URL(r.url).pathname.replace(/\/$/, ""))) {
+			return { status: 200, json: { id: "019f0000-0000-7000-8000-0000000000ee", name: "W" } };
+		}
+		return r.method === "GET" ? { status: 404, json: { error: { code: "not_found", message: "nope" } } } : { status: 201, json: {} };
+	});
 	const plugin = { settings: { apiKey: "" }, buildV2Client: async () => new V2Client("ow_k_test", "1234") };
-	const result = await new SaveElementCommand(app as App, plugin as never).execute(file, { manual: true });
+	// Auto-sync's save: the same read of the note, and no dialog to answer.
+	const result = await new SaveElementCommand(app as App, plugin as never).execute(file);
 	assert.equal(result.ok, true, JSON.stringify(result));
 	const post = __requests.find((r) => r.method === "POST");
 	assert.ok(post?.body, "no POST was sent");

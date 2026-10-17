@@ -68,6 +68,8 @@ async function harness(notes: Record<string, string>, opts: Opts = {}) {
 		}
 	};
 	const client = {
+		// No stored cursor in this harness: "never downloaded here".
+		getWorld: async () => ({ id: "019b0000-0000-7000-8000-0000000000ee" }),
 		get: async (type: string, id: string) => {
 			calls.push(`get ${type} ${id}`);
 			if (existing.has(id)) return { id, name: "server", ...(opts.current?.[id] ?? {}) };
@@ -116,6 +118,11 @@ async function harness(notes: Record<string, string>, opts: Opts = {}) {
 		while (!done) {
 			await new Promise((r) => setImmediate(r));
 			for (const m of __modals.splice(0)) {
+				// The own-create confirm a never-downloaded device shows: always Create here.
+				if (m.constructor.name === "ConfirmModal") {
+					(m as unknown as Dialog).choose(true);
+					continue;
+				}
 				if (m.constructor.name !== "CreateFirstModal") continue;
 				const d = m as unknown as Dialog;
 				dialogs.push(d);

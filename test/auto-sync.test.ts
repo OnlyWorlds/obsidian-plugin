@@ -52,6 +52,7 @@ async function harness(opts: FakeClientOpts & { worldKey?: string | null; pin?: 
 	const calls: string[] = [];
 	const existing = opts.existing ?? new Set<string>();
 	const client = {
+		getWorld: async () => ({ id: "019a0000-0000-7000-8000-0000000000ee" }),
 		get: async (type: string, id: string) => {
 			calls.push(`get ${type} ${id}`);
 			if (existing.has(id)) return { id, name: "old" };

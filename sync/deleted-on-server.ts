@@ -37,6 +37,8 @@ export interface DeletedView {
 	ids: Set<string>;
 	/** False when this device cannot tell (no stored cursor, or the feed could not be read). */
 	known: boolean;
+	/** Why not, when `known` is false: no stored cursor (never downloaded here), or a read that failed. */
+	reason?: "no-cursor" | "failed";
 }
 
 /** The deleted ids of the world `client`'s key names, the feed read once from the stored cursor. */
@@ -45,16 +47,17 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	try {
 		worldId = String((await client.getWorld()).id ?? "");
 	} catch {
-		return { worldId: "", ids: new Set(), known: false };
+		return { worldId: "", ids: new Set(), known: false, reason: "failed" };
 	}
 	const ids = new Set(host.settings.deletedOnServer?.[worldId] ?? []);
 	const cursor = host.settings.syncCursors?.[worldId]?.cursor;
-	if (!worldId || !cursor) return { worldId, ids, known: false };
+	if (!worldId) return { worldId, ids, known: false, reason: "failed" };
+	if (!cursor) return { worldId, ids, known: false, reason: "no-cursor" };
 	let changes: { id: string; op: string }[];
 	try {
 		changes = (await client.changesWalk(cursor)).changes;
 	} catch {
-		return { worldId, ids, known: false };
+		return { worldId, ids, known: false, reason: "failed" };
 	}
 	const latest = new Map<string, string>();
 	for (const c of changes) latest.set(c.id, c.op);

@@ -64,6 +64,8 @@ interface SaveOpts {
 	cursor?: string;
 	/** What the change feed returns from that cursor. */
 	feed?: unknown[];
+	/** The change feed read fails (a 503). */
+	feedFails?: boolean;
 	/** Every dialog is answered with this (default true: Create). */
 	answer?: boolean;
 	/** The manual Save Element (default), or auto-sync's save. */
@@ -94,6 +96,7 @@ async function saveNote(o: SaveOpts) {
 		getWorld: async () => ({ id: WID, name: "W" }),
 		changesWalk: async (since?: string) => {
 			calls.push(`changes ${since ?? "epoch"}`);
+			if (o.feedFails) throw new V2ApiError(503, "unavailable", "Service Unavailable", null);
 			return { changes: o.feed ?? [], cursor: "c-next", head: 99 };
 		},
 		get: async (type: string, id: string) => {
@@ -143,7 +146,9 @@ async function saveNote(o: SaveOpts) {
 			d.choose(o.answer ?? true);
 		}
 	}
-	return { result: await run, calls, bulks, sent, dialogs, settings, notices: [...__notices], vault, file };
+	// The create-first dialogs alone (a new note on a device that cannot tell also gets its own confirm first).
+	const createFirst = dialogs.filter((d) => Array.isArray(d.items));
+	return { result: await run, calls, bulks, sent, dialogs, createFirst, settings, notices: [...__notices], vault, file };
 }
 
 /** The first round's shape: a manual Save with a deleted list and no feed. */
@@ -157,9 +162,9 @@ test("★ a target the change feed reported deleted is never recreated; the dial
 		"Location/Vallaki.md": note(VALLAKI, "Vallaki"),
 		"Location/Krezk.md": note(KREZK, "Krezk"),
 	});
-	assert.equal(r.dialogs.length, 1);
-	assert.deepEqual(r.dialogs[0].items, [{ type: "location", name: "Krezk" }]);
-	assert.deepEqual(r.dialogs[0].leftOut, [{ type: "location", name: "Vallaki" }]);
+	assert.equal(r.createFirst.length, 1);
+	assert.deepEqual(r.createFirst[0].items, [{ type: "location", name: "Krezk" }]);
+	assert.deepEqual(r.createFirst[0].leftOut, [{ type: "location", name: "Vallaki" }]);
 	for (const b of r.bulks) assert.ok(!b.includes(VALLAKI), "a deleted element was recreated");
 });
 
@@ -168,7 +173,7 @@ test("★ the only target deleted: no dialog, nothing recreated, the notice name
 		"Character/Ireena.md": note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
 		"Location/Vallaki.md": note(VALLAKI, "Vallaki"),
 	});
-	assert.equal(r.dialogs.length, 0);
+	assert.equal(r.createFirst.length, 0);
 	assert.deepEqual(r.bulks, []);
 	assert.ok(
 		r.notices.some((n) => n.includes('Location "Vallaki" was deleted on onlyworlds.com: the link is left out of this save, and the note keeps it.')),
@@ -197,8 +202,8 @@ test("★ the walk's first 404 reads the change feed once from the stored cursor
 
 test("★ no stored cursor: the dialog says this device cannot tell a never-uploaded note from a deleted one", async () => {
 	const r = await saveNote({ notes: IREENA_TO_VALLAKI });
-	assert.equal(r.dialogs.length, 1);
-	assert.equal(r.dialogs[0].cannotTell, true);
+	assert.equal(r.createFirst.length, 1);
+	assert.equal(r.createFirst[0].cannotTell, true);
 	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), [], "no cursor, no feed read");
 });
 
@@ -273,6 +278,45 @@ test("a never-uploaded note, not in the list, still creates as before with no di
 	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", manual: false });
 	assert.deepEqual(r.result, { ok: true, outcome: "created" });
 	assert.equal(r.dialogs.length, 0);
+});
+
+// --- Kael's third read, 2: a device that cannot tell (four cells) ------------
+
+const OWN = { notes: VALLAKI_NOTE, save: "Location/Vallaki.md" };
+
+test("★ stored cursor, feed read fails, auto-sync: refused this tick, nothing created", async () => {
+	const r = await saveNote({ ...OWN, cursor: "c5", feedFails: true, manual: false });
+	assert.equal(r.result.ok, false);
+	assert.match((r.result as { reason: string }).reason, /Could not check onlyworlds\.com.*tries again/);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")), r.calls.join(" | "));
+});
+
+test("★ stored cursor, feed read fails, manual Save: asks with the failed-read line; Cancel creates nothing", async () => {
+	const r = await saveNote({ ...OWN, cursor: "c5", feedFails: true, answer: false });
+	assert.equal(r.dialogs.length, 1);
+	assert.ok(r.dialogs[0].lines?.some((l) => /could not read onlyworlds\.com's change feed/.test(l)), JSON.stringify(r.dialogs[0].lines));
+	assert.ok(!r.calls.some((c) => c.startsWith("create")));
+});
+
+test("no stored cursor, auto-sync: creates as today (a kept note of a deleted element only comes from a Download)", async () => {
+	const r = await saveNote({ ...OWN, manual: false });
+	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+	assert.equal(r.dialogs.length, 0);
+});
+
+test("★ no stored cursor, manual Save: asks with the never-downloaded line on its own create; Create creates", async () => {
+	const r = await saveNote({ ...OWN });
+	assert.equal(r.dialogs.length, 1);
+	assert.ok(r.dialogs[0].lines?.some((l) => /has not downloaded this world/.test(l)), JSON.stringify(r.dialogs[0].lines));
+	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+});
+
+test("stored cursor, feed read fine, nothing deleted: no dialog, both ways", async () => {
+	for (const manual of [true, false]) {
+		const r = await saveNote({ ...OWN, cursor: "c5", feed: [], manual });
+		assert.deepEqual(r.result, { ok: true, outcome: "created" });
+		assert.equal(r.dialogs.length, 0, `manual ${manual}`);
+	}
 });
 
 test("with a stored cursor and no delete in the feed, the dialog makes no such caveat", async () => {
