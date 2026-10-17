@@ -106,6 +106,37 @@ test("row 16: Add Custom Field keeps the trailing whitespace of the note's last 
 	assert.equal(parsed?.fields.x_looks, "");
 });
 
+async function addLooks(app: App, file: TFile): Promise<void> {
+	(app as unknown as { workspace: { getActiveFile(): TFile } }).workspace.getActiveFile = () => file;
+	__modals.length = 0;
+	await new ManageFieldsCommand(app).addCustomField();
+	await (__modals.at(-1) as unknown as { onSubmit(v: string): Promise<void> }).onSubmit("Looks");
+}
+
+test("★ Add Custom Field on a note whose values hold a CRLF keeps every value (Kael's read, 4)", async () => {
+	const { app } = makeApp();
+	const file = (await writeElement(app, "W", "character", ID, {
+		name: "Ireena", description: "a\r\nb", reputation: "Feared.\n\n",
+	})) as TFile;
+	await addLooks(app, file);
+	const parsed = await readElement(app, file);
+	assert.equal(parsed?.fields.reputation, "Feared.\n\n");
+	assert.equal(parsed?.fields.description, "a\r\nb");
+	assert.equal(parsed?.fields.x_looks, "");
+});
+
+test("Add Custom Field on a note saved with CRLF throughout keeps its last value", async () => {
+	const { app, vault } = makeApp();
+	const file = (await vault.seed(
+		"OnlyWorlds/Worlds/W/Elements/Character/Ireena.md",
+		`---\r\nname: Ireena\r\nid: ${ID}\r\n---\r\n\r\n### Description\r\n\r\nTyped on Windows.\r\n`
+	)) as unknown as TFile;
+	await addLooks(app, file);
+	const parsed = await readElement(app, file);
+	assert.equal(parsed?.fields.description, "Typed on Windows.");
+	assert.equal(parsed?.fields.x_looks, "");
+});
+
 test("row 16: folder import then export keeps a description's whitespace and CRLF", async () => {
 	const { app, vault } = makeApp();
 	const description = "  A noble.  \r\nSecond line.\n";

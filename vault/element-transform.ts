@@ -253,6 +253,28 @@ export function buildElementBody(
 }
 
 /**
+ * The line ending of the body's last `###` section heading, the one
+ * sectionValue reads that section's layout by; `\n` when there is none. A
+ * CRLF inside a value says nothing about the layout (Kael's cold read, 4: a
+ * CRLF anywhere in the body used to pick `\r\n` and corrupted the last value).
+ */
+function lastSectionEol(body: string): string {
+	let eol = "\n";
+	let inFence = false;
+	let pos = 0;
+	for (;;) {
+		const nl = body.indexOf("\n", pos);
+		let line = body.slice(pos, nl < 0 ? body.length : nl);
+		const cr = line.endsWith("\r");
+		if (cr) line = line.slice(0, -1);
+		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+		if (!inFence && /^###[ \t]+(.+?)\s*$/.test(line)) eol = cr ? "\r\n" : "\n";
+		if (nl < 0) return eol;
+		pos = nl + 1;
+	}
+}
+
+/**
  * A body with one more, empty `### Label` section at its end (Add Custom
  * Field). The last value already there keeps its trailing whitespace: the body
  * is closed with the layout's blank line only where it lacks one, which reads
@@ -260,7 +282,7 @@ export function buildElementBody(
  * row 16).
  */
 export function appendBodySection(body: string, label: string): string {
-	const eol = body.includes("\r\n") ? "\r\n" : "\n";
+	const eol = lastSectionEol(body);
 	let b = body.trim() ? body : "";
 	if (b && !b.endsWith(eol + eol)) b += b.endsWith(eol) ? eol : eol + eol;
 	return `${b}${SECTION_HEADING} ${label}\n\n`;
