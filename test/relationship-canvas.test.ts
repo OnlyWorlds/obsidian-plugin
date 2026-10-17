@@ -294,3 +294,37 @@ test("after the element is renamed, the new canvas is drawn under the new name a
 		__notices.join(" / ")
 	);
 });
+
+// ── Round 4, item 2: the marker's hash stands on element ids and field names, never paths ──
+
+for (const rewritten of [true, false]) {
+	test(`the world folder renamed between two draws (${rewritten ? "Obsidian rewrites" : "nothing rewrites"} the canvas's paths): the plugin's canvas is still its own, no copy`, async () => {
+		const { app, vault } = makeApp();
+		await seedWorld(vault);
+		focus(app, vault, KASSAD);
+		await draw(app);
+		vault.move("OnlyWorlds/Worlds/Hyperion", "OnlyWorlds/Worlds/Endymion");
+		const moved = (p: string) => p.replace("Worlds/Hyperion/", "Worlds/Endymion/");
+		if (rewritten) {
+			const f = vault.files.get(moved(CANVAS))!.file;
+			await vault.modify(f, vault.contentAt(moved(CANVAS))!.split("Worlds/Hyperion/").join("Worlds/Endymion/"));
+		}
+		assert.equal(canvasStatus(vault.contentAt(moved(CANVAS))!, KASSAD_ID), "unchanged");
+		focus(app, vault, moved(KASSAD));
+		await draw(app);
+		const canvases = [...vault.files.keys()].filter((p) => p.endsWith(".canvas"));
+		assert.deepEqual(canvases, [moved(CANVAS)], "redrawn in place, no (your copy)");
+		assert.ok(canvasAt(vault, moved(CANVAS)).nodes.some((n) => n.type === "file" && n.file === moved(KASSAD)));
+	});
+}
+
+test("file nodes carry their element's id, so the hash names what was drawn: a card moved is still a change", async () => {
+	const { app, vault } = makeApp();
+	await seedWorld(vault);
+	focus(app, vault, KASSAD);
+	await draw(app);
+	const c = canvasAt(vault);
+	assert.ok(c.nodes.some((n) => n.type === "file" && n.id === `el-${KASSAD_ID}` && n.file === KASSAD));
+	c.nodes[1].y += 40;
+	assert.equal(canvasStatus(JSON.stringify(c), KASSAD_ID), "changed");
+});

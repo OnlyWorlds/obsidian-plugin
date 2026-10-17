@@ -77,12 +77,12 @@ function resolve(app: App, index: WorldIndex, sourcePath: string, link: Link): C
 	const name = wikilinkTarget(link.value);
 	if (name == null) {
 		const hit = index.byId.get(link.value);
-		return hit ? { kind: "file", path: hit.file.path } : { kind: "text", text: `No note for ${link.value}` };
+		return hit ? { kind: "file", path: hit.file.path, id: hit.id } : { kind: "text", text: `No note for ${link.value}` };
 	}
 	const id = buildWikilinkResolver(app, sourcePath)(name, link.target);
 	if (id === AMBIGUOUS_LINK) return { kind: "text", text: `[[${name}]] names more than one note` };
 	const hit = id ? index.byId.get(id) : undefined;
-	return hit ? { kind: "file", path: hit.file.path } : { kind: "text", text: `No note for [[${name}]]` };
+	return hit ? { kind: "file", path: hit.file.path, id: hit.id } : { kind: "text", text: `No note for [[${name}]]` };
 }
 
 /** Can this link value name `entry`? A cheap test before resolving, for the scan of the whole world. */
@@ -114,7 +114,7 @@ export async function gatherRelationshipGraph(app: App, file: TFile, opts: { inc
 				if (!mayName(l, centre)) continue;
 				const ref = resolve(app, index, other.file.path, l);
 				if (ref.kind === "file" && ref.path === centre.file.path) {
-					incoming.push({ field: l.field, from: { kind: "file", path: other.file.path } });
+					incoming.push({ field: l.field, from: { kind: "file", path: other.file.path, id: other.id } });
 				}
 			}
 		}
