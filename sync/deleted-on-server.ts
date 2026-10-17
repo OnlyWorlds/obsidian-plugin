@@ -36,7 +36,7 @@ export interface DeletedListClient {
  * read failed, or the server is behind the stored cursor (restored from a
  * backup since the last Download; Kael's third read, 4).
  */
-export type CannotTell = "no-cursor" | "failed" | "rewound";
+export type CannotTell = "failed" | "rewound" | "resync";
 
 export interface DeletedView {
 	/** The world's id, "" when it could not be read. */
@@ -93,8 +93,13 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	let walk: { changes: { id: string; op: string }[]; cursor?: string | null; head?: number };
 	try {
 		walk = await client.changesWalk(since);
-	} catch {
-		return { worldId, ids, known: false, reason: "failed" };
+	} catch (error) {
+		// keel's 409 resync_required (a guest's cursor after a delete it could
+		// see) holds until a Download re-walks: say that, not "try again"
+		// (Kael's delta read, low 3).
+		const e = error as { status?: unknown; code?: unknown } | null;
+		const resync = e?.status === 409 && e?.code === "resync_required";
+		return { worldId, ids, known: false, reason: resync ? "resync" : "failed" };
 	}
 	// A head below the one Download stored: the server was restored, and a
 	// delete at or below the old cursor would never show (Download compares

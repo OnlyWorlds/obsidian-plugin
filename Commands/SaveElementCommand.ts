@@ -347,6 +347,12 @@ export class SaveElementCommand {
                                 10000
                             );
                         }
+                        if (!manual && view.reason === 'resync') {
+                            return this.fail(
+                                `onlyworlds.com asks this device to read the world again, so ${label} was not created: Download World to catch up.`,
+                                10000
+                            );
+                        }
                         if (manual) {
                             const go = await confirm(
                                 this.app,

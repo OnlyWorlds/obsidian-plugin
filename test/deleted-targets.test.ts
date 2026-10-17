@@ -76,6 +76,8 @@ interface SaveOpts {
 	feed?: unknown[];
 	/** The change feed read fails (a 503). */
 	feedFails?: boolean;
+	/** The feed answers keel's 409 resync_required (a guest's cursor after a delete it could see). */
+	feedResync?: boolean;
 	/** The head the feed reports (default 99; the stored head is 5). */
 	feedHead?: number;
 	/** Every dialog is answered with this (default true: Create). */
@@ -109,6 +111,7 @@ async function saveNote(o: SaveOpts) {
 		changesWalk: async (since?: string) => {
 			calls.push(`changes ${since ?? "epoch"}`);
 			if (o.feedFails) throw new V2ApiError(503, "unavailable", "Service Unavailable", null);
+			if (o.feedResync) throw new V2ApiError(409, "resync_required", "Resync required", null);
 			return { changes: o.feed ?? [], cursor: "c-next", head: o.feedHead ?? 99 };
 		},
 		get: async (type: string, id: string) => {
@@ -464,6 +467,22 @@ test("a later re-create clears the session's delete, and a later delete after Cr
 	assert.equal((await readDeletedOnServer(host, feed.client)).ids.has(VALLAKI), false);
 	log.push({ id: VALLAKI, op: "delete" });
 	assert.ok((await readDeletedOnServer(host, feed.client)).ids.has(VALLAKI));
+});
+
+// --- Kael's delta read, low 3: keel's 409 resync_required --------------------
+
+test("★ a feed answering 409 resync_required: auto-sync refuses and says Download World to catch up, not 'tries again'", async () => {
+	const r = await saveNote({ ...OWN, cursor: "c5", feedResync: true, manual: false });
+	assert.equal(r.result.ok, false);
+	const reason = (r.result as { reason: string }).reason;
+	assert.match(reason, /Download World to catch up/);
+	assert.doesNotMatch(reason, /tries again/);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")));
+});
+
+test("the manual Save asks with the catch-up line", async () => {
+	const r = await saveNote({ ...OWN, cursor: "c5", feedResync: true, answer: false });
+	assert.ok(r.dialogs[0]?.lines?.some((l) => /Download World to catch up/.test(l)), JSON.stringify(r.dialogs[0]?.lines));
 });
 
 // --- Kael's third read, 4b: a stored cursor past the server's head ----------

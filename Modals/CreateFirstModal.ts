@@ -79,13 +79,19 @@ export const REWOUND_LINE =
     'onlyworlds.com was restored from a backup since this device last downloaded the world, so the plugin ' +
     'cannot tell a note never uploaded from one deleted there. Download World first.';
 
+/** What the plugin says when onlyworlds.com asks this device to re-read the world (keel's 409 resync_required). */
+export const RESYNC_LINE =
+    'onlyworlds.com asks this device to read the world again, so the plugin cannot tell a note never uploaded ' +
+    'from one deleted there: Download World to catch up.';
+
 /** Why the plugin cannot tell: never downloaded here, a failed feed read, or a restored server. */
-export type CannotTellReason = 'no-cursor' | 'failed' | 'rewound';
+export type CannotTellReason = 'no-cursor' | 'failed' | 'rewound' | 'resync';
 
 /** The cannot-tell line for its reason. */
 export function cannotTellLine(reason: CannotTellReason | undefined): string {
     if (reason === 'failed') return FEED_FAILED_LINE;
     if (reason === 'rewound') return REWOUND_LINE;
+    if (reason === 'resync') return RESYNC_LINE;
     return CANNOT_TELL_LINE;
 }
 
