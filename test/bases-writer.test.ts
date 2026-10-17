@@ -138,7 +138,7 @@ test("Create World (local) writes the Bases file, and not when the setting is of
 	}
 });
 
-test("Write Bases file: the active note's world; a kept file is named in a Notice", async () => {
+test("Write Bases file: the active note's world; a user's own file there is rebuilt, their version kept and named", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **Name:** Hyperion\n");
 	await vault.seed("OnlyWorlds/Worlds/Other/World.md", "- **Name:** Other\n");
@@ -154,6 +154,7 @@ test("Write Bases file: the active note's world; a kept file is named in a Notic
 	await vault.modify(vault.files.get(BASE)!.file, USERS_OWN);
 	__notices.length = 0;
 	await new WriteBasesFileCommand(app).execute();
-	assert.equal(content(vault, BASE), USERS_OWN);
-	assert.ok(__notices.some((n) => n.includes("left alone")), __notices.join(" / "));
+	assert.equal(content(vault, BASE), buildBasesFile({ worldName: "Hyperion", worldFolderPath: "OnlyWorlds/Worlds/Hyperion", schema: pluginBasesSchema() }));
+	assert.equal(content(vault, "OnlyWorlds/Worlds/Hyperion/Hyperion (your copy).base"), USERS_OWN);
+	assert.ok(__notices.some((n) => n.includes("kept beside it as Hyperion (your copy).base")), __notices.join(" / "));
 });
