@@ -215,9 +215,16 @@ export class ImportFolderCommand {
 				const payload = { ...el.payload };
 				const bodyField = bodyFieldForCategory(el.type);
 				if (typeof payload[bodyField] === "string") {
+					// A mention names the note its element will have, a twin by
+					// its `(1)` basename, never the bare name two notes share
+					// (round C, 3): `[[Twin (1)|Twin]]`, the label kept.
 					payload[bodyField] = owMentionsToWikilinks(
 						payload[bodyField] as string,
-						(i) => idIndex.get(i) ?? null
+						(i) => {
+							const ref = idIndex.get(i);
+							const note = idToName.get(i);
+							return ref && note ? { ...ref, name: note } : ref ?? null;
+						}
 					);
 				}
 				const planned = idToName.get(id);

@@ -130,10 +130,12 @@ export class ExportFolderCommand {
 		}
 
 		// Pass 1 — read every element (frontmatter, span-tolerant) and build a
-		// name -> ref index for wikilink resolution.
-		const elements: { type: string; payload: Record<string, unknown> }[] = [];
+		// note path -> ref index for wikilink resolution: a `[[link]]` names the
+		// note Obsidian resolves it to, never an element by name alone, so two
+		// same-name twins keep their own ids (round C, 3).
+		const elements: { type: string; payload: Record<string, unknown>; path: string }[] = [];
 		const failed: { path: string; reason: string }[] = [];
-		const nameIndex = new Map<string, ElementRef>();
+		const byPath = new Map<string, ElementRef>();
 		for (const file of files) {
 			try {
 				const parsed = await readElement(this.app, file);
@@ -147,8 +149,8 @@ export class ExportFolderCommand {
 					continue;
 				}
 				const payload = { ...parsed.fields, id: parsed.id, name: parsed.name };
-				elements.push({ type: parsed.category, payload });
-				nameIndex.set(parsed.name, { id: parsed.id, name: parsed.name, type: parsed.category });
+				elements.push({ type: parsed.category, payload, path: file.path });
+				byPath.set(file.path, { id: parsed.id, name: parsed.name, type: parsed.category });
 			} catch (e) {
 				failed.push({ path: file.path, reason: e instanceof Error ? e.message : String(e) });
 			}
@@ -177,7 +179,10 @@ export class ExportFolderCommand {
 			if (typeof payload[bodyField] === "string") {
 				payload[bodyField] = wikilinksToOwMentions(
 					payload[bodyField] as string,
-					(n) => nameIndex.get(n) ?? null
+					(n) => {
+						const dest = this.app.metadataCache.getFirstLinkpathDest(n, el.path);
+						return dest ? byPath.get(dest.path) ?? null : null;
+					}
 				);
 			}
 			const body = buildFolderElementBody(
