@@ -44,3 +44,24 @@ test("a read after the shared one has settled walks on from where it ended", asy
 	await readDeletedOnServer(host, client);
 	assert.deepEqual(client.calls, ["epoch", "c3"]);
 });
+
+test("★ after a Download mid-session, the next read starts from Download's later cursor, not the session's", async () => {
+	const host = { settings: { deletedOnServer: {} as Record<string, string[]>, syncCursors: { [WID]: { cursor: "c5", head: 5 } } as Record<string, { cursor: string; head: number }> } };
+	const client = feedClient({
+		c5: { changes: [], cursor: "c6", head: 6 },
+		c9: { changes: [], cursor: "c10", head: 10 },
+	});
+	await readDeletedOnServer(host, client);
+	host.settings.syncCursors[WID] = { cursor: "c9", head: 9 }; // a Download ran
+	await readDeletedOnServer(host, client);
+	await readDeletedOnServer(host, client);
+	assert.deepEqual(client.calls, ["c5", "c9", "c10"]);
+});
+
+test("a session ahead of Download's cursor reads on from its own", async () => {
+	const host = { settings: { deletedOnServer: {} as Record<string, string[]>, syncCursors: { [WID]: { cursor: "c5", head: 5 } } } };
+	const client = feedClient({ c5: { changes: [], cursor: "c7", head: 7 } });
+	await readDeletedOnServer(host, client);
+	await readDeletedOnServer(host, client);
+	assert.deepEqual(client.calls, ["c5", "c7"]);
+});
