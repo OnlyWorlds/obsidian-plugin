@@ -66,7 +66,7 @@ Only notes inside a world's `Elements` folders are elements. Notes you already h
 | How | What it sends |
 |---|---|
 | **Save Element** | The active note. Reads the element on the server first and sends only the fields that changed; fields the note doesn't carry are left alone. No default hotkey: bind one in **Settings → Hotkeys**. |
-| **Auto-sync** (off by default) | The note you edited, a few seconds after you stop typing (3000 ms by default, set in settings). Same as Save Element. |
+| **Auto-sync** (off by default) | The note you edited, a few seconds after you stop typing (3000 ms by default, set in settings). Same as Save Element. It hears only edits typed in Obsidian: notes another tool writes (Atlas, a script, a sync client) are not pushed, so run Upload World after such a change. |
 | **Upload World** | Every element in the active world. It creates new elements and updates existing ones. Elements that exist only on the server are counted in the summary, not deleted. |
 
 On both Save Element and Upload World, a link field holding a `[[Name]]` that matches no note in the vault is not sent at all, so the server keeps its copy of that field. Save Element names those links; upload the target element, then save again.
