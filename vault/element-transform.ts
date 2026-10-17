@@ -446,6 +446,15 @@ export function frontmatterClose(content: string): { end: number; after: number 
 }
 
 /**
+ * Every element id (a UUID) a note's frontmatter block holds, its own id
+ * and raw-id link values alike, read without a YAML parse: what the deleted
+ * list keeps for a note (the fix round, item 8).
+ */
+export function idsInFrontmatter(content: string): string[] {
+	return splitNote(content).frontmatter.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? [];
+}
+
+/**
  * Serialize a frontmatter object to a `---` block, in key order.
  *
  * We emit this ourselves rather than going through Obsidian's

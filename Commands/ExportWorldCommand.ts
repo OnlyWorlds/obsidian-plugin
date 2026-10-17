@@ -15,6 +15,9 @@ import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
 import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 
+/** An element id as a link value holds it. */
+const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class ExportWorldCommand {
     app: App;
     manifest: PluginManifest;
@@ -179,6 +182,10 @@ export class ExportWorldCommand {
                 }
             }
             const localIds = new Set<string>();
+            // The ids the deleted list keeps: each note's own, and every id
+            // its fields hold (a raw-id link to an element with no note
+            // here), so a save leaves such a link out (the fix round, item 8).
+            const guarded = new Set<string>();
             for (const category in worldData) {
                 if (category === 'World') continue;
                 const elements = worldData[category];
@@ -186,14 +193,18 @@ export class ExportWorldCommand {
                 for (const raw of elements) {
                     const id = (raw as Record<string, unknown>).id;
                     if (id) localIds.add(String(id));
+                    for (const v of Object.values(raw as Record<string, unknown>).flat()) {
+                        if (typeof v === 'string' && ELEMENT_ID.test(v)) guarded.add(v);
+                    }
                 }
             }
+            for (const id of localIds) guarded.add(id);
             const serverOnly = [...serverIds].filter(id => !localIds.has(id)).length;
 
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
             // without the user's word (Kael's second read, N4).
-            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, localIds);
+            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, guarded);
             for (const id of leftOut.ids) {
                 const at = toCreate.findIndex(i => String(i.element.id) === id);
                 if (at >= 0) toCreate.splice(at, 1);
@@ -419,7 +430,7 @@ export class ExportWorldCommand {
         latestOp: Map<string, string>,
         serverIds: Set<string>,
         toCreate: { type: string; element: Record<string, unknown> }[],
-        localIds: Set<string>
+        guardedIds: Set<string>
     ): Promise<{ ids: string[]; names: string[]; recreate: Set<string>; worldId: string; deleted: Set<string>; nameOf: Map<string, string> }> {
         const none = { ids: [], names: [], recreate: new Set<string>(), worldId: '', deleted: new Set<string>(), nameOf: new Map<string, string>() };
         let worldId = '';
@@ -437,10 +448,11 @@ export class ExportWorldCommand {
             else deleted.delete(id);
         }
         if (worldId && this.plugin) {
-            // Kept: only ids with a note in this vault, the ones the list guards (Kael's third read, 4).
+            // Kept: only ids with a note in this vault or linked from one, the
+            // ones the list guards (Kael's third read, 4; the fix round, item 8).
             this.plugin.settings.deletedOnServer = {
                 ...(this.plugin.settings.deletedOnServer ?? {}),
-                [worldId]: [...deleted].filter(id => localIds.has(id)),
+                [worldId]: [...deleted].filter(id => guardedIds.has(id)),
             };
             try { await this.plugin.saveSettings(); } catch { /* the list is right for this sweep */ }
         }

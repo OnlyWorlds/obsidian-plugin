@@ -21,7 +21,7 @@ import { V2ApiError, V2Change, V2Client } from '../client-v2';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
-import { parseRawFrontmatterScalars } from '../vault/element-transform';
+import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 
@@ -188,10 +188,12 @@ export class DownloadWorldCommand {
                             if (change.op === 'delete') deleted.add(change.id);
                             else deleted.delete(change.id);
                         }
-                        // Only ids that still have a note here: the list guards
-                        // kept notes, and a full walk sees every delete the world
-                        // ever had (Kael's third read, 4). An empty list needs no
-                        // read of every note (round C, 8).
+                        // Only ids that still have a note here, or that a note
+                        // here links to by id: the list guards kept notes and
+                        // their links, and a full walk sees every delete the
+                        // world ever had (Kael's third read, 4; the fix round,
+                        // item 8). An empty list needs no read of every note
+                        // (round C, 8).
                         const local = deleted.size > 0 ? await this.localElementIds(uniqueWorldName) : new Set<string>();
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
@@ -602,8 +604,13 @@ export class DownloadWorldCommand {
         for (const file of this.app.vault.getMarkdownFiles()) {
             if (!file.path.startsWith(prefix)) continue;
             try {
-                const id = parseRawFrontmatterScalars(await this.app.vault.read(file), ['id']).id;
+                const content = await this.app.vault.read(file);
+                const id = parseRawFrontmatterScalars(content, ['id']).id;
                 if (id) ids.add(id);
+                // The ids its Properties hold (a raw-id link to an element
+                // with no note here): the deleted list keeps those too, so a
+                // save leaves the link out (the fix round, item 8).
+                for (const linked of idsInFrontmatter(content)) ids.add(linked);
             } catch { /* unreadable note — skip */ }
         }
         return ids;

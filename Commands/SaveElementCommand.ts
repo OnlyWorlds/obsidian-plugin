@@ -585,7 +585,18 @@ export class SaveElementCommand {
                 visited.add(id);
                 index = index ?? this.worldNoteIndex(worldName);
                 const file = index.get(id);
-                if (!file) continue;
+                if (!file) {
+                    // A raw id with no note here: nothing to create, but one
+                    // the feed reports deleted is left out and named, as
+                    // Upload World does, or keel refuses the whole save (the
+                    // fix round, item 8; Kael's delta read, E-8a).
+                    view = view ?? (await readDeletedOnServer(this.plugin, client));
+                    if (view.ids.has(id)) {
+                        leftOut.push({ type: 'element', name: id });
+                        leftOutIds.push(id);
+                    }
+                    continue;
+                }
                 const parsed = await readElement(this.app, file);
                 if (!parsed || parsed.id !== id) continue;
                 try {

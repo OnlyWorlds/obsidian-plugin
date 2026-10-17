@@ -19,6 +19,12 @@ export interface HarnessOpts {
 	manual?: boolean;
 	/** The status keel answers for each /bulk item (default 201). */
 	bulkStatus?: (id: string) => number;
+	/** The plugin's stored deleted list for the world. */
+	deleted?: string[];
+	/** The stored (Download's) cursor for the world. */
+	cursor?: { cursor: string; head: number };
+	/** What the change feed reports from any cursor. */
+	feed?: { id: string; op: string }[];
 }
 
 export async function harnessSave(o: HarnessOpts) {
@@ -36,7 +42,7 @@ export async function harnessSave(o: HarnessOpts) {
 		getWorld: async () => ({ id: HARNESS_WID, name: "W" }),
 		changesWalk: async (since?: string) => {
 			calls.push(`changes ${since ?? "epoch"}`);
-			return { changes: [], cursor: "c1", head: 1 };
+			return { changes: o.feed ?? [], cursor: "c1", head: 1 };
 		},
 		get: async (type: string, id: string) => {
 			calls.push(`get ${type} ${id}`);
@@ -66,7 +72,11 @@ export async function harnessSave(o: HarnessOpts) {
 			};
 		},
 	};
-	const settings = { apiKey: "", deletedOnServer: {}, syncCursors: {} };
+	const settings = {
+		apiKey: "",
+		deletedOnServer: (o.deleted ? { [HARNESS_WID]: o.deleted } : {}) as Record<string, string[]>,
+		syncCursors: (o.cursor ? { [HARNESS_WID]: o.cursor } : {}) as Record<string, { cursor: string; head: number }>,
+	};
 	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => client };
 	__notices.length = 0;
 	__modals.length = 0;
@@ -81,5 +91,5 @@ export async function harnessSave(o: HarnessOpts) {
 			if (typeof d.choose === "function") d.choose(true);
 		}
 	}
-	return { result: await run, calls, sent, bulkOpts, notices: [...__notices], vault, app, files };
+	return { result: await run, calls, sent, bulkOpts, notices: [...__notices], vault, app, files, settings };
 }
