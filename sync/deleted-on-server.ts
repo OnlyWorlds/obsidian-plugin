@@ -51,11 +51,12 @@ export interface DeletedView {
 
 /**
  * Per plugin (the host) and world id, for the session, in memory only, gone
- * with the plugin object: the cursor the last walk ended at, and (for a device
- * with no stored cursor) the deletes the session has seen (amended rule 2;
- * Kael's delta read, 1).
+ * with the plugin object: the cursor the last walk ended at, the stored
+ * (Download's) cursor that walk saw, and (for a device with no stored cursor)
+ * the deletes the session has seen (amended rule 2; Kael's delta read, 1;
+ * the fix round, item 4).
  */
-const sessionState = new WeakMap<object, Map<string, { cursor?: string; head?: number; seen: Set<string> }>>();
+const sessionState = new WeakMap<object, Map<string, { cursor?: string; stored?: string; seen: Set<string> }>>();
 
 /** `ids` with each change's latest op applied: a delete adds its id, any other op takes it out. */
 function foldDeletes(ids: Set<string>, changes: { id: string; op: string }[]): Set<string> {
@@ -115,13 +116,14 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	let sessions = sessionState.get(host);
 	if (!sessions) sessionState.set(host, (sessions = new Map()));
 	const session = sessions.get(worldId);
-	// The later of the session's cursor and Download's: a Download in the
-	// middle of the session stores a cursor past the session's (round C, 9).
-	// Cursors are keel's own; the heads the two walks ended at order them.
-	const downloadIsLater =
-		!session?.cursor ||
-		(!!cursor && typeof stored?.head === "number" && typeof session.head === "number" && stored.head > session.head);
-	const since = downloadIsLater ? cursor ?? session?.cursor : session.cursor;
+	// A stored cursor other than the one the session last saw means a
+	// Download ran since: the session starts from it, whether it is past the
+	// session's (round C, 9) or behind it, after a server restore (the fix
+	// round, item 4; Kael's c-read, low 4: the heads ordered the two and kept
+	// the session on its pre-restore cursor). Cursors are keel's own, so they
+	// are compared for equality only.
+	const downloadRan = !session?.cursor || session.stored !== cursor;
+	const since = downloadRan ? cursor ?? session?.cursor : session.cursor;
 	let walk: { changes: { id: string; op: string }[]; cursor?: string | null; head?: number };
 	try {
 		walk = await client.changesWalk(since);
@@ -140,7 +142,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 		return { worldId, ids, known: false, reason: "rewound" };
 	}
 	const seen = session?.seen ?? new Set<string>();
-	sessions.set(worldId, { cursor: walk.cursor ?? since, head: walk.head, seen });
+	sessions.set(worldId, { cursor: walk.cursor ?? since, stored: cursor, seen });
 	if (!cursor) {
 		// No stored cursor: the view stays in memory, never written as a
 		// cursor or into the list (amended rule 2).
