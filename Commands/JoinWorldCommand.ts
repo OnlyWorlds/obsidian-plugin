@@ -9,6 +9,7 @@ import {
     acceptJoin,
     inviteWords,
     joinCode,
+    joinKeyWords,
     previewJoin,
     redeemPlayer,
 } from '../account/join';
@@ -88,7 +89,7 @@ export class JoinWorldCommand {
             new Notice(`${words} ${SIGN_IN_FIRST}`, 10000);
             return;
         }
-        const ok = await confirm(words, `You join as ${this.plugin.settings.accountUsername || 'your account'}. This vault then downloads the world with its own key.`);
+        const ok = await confirm(words, `You join as ${this.plugin.settings.accountUsername || 'your account'}. ${joinKeyWords(preview.role)}`);
         if (!ok) return;
 
         let joined;

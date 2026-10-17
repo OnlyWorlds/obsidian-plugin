@@ -481,6 +481,21 @@ test("a person code, declined at the preview, accepts nothing", async () => {
 	assert.equal(sent("/account/join").length, 0);
 });
 
+test("a person code's preview says the key by role: a guest's is a read key, a role that writes keeps the plain line (Seethe's walk, h37 #6503)", async () => {
+	const READ_LINE = "This vault then downloads the world with its own read key: you can read it here, not change it.";
+	const WRITE_LINE = "This vault then downloads the world with its own key.";
+	for (const [role, line] of [["guest", READ_LINE], ["co_builder", WRITE_LINE], ["contributor", WRITE_LINE]] as const) {
+		keel({ answers: { ...accountAnswers(), "POST /join/preview": PREVIEW("person", role) } });
+		const { app } = makeApp();
+		const plugin = fakePlugin(app, true);
+		const join = new JoinWorldCommand(app, plugin, new DownloadWorldCommand(app, { version: "test" }, plugin));
+		let detail = "";
+		await join.joinWith("ow_j_person", async (_w, d) => { detail = d; return false; });
+		assert.equal(detail, `You join as tess. ${line}`, role);
+		assert.equal(sent("/account/join").length, 0, role);
+	}
+});
+
 test("a person code with no account signed in asks to sign in first, and accepts nothing", async () => {
 	keel({ answers: { "POST /join/preview": PREVIEW("person", "co_builder") } });
 	const { app } = makeApp();

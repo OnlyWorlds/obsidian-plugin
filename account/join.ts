@@ -60,6 +60,17 @@ export function joinRoleWords(role: string): string {
 	return role ? `a ${role.replace(/_/g, "-")}` : "a member";
 }
 
+/**
+ * What the joining vault's key can do, by the invite's role: a guest (a
+ * player) gets a read key (mintVaultKey mints read for a guest), every other
+ * role a write key. Said before the join, so a read key is not a surprise
+ * (Seethe's walk of rc-next, h37 #6503).
+ */
+export function joinKeyWords(role: string): string {
+	if (role === "guest") return "This vault then downloads the world with its own read key: you can read it here, not change it.";
+	return "This vault then downloads the world with its own key.";
+}
+
 /** "Ana invites you to Sikelia as a co-builder." */
 export function inviteWords(p: JoinPreview): string {
 	const who = p.invited_by?.trim() || p.owner_character?.trim() || "Someone";
