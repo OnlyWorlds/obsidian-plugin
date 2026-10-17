@@ -22,7 +22,10 @@ export class DrawRelationshipsCommand {
 		return typeof id === "string" ? id : null;
 	};
 
-	/** What is at a path, and where an element's note is: a rename told from a card re-pointed (round C, 6). */
+	/** The world of the note being drawn: the canvas's world. */
+	private world = "";
+
+	/** What is at a path, inside the world or not, and whether an element has a note in it: a rename told from a card re-pointed (round C, 6). */
 	private view: CanvasVaultView = {
 		// A note Obsidian has not indexed yet is "unread", never taken as one
 		// without an id: a cold cache keeps the card's own element.
@@ -31,8 +34,11 @@ export class DrawRelationshipsCommand {
 			if (!(f instanceof TFile)) return "none";
 			return f.extension !== "md" || this.app.metadataCache.getFileCache(f) !== null ? "read" : "unread";
 		},
-		notePathOf: (elementId) =>
-			this.app.vault.getMarkdownFiles().find((f) => this.app.metadataCache.getFileCache(f)?.frontmatter?.id === elementId)?.path ?? null,
+		inWorld: (path) => path.startsWith(`OnlyWorlds/Worlds/${this.world}/`),
+		hasNoteInWorld: (elementId) =>
+			this.app.vault
+				.getMarkdownFiles()
+				.some((f) => this.view.inWorld(f.path) && this.app.metadataCache.getFileCache(f)?.frontmatter?.id === elementId),
 	};
 
 	async execute(): Promise<void> {
@@ -41,6 +47,7 @@ export class DrawRelationshipsCommand {
 			new Notice("Open an element's note first, then run Draw relationships on a canvas.");
 			return;
 		}
+		this.world = parseElementPath(file.path)?.worldName ?? "";
 		try {
 			const graph = await gatherRelationshipGraph(this.app, file, { incoming: this.incoming() });
 			if (!graph) {

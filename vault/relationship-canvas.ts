@@ -14,11 +14,11 @@
  * other node's and edge's own JSON Canvas keys, in id order, with one
  * substitution: a file node's path is hashed as the element id its note
  * names (the vault's, through `idOf`; else the node's own `el-<element id>`,
- * for a path no file holds any more while that element's note is in the
- * vault under the same file name: a folder rename nothing rewrote). A card
- * re-pointed to a file with no element id, or to any other path no file
- * holds, is hashed as its path, so it counts as the user's (round C, 6;
- * Kael's delta read, low 2). So a rename of a note or its folders
+ * for a path no file holds any more while that element still has a note in
+ * the world: a rename the canvas did not see). A card re-pointed to a note
+ * of another element, to a file with no element id, or to a file outside the
+ * world (another world's copy of the note included) is hashed so it counts as
+ * the user's (round C, 6; Kael's delta read, low 2). So a rename of a note or its folders
  * (Rename World, a type folder's count, rename-on-save) changes no hash,
  * whether or not Obsidian rewrites the canvas's paths (Kael's seam read of
  * rc-350, low 2), while a card re-pointed to another note, moved, resized,
@@ -105,15 +105,15 @@ const v = (o: Loose, k: string, dflt: unknown = null): unknown => (o[k] === unde
 export type IdOfPath = (path: string) => string | null;
 
 /**
- * What the hash asks the vault beyond `idOf`: what is at a path ("none", a
- * file not yet indexed, or one read), and where an element's note is now.
+ * What the hash asks the vault beyond `idOf`, for the canvas's world: what is
+ * at a path ("none", a file not yet indexed, or one read), whether a path is
+ * inside the world, and whether an element has a note in it.
  */
 export interface CanvasVaultView {
 	fileAt(path: string): "none" | "unread" | "read";
-	notePathOf(elementId: string): string | null;
+	inWorld(path: string): boolean;
+	hasNoteInWorld(elementId: string): boolean;
 }
-
-const leafOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1).toLowerCase();
 
 /**
  * The hash of a drawing: every node but the marker, and every edge, by their
@@ -124,21 +124,21 @@ function drawingHash(nodes: Loose[], edges: Loose[], markerPrefix: string, idOf?
 	const byId = (a: Loose, b: Loose) => String(a.id).localeCompare(String(b.id));
 	const element = (n: Loose): unknown => {
 		if (typeof n.file !== "string") return v(n, "file");
+		const at = vault?.fileAt(n.file);
+		// A file outside the world is the user's, even one holding this
+		// element's id (another world's copy of the note).
+		if (vault && at === "read" && !vault.inWorld(n.file)) return n.file;
 		const named = idOf?.(n.file);
 		if (named) return named;
 		const id = String(n.id);
 		if (!id.startsWith("el-")) return n.file;
-		// The node's own element stands in for a folder rename nothing
-		// rewrote (no file at the path, the element's note under the same
-		// file name elsewhere) and for a note not yet indexed. A read file
-		// with no id, or a path to nothing else, is the user's.
+		// The node's own element stands in for a rename the canvas did not
+		// see (no file at the path, the element's note still in the world)
+		// and for a note not yet indexed. A read file with no id is the
+		// user's; so is a path to nothing that no rename explains.
 		const el = id.slice(3);
-		const at = vault?.fileAt(n.file);
 		if (at === "read") return n.file;
-		if (at === "none") {
-			const now = vault?.notePathOf(el);
-			if (!now || leafOf(now) !== leafOf(n.file)) return n.file;
-		}
+		if (at === "none" && vault && !vault.hasNoteInWorld(el)) return n.file;
 		return el;
 	};
 	const ns = nodes
