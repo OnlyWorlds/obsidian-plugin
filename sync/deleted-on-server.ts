@@ -56,7 +56,7 @@ export interface DeletedView {
  * the deletes the session has seen (amended rule 2; Kael's delta read, 1;
  * the fix round, item 4).
  */
-const sessionState = new WeakMap<object, Map<string, { cursor?: string; stored?: string; seen: Set<string> }>>();
+const sessionState = new WeakMap<object, Map<string, { cursor?: string; stored?: string; head?: number; seen: Set<string> }>>();
 
 /** `ids` with each change's latest op applied: a delete adds its id, any other op takes it out. */
 function foldDeletes(ids: Set<string>, changes: { id: string; op: string }[]): Set<string> {
@@ -123,17 +123,32 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	// the session on its pre-restore cursor). Cursors are keel's own, so they
 	// are compared for equality only.
 	const downloadRan = !session?.cursor || session.stored !== cursor;
-	const since = downloadRan ? cursor ?? session?.cursor : session.cursor;
+	let since = downloadRan ? cursor ?? session?.cursor : session.cursor;
+	let rewound = false;
 	let walk: { changes: { id: string; op: string }[]; cursor?: string | null; head?: number };
-	try {
-		walk = await client.changesWalk(since);
-	} catch (error) {
-		// keel's 409 resync_required (a guest's cursor after a delete it could
-		// see) holds until a Download re-walks: say that, not "try again"
-		// (Kael's delta read, low 3).
-		const e = error as { status?: unknown; code?: unknown } | null;
-		const resync = e?.status === 409 && e?.code === "resync_required";
-		return { worldId, ids, known: false, reason: resync ? "resync" : "failed" };
+	for (;;) {
+		try {
+			walk = await client.changesWalk(since);
+		} catch (error) {
+			// keel's 409 resync_required (a guest's cursor after a delete it could
+			// see) holds until a Download re-walks: say that, not "try again"
+			// (Kael's delta read, low 3).
+			const e = error as { status?: unknown; code?: unknown } | null;
+			const resync = e?.status === 409 && e?.code === "resync_required";
+			return { worldId, ids, known: false, reason: resync ? "resync" : "failed" };
+		}
+		// A head below the one the session's last walk ended at: the server
+		// was restored since, and the session's cursor points past what it
+		// holds. A restore to the last Download's exact point stores a
+		// byte-identical cursor (keel's is seq:id), so the stored cursor alone
+		// cannot tell (Kael's fixes read, low 3). Read once more from the
+		// stored cursor (or the start), the session's view dropped.
+		if (!rewound && since !== cursor && typeof session?.head === "number" && typeof walk.head === "number" && walk.head < session.head) {
+			rewound = true;
+			since = cursor;
+			continue;
+		}
+		break;
 	}
 	// A head below the one Download stored: the server was restored, and a
 	// delete at or below the old cursor would never show (Download compares
@@ -141,8 +156,8 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	if (cursor && typeof stored?.head === "number" && typeof walk.head === "number" && walk.head < stored.head) {
 		return { worldId, ids, known: false, reason: "rewound" };
 	}
-	const seen = session?.seen ?? new Set<string>();
-	sessions.set(worldId, { cursor: walk.cursor ?? since, stored: cursor, seen });
+	const seen = (!rewound && session?.seen) || new Set<string>();
+	sessions.set(worldId, { cursor: walk.cursor ?? since, stored: cursor, head: walk.head, seen });
 	if (!cursor) {
 		// No stored cursor: the view stays in memory, never written as a
 		// cursor or into the list (amended rule 2).

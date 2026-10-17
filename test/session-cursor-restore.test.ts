@@ -17,12 +17,18 @@ const VALLAKI = "019e0000-0000-7000-8000-0000000000a1";
 
 function feedClient(pages: Record<string, { changes: { id: string; op: string }[]; cursor: string; head: number }>) {
 	const calls: string[] = [];
+	const headAt = new Map<string, number>();
 	return {
 		calls,
+		pages,
 		getWorld: async () => ({ id: WID }),
 		changesWalk: async (since?: string) => {
 			calls.push(since ?? "epoch");
-			return pages[since ?? "epoch"] ?? { changes: [], cursor: since ?? "c0", head: 0 };
+			// A walk with nothing new answers its own cursor and the head that
+			// cursor was handed out at, as keel does (never a lower head).
+			const page = pages[since ?? "epoch"] ?? { changes: [], cursor: since ?? "c0", head: headAt.get(since ?? "") ?? 0 };
+			headAt.set(page.cursor, Math.max(page.head, headAt.get(page.cursor) ?? 0));
+			return page;
 		},
 	};
 }
@@ -42,6 +48,26 @@ test("★ a restore then a Download mid-session: the next read starts from Downl
 	host.settings.syncCursors[WID] = { cursor: "c80", head: 80 }; // restored, then a Download
 	const view = await readDeletedOnServer(host, client);
 	assert.deepEqual(client.calls, ["c90", "c80"]);
+	assert.equal(view.known, true);
+	assert.ok(view.ids.has(VALLAKI), "the delete after the restore was missed");
+});
+
+test("★ a restore to the last Download's exact point (an identical stored cursor): the lower head reads as a rewind, and the read starts again from the stored cursor (Kael's fixes read, low 3)", async () => {
+	const host = {
+		settings: {
+			deletedOnServer: {} as Record<string, string[]>,
+			syncCursors: { [WID]: { cursor: "80:x", head: 80 } } as Record<string, { cursor: string; head: number }>,
+		},
+	};
+	const client = feedClient({
+		"80:x": { changes: [], cursor: "100:y", head: 100 },
+	});
+	await readDeletedOnServer(host, client); // the session ends at 100:y
+	// Restored to 80 (and downloaded again: the same 80:x); a delete lands at 81.
+	client.pages["100:y"] = { changes: [], cursor: "100:y", head: 81 };
+	client.pages["80:x"] = { changes: [{ id: VALLAKI, op: "delete" }], cursor: "81:z", head: 81 };
+	const view = await readDeletedOnServer(host, client);
+	assert.deepEqual(client.calls, ["80:x", "100:y", "80:x"]);
 	assert.equal(view.known, true);
 	assert.ok(view.ids.has(VALLAKI), "the delete after the restore was missed");
 });

@@ -17,13 +17,18 @@ const VALLAKI = "019e0000-0000-7000-8000-0000000000a1";
 
 function feedClient(pages: Record<string, { changes: { id: string; op: string }[]; cursor: string; head: number }>) {
 	const calls: string[] = [];
+	const headAt = new Map<string, number>();
 	return {
 		calls,
 		getWorld: async () => ({ id: WID }),
 		changesWalk: async (since?: string) => {
 			calls.push(since ?? "epoch");
 			await new Promise((r) => setTimeout(r, 5));
-			return pages[since ?? "epoch"] ?? { changes: [], cursor: since ?? "c0", head: 0 };
+			// A walk with nothing new answers its own cursor and the head that
+			// cursor was handed out at, as keel does (never a lower head).
+			const page = pages[since ?? "epoch"] ?? { changes: [], cursor: since ?? "c0", head: headAt.get(since ?? "") ?? 0 };
+			headAt.set(page.cursor, Math.max(page.head, headAt.get(page.cursor) ?? 0));
+			return page;
 		},
 	};
 }
