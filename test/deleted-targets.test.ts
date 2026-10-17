@@ -15,6 +15,7 @@ import { makeApp, setRequestUrl, __notices, __modals } from "./support/obsidian-
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { V2ApiError } from "../client-v2";
+import { readDeletedOnServer } from "../sync/deleted-on-server";
 
 const WID = "019e0000-0000-7000-8000-0000000000ee";
 const IREENA = "019e0000-0000-7000-8000-0000000000c1";
@@ -226,11 +227,13 @@ test("★ the walk's first 404 reads the change feed once from the stored cursor
 	assert.equal(r.settings.syncCursors[WID] && (r.settings.syncCursors[WID] as { cursor: string }).cursor, "c5", "the save moved Download's cursor");
 });
 
-test("★ no stored cursor: the dialog says this device cannot tell a never-uploaded note from a deleted one", async () => {
-	const r = await saveNote({ notes: IREENA_TO_VALLAKI });
+test("★ no stored cursor: the feed is read once from the start, and a delete it reports is left out (amended rule 2)", async () => {
+	const r = await saveNote({ notes: IREENA_TO_VALLAKI, feed: [del(VALLAKI, 6)] });
+	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), ["changes epoch"], "not one full read");
 	assert.equal(r.createFirst.length, 1);
-	assert.equal(r.createFirst[0].cannotTell, true);
-	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), [], "no cursor, no feed read");
+	assert.deepEqual(r.createFirst[0].leftOut, [{ type: "location", name: "Vallaki" }]);
+	assert.equal(r.createFirst[0].cannotTell, false, "a full read can tell");
+	assert.deepEqual(r.settings.syncCursors, {}, "the full read was written as a cursor");
 });
 
 // --- Kael's second read, N5: a left-out link does not sink the save ---------
@@ -373,17 +376,57 @@ test("★ stored cursor, feed read fails, manual Save: asks with the failed-read
 	assert.ok(!r.calls.some((c) => c.startsWith("create")));
 });
 
-test("no stored cursor, auto-sync: creates as today (a kept note of a deleted element only comes from a Download)", async () => {
-	const r = await saveNote({ ...OWN, manual: false });
-	assert.deepEqual(r.result, { ok: true, outcome: "created" });
-	assert.equal(r.dialogs.length, 0);
+// Amended rule 2 (Kael's correction): a kept note can sit on a device with no
+// cursor (a reinstall, a vault synced by git, Syncthing or iCloud), so the
+// first own-note 404 with no cursor reads the feed from the start, once.
+
+test("★ no stored cursor, the feed reports the note's own id deleted: auto-sync refuses", async () => {
+	const r = await saveNote({ ...OWN, feed: [del(VALLAKI, 3)], manual: false });
+	assert.equal(r.result.ok, false);
+	assert.match((r.result as { reason: string }).reason, /was deleted on onlyworlds\.com; Save Element can create it again/);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")), r.calls.join(" | "));
+	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), ["changes epoch"]);
 });
 
-test("★ no stored cursor, manual Save: asks with the never-downloaded line on its own create; Create creates", async () => {
-	const r = await saveNote({ ...OWN });
+test("no stored cursor, the feed reports it deleted: the manual Save asks 'create it again?'", async () => {
+	const r = await saveNote({ ...OWN, feed: [del(VALLAKI, 3)], answer: false });
 	assert.equal(r.dialogs.length, 1);
-	assert.ok(r.dialogs[0].lines?.some((l) => /has not downloaded this world/.test(l)), JSON.stringify(r.dialogs[0].lines));
-	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+	assert.match(String(r.dialogs[0].title), /create it again\?/);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")));
+});
+
+test("no stored cursor, nothing deleted: both saves create, no dialog", async () => {
+	for (const manual of [true, false]) {
+		const r = await saveNote({ ...OWN, feed: [], manual });
+		assert.deepEqual(r.result, { ok: true, outcome: "created" }, `manual ${manual}`);
+		assert.equal(r.dialogs.length, 0, `manual ${manual}`);
+	}
+});
+
+test("no stored cursor, the full read fails: auto-sync refuses the tick, the manual Save asks with the failed-read line", async () => {
+	const auto = await saveNote({ ...OWN, feedFails: true, manual: false });
+	assert.equal(auto.result.ok, false);
+	assert.match((auto.result as { reason: string }).reason, /tries again/);
+	const manual = await saveNote({ ...OWN, feedFails: true, answer: false });
+	assert.ok(manual.dialogs[0]?.lines?.some((l) => /could not read onlyworlds\.com's change feed/.test(l)));
+});
+
+test("the full read is kept for the session: a second check of the same world reads nothing more", async () => {
+	const host = { settings: { deletedOnServer: {}, syncCursors: {} } };
+	let reads = 0;
+	const client = {
+		getWorld: async () => ({ id: WID }),
+		changesWalk: async () => {
+			reads++;
+			return { changes: [del(VALLAKI, 3)], head: 3 };
+		},
+	};
+	const first = await readDeletedOnServer(host, client);
+	const second = await readDeletedOnServer(host, client);
+	assert.equal(reads, 1);
+	assert.ok(first.ids.has(VALLAKI) && second.ids.has(VALLAKI));
+	assert.equal(second.known, true);
+	assert.deepEqual(host.settings.syncCursors, {});
 });
 
 // --- Kael's third read, 4b: a stored cursor past the server's head ----------

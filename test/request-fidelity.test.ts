@@ -24,8 +24,12 @@ async function sentDescription(content: string): Promise<unknown> {
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n");
 	const file = (await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Mark2.md", content)) as unknown as TFile;
 	setRequestUrl((r) => {
-		if (r.method === "GET" && /\/world$/.test(new URL(r.url).pathname.replace(/\/$/, ""))) {
+		const path = new URL(r.url).pathname.replace(/\/$/, "");
+		if (r.method === "GET" && /\/world$/.test(path)) {
 			return { status: 200, json: { id: "019f0000-0000-7000-8000-0000000000ee", name: "W" } };
+		}
+		if (r.method === "GET" && /\/changes$/.test(path)) {
+			return { status: 200, json: { cursor: null, has_more: false, head: 0, changes: [] } };
 		}
 		return r.method === "GET" ? { status: 404, json: { error: { code: "not_found", message: "nope" } } } : { status: 201, json: {} };
 	});

@@ -10,9 +10,10 @@
  * cursor itself is Download's and is never moved here: the notes have not
  * taken those changes.
  *
- * With no stored cursor this device never downloaded the world, and cannot
- * tell a never-uploaded note from a deleted one: `known` is false, and the
- * caller says so.
+ * With no stored cursor the feed is read from the start once, and that view is
+ * kept for the session in memory (a kept note outlives data.json). When a read
+ * fails, or the server is behind the stored head, `known` is false and the
+ * caller says why.
  */
 
 /** The plugin data this reads and keeps. */
@@ -48,6 +49,23 @@ export interface DeletedView {
 	reason?: CannotTell;
 }
 
+/**
+ * The no-cursor full reads, per plugin (the host) and world id, for the
+ * session: memory only, gone with the plugin object (amended rule 2).
+ */
+const sessionViews = new WeakMap<object, Map<string, Set<string>>>();
+
+/** `ids` with each change's latest op applied: a delete adds its id, any other op takes it out. */
+function foldDeletes(ids: Set<string>, changes: { id: string; op: string }[]): Set<string> {
+	const latest = new Map<string, string>();
+	for (const c of changes) latest.set(c.id, c.op);
+	for (const [id, op] of latest) {
+		if (op === "delete") ids.add(id);
+		else ids.delete(id);
+	}
+	return ids;
+}
+
 /** The deleted ids of the world `client`'s key names, the feed read once from the stored cursor. */
 export async function readDeletedOnServer(host: DeletedListHost, client: DeletedListClient): Promise<DeletedView> {
 	let worldId: string;
@@ -60,7 +78,26 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	const stored = host.settings.syncCursors?.[worldId];
 	const cursor = stored?.cursor;
 	if (!worldId) return { worldId, ids, known: false, reason: "failed" };
-	if (!cursor) return { worldId, ids, known: false, reason: "no-cursor" };
+	if (!cursor) {
+		// No stored cursor, yet a kept note can still sit here (notes outlive
+		// data.json: a reinstall, a vault synced by git, Syncthing or iCloud).
+		// Read the feed from the start once, and keep that view for the
+		// session, in memory: never written as a cursor or into the list
+		// (amended rule 2, Kael's correction).
+		let views = sessionViews.get(host);
+		if (!views) sessionViews.set(host, (views = new Map()));
+		let seen = views.get(worldId);
+		if (!seen) {
+			try {
+				seen = foldDeletes(new Set(), (await client.changesWalk()).changes);
+			} catch {
+				return { worldId, ids, known: false, reason: "failed" };
+			}
+			views.set(worldId, seen);
+		}
+		for (const id of seen) ids.add(id);
+		return { worldId, ids, known: true };
+	}
 	let changes: { id: string; op: string }[];
 	try {
 		const walk = await client.changesWalk(cursor);
@@ -74,12 +111,7 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	} catch {
 		return { worldId, ids, known: false, reason: "failed" };
 	}
-	const latest = new Map<string, string>();
-	for (const c of changes) latest.set(c.id, c.op);
-	for (const [id, op] of latest) {
-		if (op === "delete") ids.add(id);
-		else ids.delete(id);
-	}
+	foldDeletes(ids, changes);
 	host.settings.deletedOnServer = { ...(host.settings.deletedOnServer ?? {}), [worldId]: [...ids] };
 	try {
 		await host.saveSettings?.();
@@ -105,6 +137,8 @@ export async function storedDeleted(host: DeletedListHost, client: { getWorld():
 
 /** Take ids out of the list once they exist on the server again (created again by the user's choice). */
 export async function forgetDeleted(host: DeletedListHost, worldId: string, created: string[]): Promise<void> {
+	const seen = sessionViews.get(host)?.get(worldId);
+	for (const id of created) seen?.delete(id);
 	const list = host.settings.deletedOnServer?.[worldId];
 	if (!list || created.length === 0) return;
 	const gone = new Set(created);
