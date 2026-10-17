@@ -328,3 +328,38 @@ test("file nodes carry their element's id, so the hash names what was drawn: a c
 	c.nodes[1].y += 40;
 	assert.equal(canvasStatus(JSON.stringify(c), KASSAD_ID), "changed");
 });
+
+// ── Round 4, the guard: only the path leaves the hash, as the element id it names ──
+
+test("a card moved and its note renamed: a (your copy) for the move; a note renamed alone: nothing", async () => {
+	for (const moveToo of [true, false]) {
+		const { app, vault } = makeApp();
+		await seedWorld(vault);
+		focus(app, vault, KASSAD);
+		await draw(app);
+		const c = canvasAt(vault);
+		const blade = c.nodes.find((n) => n.type === "file" && n.file === BLADE)!;
+		if (moveToo) blade.x += 100;
+		// Obsidian renames the note and rewrites the canvas's reference to it.
+		vault.move(BLADE, `${W}/Object/Blade of Thorns.md`);
+		(blade as { file: string }).file = `${W}/Object/Blade of Thorns.md`;
+		await vault.modify(vault.files.get(CANVAS)!.file, JSON.stringify(c, null, "\t"));
+		await draw(app);
+		const copies = [...vault.files.keys()].filter((p) => p.endsWith("(your copy).canvas"));
+		assert.deepEqual(copies, moveToo ? [COPY] : [], moveToo ? "the move is the user's" : "a rename is not a change");
+	}
+});
+
+test("a card the user re-points to another note is a change", async () => {
+	const { app, vault, cache } = makeApp();
+	await seedWorld(vault);
+	focus(app, vault, KASSAD);
+	await draw(app);
+	const c = canvasAt(vault);
+	(c.nodes.find((n) => n.type === "file" && n.file === BLADE) as { file: string }).file = `${W}/Character/Lamia.md`;
+	const idOf = (p: string) => (cache.getFileCache(vault.files.get(p)!.file)?.frontmatter?.id as string) ?? null;
+	assert.equal(canvasStatus(JSON.stringify(c), KASSAD_ID, idOf), "changed");
+	await vault.modify(vault.files.get(CANVAS)!.file, JSON.stringify(c, null, "\t"));
+	await draw(app);
+	assert.ok(vault.contentAt(COPY), "the redraw saved the user's version");
+});

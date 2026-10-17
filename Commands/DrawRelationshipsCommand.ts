@@ -15,6 +15,13 @@ import { buildRelationshipCanvas, canvasStatus, withoutCanvasMarker } from "../v
 export class DrawRelationshipsCommand {
 	constructor(private app: App, private incoming: () => boolean) {}
 
+	/** The element id the note at `path` carries, for the canvas marker's hash (null: no note, no id). */
+	private idOf = (path: string): string | null => {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		const id = f instanceof TFile ? this.app.metadataCache.getFileCache(f)?.frontmatter?.id : undefined;
+		return typeof id === "string" ? id : null;
+	};
+
 	async execute(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!(file instanceof TFile) || file.extension !== "md" || !parseElementPath(file.path)) {
@@ -32,7 +39,7 @@ export class DrawRelationshipsCommand {
 			const base = sanitizeFileName(`${graph.elementName} — relationships`);
 			const { path, existing } = await this.claimCanvasPath(folder, base, graph.elementId);
 			let copy: string | null = null;
-			if (existing && canvasStatus(await this.app.vault.read(existing), graph.elementId) === "changed") {
+			if (existing && canvasStatus(await this.app.vault.read(existing), graph.elementId, this.idOf) === "changed") {
 				copy = await this.freePath(folder, `${base} (your copy)`);
 				await this.app.vault.create(copy, withoutCanvasMarker(await this.app.vault.read(existing), graph.elementId));
 			}
@@ -67,7 +74,7 @@ export class DrawRelationshipsCommand {
 		const out: string[] = [];
 		for (const c of parent.children) {
 			if (!(c instanceof TFile) || c.extension !== "canvas" || c.path === drawn) continue;
-			if (canvasStatus(await this.app.vault.read(c), elementId) !== "none") out.push(c.name);
+			if (canvasStatus(await this.app.vault.read(c), elementId, this.idOf) !== "none") out.push(c.name);
 		}
 		return out.sort();
 	}
@@ -95,7 +102,7 @@ export class DrawRelationshipsCommand {
 			const path = normalizePath(`${folder}/${n === 0 ? base : `${base} (${n})`}.canvas`);
 			const taken = siblings.get(path.toLowerCase()) ?? this.app.vault.getAbstractFileByPath(path);
 			if (!taken) return { path, existing: null };
-			if (taken instanceof TFile && canvasStatus(await this.app.vault.read(taken), elementId) !== "none") {
+			if (taken instanceof TFile && canvasStatus(await this.app.vault.read(taken), elementId, this.idOf) !== "none") {
 				return { path: taken.path, existing: taken };
 			}
 		}
