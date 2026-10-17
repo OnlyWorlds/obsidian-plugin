@@ -517,6 +517,7 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 
 	let current: { heading: string; start: number; eol: string } | null = null;
 	let preambleEnd = body.length;
+	let sawHeading = false;
 	let inFence = false;
 
 	const flush = (end: number) => {
@@ -543,6 +544,7 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 		// prose and stay inside the section they sit in.
 		const m = !inFence ? /^###[ \t]+(.+?)\s*$/.exec(line) : null;
 		if (m) {
+			sawHeading = true;
 			if (current) flush(pos);
 			else preambleEnd = pos;
 			current = { heading: m[1], start: next, eol: cr ? "\r\n" : "\n" };
@@ -552,7 +554,14 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	}
 	flush(body.length);
 
-	return { fields, unknown, preamble: body.slice(0, preambleEnd).trim() };
+	// A body with no field heading at all IS the body field's value (a hand-made
+	// or 3.0/3.1 note): its bytes are kept, but for the file's final line ending
+	// (Seethe's mark 2, h37 #6632: the trim here was the strip she saw on the
+	// server). Prose before a first heading is salvage, and is tidied.
+	const preamble = !sawHeading
+		? body.replace(/\r?\n$/, "")
+		: body.slice(0, preambleEnd).trim();
+	return { fields, unknown, preamble };
 }
 
 /**

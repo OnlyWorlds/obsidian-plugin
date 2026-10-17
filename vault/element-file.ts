@@ -121,7 +121,10 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// its own trailing whitespace is part of it (OW Infra #166 row 16). What
 		// sits between the `---` and the first heading is the preamble, which
 		// parseElementBody trims.
-		const raw = stripFrontmatter(content);
+		// The separator joinNote writes, and only it: the `---` line's ending,
+		// then one blank line. A body with no field heading is the description
+		// itself, so nothing more of it is cut (Seethe's mark 2).
+		const raw = stripFrontmatter(content).replace(/^\r?\n/, "").replace(/^\r?\n/, "");
 		const body = raw.trim() ? raw : "";
 		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
