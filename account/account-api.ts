@@ -324,11 +324,13 @@ export function isFullWriteKey(key: unknown): key is string {
 
 /**
  * Revoke the keys of a just-created world that are not `keepId`: those whose
- * last4 the create answer listed (the create route's own key). Used only when
- * that key could not serve as the vault's (no full write secret in the answer).
+ * last4 the create answer listed or its full key ends in (the create route's
+ * own key, which keel names nothing). Called once the vault's own key, named
+ * for the vault, is in World.md.
  */
 export async function revokeCreateKeys(token: string, created: CreatedWorld, keepId: string | undefined): Promise<number> {
 	const last4s = (created.keys ?? []).map((k) => k.last4);
+	if (isFullWriteKey(created.key)) last4s.push(created.key.slice(-4));
 	const path = `/account/worlds/${encodeURIComponent(created.id)}/keys`;
 	const listed = await owRequest<{ data?: Array<{ id: string; last4: string; revoked: boolean }> }>("GET", path, { token });
 	let n = 0;

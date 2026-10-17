@@ -338,13 +338,14 @@ export class CreateWorldCommand {
 
     /**
      * Signed in: POST /api/v2/account/worlds creates the world under the
-     * account (the PIN goes only if keel says the account has none yet), and
-     * the write key it answers with, shown once, IS this vault's key: no
-     * second key is made, so the account's keys page holds one per vault.
-     * Should the answer carry no full write key, the vault mints its own
-     * (named for it, as Download World does) and `afterLanding`, called once
-     * that key is in World.md, revokes the create route's key
-     * (DELETE /api/v2/account/worlds/{id}/keys/{key_id}).
+     * account (the PIN goes only if keel says the account has none yet). The
+     * create route names its own key nothing ("no name" on the account's keys
+     * page, Seethe's walk, h37 #6462), so the vault always mints its own key
+     * with mintVaultKey, named for the vault exactly as Download World names
+     * it, and `afterLanding`, called once that key is in World.md, revokes the
+     * create route's key (DELETE /api/v2/account/worlds/{id}/keys/{key_id}):
+     * the keys page still holds one key per vault. Should that mint fail, the
+     * create route's key serves, unnamed, rather than strand the new world.
      * Answers in the old route's shape ({api_key}) so both callers go on as before.
      */
     /**
@@ -416,12 +417,6 @@ export class CreateWorldCommand {
             ).open();
             return null;
         }
-        if (isFullWriteKey(created.key)) {
-            new Notice(`World "${worldData.name}" created on onlyworlds.com under ${account.username}.`, 6000);
-            return { api_key: created.key };
-        }
-
-        new Notice(`World "${worldData.name}" was created, but onlyworlds.com gave no write key with it; making this vault's own key.`, 8000);
         let minted;
         try {
             minted = await mintVaultKey(
@@ -430,6 +425,11 @@ export class CreateWorldCommand {
                 this.app.vault.getName()
             );
         } catch (error) {
+            if (isFullWriteKey(created.key)) {
+                console.warn('OnlyWorlds: no key named for this vault could be made; using the key the world was created with.', error);
+                new Notice(`World "${worldData.name}" created on onlyworlds.com under ${account.username}.`, 6000);
+                return { api_key: created.key };
+            }
             new ApiResponseModal(
                 this.app,
                 false,
@@ -442,6 +442,7 @@ export class CreateWorldCommand {
             return null;
         }
         const keepId = minted.id;
+        new Notice(`World "${worldData.name}" created on onlyworlds.com under ${account.username}.`, 6000);
         return {
             api_key: minted.key,
             afterLanding: async () => {

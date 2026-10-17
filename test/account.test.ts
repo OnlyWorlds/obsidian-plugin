@@ -536,11 +536,19 @@ test("an agent code is refused with words: it is for an AI, not a vault", async 
 
 // --- 4. Create World online ----------------------------------------------------
 
-test("Create World online, signed in: the account's create-world route, and its own write key is the vault's (no second key)", async () => {
+test("Create World online, signed in: the account's create-world route, and the vault's key is named for the vault as Download World names it; the create key goes once it lands (Seethe's walk, h37 #6462)", async () => {
 	keel({
 		answers: {
 			...accountAnswers(),
-			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [], key: "ow_w_created_by_create" } },
+			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [{ name: "", last4: "eate", scope: "WRITE", revoked: false }], key: "ow_w_created_by_create" } },
+			[`GET /account/worlds/${OWNED}/keys`]: {
+				status: 200,
+				json: { data: [
+					{ id: "k0", name: "", last4: "eate", scope: "WRITE", revoked: false },
+					{ id: "k1", name: "obsidian: Test Vault", last4: "rion", scope: "WRITE", revoked: false },
+				] },
+			},
+			[`DELETE /account/worlds/${OWNED}/keys/k0`]: { status: 204 },
 		},
 	});
 	const { app } = makeApp();
@@ -551,9 +559,34 @@ test("Create World online, signed in: the account's create-world route, and its 
 	assert.equal(create.length, 1);
 	assert.equal(create[0].headers.Authorization, `Bearer ${TOKEN}`);
 	assert.deepEqual(JSON.parse(create[0].body ?? "{}"), { name: "Fresh" }, "the PIN went where keel did not ask for it");
-	assert.equal(sent(`/account/worlds/${OWNED}/keys`).length, 0, "a second key was made on the account");
-	assert.equal(res.api_key, "ow_w_created_by_create");
+	const mint = sent(`/account/worlds/${OWNED}/keys`).filter((r) => r.method === "POST");
+	assert.equal(mint.length, 1, "no key named for the vault was made");
+	assert.deepEqual(JSON.parse(mint[0].body ?? "{}"), { scope: "write", name: vaultKeyName("Test Vault") });
+	assert.equal(res.api_key, "ow_w_minted_hyperion");
+	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0, "the create key went before the vault key landed");
+	await res.afterLanding();
+	const revoked = __requests.filter((r) => r.method === "DELETE");
+	assert.equal(revoked.length, 1);
+	assert.equal(pathOf(revoked[0].url), `/account/worlds/${OWNED}/keys/k0`);
 	assert.ok(!__requests.some((r) => r.url.includes("worldsync")), "the old route was called");
+});
+
+test("Create World online, signed in: should the vault's named key not be made, the create route's own key still serves (nothing revoked)", async () => {
+	keel({
+		answers: {
+			...accountAnswers(),
+			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [{ name: "", last4: "eate", scope: "WRITE", revoked: false }], key: "ow_w_created_by_create" } },
+			[`POST /account/worlds/${OWNED}/keys`]: { status: 500, json: { error: { code: "server_error", message: "boom" } } },
+		},
+	});
+	const { app } = makeApp();
+	__modals.length = 0;
+	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }));
+	const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin: 1234 });
+	assert.equal(res.api_key, "ow_w_created_by_create");
+	assert.equal(res.afterLanding, undefined);
+	assert.equal(__modals.length, 0, "a failure modal opened");
+	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0);
 });
 
 test("Create World online, signed in: a typed PIN is checked against the account before anything is created (Kael nit)", async () => {
