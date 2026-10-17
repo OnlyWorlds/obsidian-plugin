@@ -91,13 +91,10 @@ const misnamedShown = new Set<string>();
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
 
-/**
- * Element ids whose new name auto-sync saved without renaming the note, this
- * session: the next Save Element on the note renames it, even when nothing
- * else changed (the fix round, item 6: N7, the server already held the name,
- * so Save's diff never carried it).
- */
-const pendingRename = new Set<string>();
+// Element ids whose new name auto-sync saved without renaming the note live
+// in the plugin's data (settings.pendingRenames, per world folder), so the
+// next Save Element renames the note, even when nothing else changed and
+// after a restart (the fix round, item 6: N7; Kael's fixes read, low 5).
 
 /** What auto-sync adds to its saved notice when the note keeps its old name. */
 const KEEPS_OLD_NAME = ' The note keeps its old name; Save Element renames it.';
@@ -491,7 +488,7 @@ export class SaveElementCommand {
         // amendment to items 1 and 3).
         const changed = keepServerEscapes(diffPayload(payload, current ?? {}), current ?? {});
         if (Object.keys(changed).length === 0) {
-            const renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
+            const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'unchanged' };
         }
@@ -522,7 +519,7 @@ export class SaveElementCommand {
                 : changed;
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
-                const renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
+                const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
                 return { ok: true, outcome: 'unchanged' };
             }
@@ -539,13 +536,13 @@ export class SaveElementCommand {
             // and the next Save Element makes it (the fix round, item 6).
             let renameNote = '';
             if (manual && typeof changed.name === 'string') {
-                pendingRename.delete(elementUuid);
+                await this.setPendingRename(worldName, elementUuid, false);
                 const renamed = await this.renameToName(activeFile, changed.name, elementUuid);
                 renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
             } else if (manual) {
-                renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
+                renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             } else if (typeof changed.name === 'string' && this.wouldRename(activeFile, changed.name)) {
-                pendingRename.add(elementUuid);
+                await this.setPendingRename(worldName, elementUuid, true);
                 renameNote = KEEPS_OLD_NAME;
             }
             new Notice(`${firstNote}${category} saved.${renameNote}`, firstExtra ? 15000 : firstNote || renameNote ? 8000 : undefined);
@@ -693,6 +690,22 @@ export class SaveElementCommand {
         }
     }
 
+    /** Record (or clear) a rename auto-sync left for Save Element, in the plugin's data; a failed write keeps it for this run. */
+    private async setPendingRename(worldName: string, id: string, pending: boolean): Promise<void> {
+        const all = this.plugin.settings.pendingRenames ?? {};
+        const list = all[worldName] ?? [];
+        if (list.includes(id) === pending) return;
+        this.plugin.settings.pendingRenames = {
+            ...all,
+            [worldName]: pending ? [...list, id] : list.filter((x) => x !== id),
+        };
+        try {
+            await this.plugin.saveSettings?.();
+        } catch {
+            /* kept in memory for this run */
+        }
+    }
+
     /** True when renameToName would rename `file` for `name`: the setting is on and the file does not carry the name yet. */
     private wouldRename(file: TFile, name: string): boolean {
         if (this.plugin.settings.renameNoteOnNameChange === false) return false;
@@ -703,12 +716,12 @@ export class SaveElementCommand {
 
     /**
      * The manual Save's rename of a note whose new name auto-sync already
-     * sent (pendingRename), and what the notice adds for it; '' when there is
+     * sent (settings.pendingRenames), and what the notice adds for it; '' when there is
      * none, or on auto-sync (the fix round, item 6).
      */
-    private async pendingRenameNote(file: TFile, id: string, name: unknown, manual: boolean): Promise<string> {
-        if (!manual || !pendingRename.has(id)) return '';
-        pendingRename.delete(id);
+    private async pendingRenameNote(file: TFile, worldName: string, id: string, name: unknown, manual: boolean): Promise<string> {
+        if (!manual || !(this.plugin.settings.pendingRenames?.[worldName] ?? []).includes(id)) return '';
+        await this.setPendingRename(worldName, id, false);
         if (typeof name !== 'string' || !name) return '';
         const renamed = await this.renameToName(file, name, id);
         return renamed ? ` Note renamed to "${renamed}".` : '';

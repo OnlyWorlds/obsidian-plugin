@@ -136,6 +136,14 @@ export class RenameWorldCommand {
                 this.plugin.settings.basesKeptNoticed = noticed.filter((w) => w !== oldWorldName);
                 await this.plugin.saveSettings();
             }
+            // The renames auto-sync left for Save Element are kept by world
+            // folder: they move with it (Kael's fixes read, low 5).
+            const pending = this.plugin?.settings.pendingRenames ?? {};
+            if (this.plugin && oldWorldName !== newWorldName && pending[oldWorldName]) {
+                const { [oldWorldName]: moved, ...rest } = pending;
+                this.plugin.settings.pendingRenames = { ...rest, [newWorldName]: [...(rest[newWorldName] ?? []), ...moved] };
+                await this.plugin.saveSettings();
+            }
             // The world's Bases file moved with the folder, but its filters still
             // name the old one (OW Infra #188): rewrite the plugin's own file.
             await moveWorldBasesFileAfterRename(this.app, oldWorldName, newWorldName, this.plugin ?? undefined);

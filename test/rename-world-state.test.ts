@@ -29,3 +29,15 @@ test("★ Rename World clears the old name from the once-only Notice list and re
 	const paths = [...vault.files.keys()].filter((p) => p.endsWith("/Ireena.md"));
 	assert.deepEqual(paths, ["OnlyWorlds/Worlds/New/Elements/Character (2)/Ireena.md"]);
 });
+
+test("Rename World moves the renames auto-sync left for Save Element to the new folder name (Kael's fixes read, low 5)", async () => {
+	const { app, vault } = makeApp();
+	(app as unknown as { realRenames: boolean }).realRenames = true;
+	await vault.seed("OnlyWorlds/Worlds/Old/World.md", "- **Name:** Old\n");
+	const plugin = {
+		settings: { ...DEFAULT_SETTINGS, pendingRenames: { Old: ["0199c000-0000-7000-8000-0000000000c1"], Other: ["x"] } },
+		saveSettings: async () => {},
+	};
+	await new RenameWorldCommand(app, { version: "t" }, plugin as never).renameWorldFolder("Old", "New");
+	assert.deepEqual(plugin.settings.pendingRenames, { Other: ["x"], New: ["0199c000-0000-7000-8000-0000000000c1"] });
+});

@@ -59,6 +59,13 @@ export interface OnlyWorldsPluginSettings {
 	basesKeptNoticed: string[];
 
 	/**
+	 * Per world folder, the ids of element notes whose new name auto-sync saved
+	 * without renaming the note: the next Save Element renames it, after a
+	 * restart too (OW Infra #166 round C).
+	 */
+	pendingRenames: Record<string, string[]>;
+
+	/**
 	 * Download has said, once for this vault, that it now writes a Bases file
 	 * (the first time it wrote one into a world folder that had none).
 	 */
@@ -92,6 +99,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 
 	writeBasesFile: true,
 	basesKeptNoticed: [],
+	pendingRenames: {},
 	basesIntroShown: false,
 	canvasIncomingLinks: true,
 };
