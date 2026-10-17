@@ -68,3 +68,15 @@ test("row 17: a link to an element the vault already has (skipped by the import)
 	const note = vault.contentAt("OnlyWorlds/Worlds/Barovia/Elements/Character/Ireena.md") ?? "";
 	assert.match(note, /^birthplace: "\[\[Old Vallaki\]\]"$/m);
 });
+
+test("★ re-importing the same folder before Obsidian has indexed the notes writes no duplicate (Kael's read, 3)", async () => {
+	const { app, vault, cache } = makeApp();
+	await importFolder(app, vault, FILES);
+	const before = [...vault.files.keys()].filter((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/")).sort();
+	const ireena = vault.contentAt("OnlyWorlds/Worlds/Barovia/Elements/Character/Ireena.md");
+	cache.coldCache = true; // the notes exist on disk; the metadata cache knows none of them yet
+	await (new ImportFolderCommand(app) as unknown as { importFolder(d: string): Promise<void> }).importFolder("in/b");
+	const after = [...vault.files.keys()].filter((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/")).sort();
+	assert.deepEqual(after, before, "a second note appeared for an id the vault already had");
+	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Barovia/Elements/Character/Ireena.md"), ireena, "an existing note was rewritten");
+});

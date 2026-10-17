@@ -318,14 +318,28 @@ export class ImportFolderCommand {
 		return names;
 	}
 
-	/** All element ids already present in the target world's notes (R5). */
+	/**
+	 * All element ids already present in the target world's notes (R5). Each
+	 * note's id is read from disk when the metadata cache has none: on a
+	 * re-import before Obsidian has indexed the notes, a cache-only read missed
+	 * every id and wrote a second note for each (Kael's cold read, 3).
+	 */
 	private async existingElementIds(world: string): Promise<Set<string>> {
 		const ids = new Set<string>();
 		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
 		for (const f of this.app.vault.getMarkdownFiles()) {
 			if (!f.path.startsWith(prefix)) continue;
 			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
-			if (fm && typeof fm.id === "string") ids.add(fm.id);
+			if (fm && typeof fm.id === "string") {
+				ids.add(fm.id);
+				continue;
+			}
+			try {
+				const id = parseRawFrontmatterScalars((await this.app.vault.read(f)).replace(/^\s+/, ""), ["id"]).id;
+				if (id) ids.add(id);
+			} catch {
+				/* unreadable note: not an id this import can see */
+			}
 		}
 		return ids;
 	}
