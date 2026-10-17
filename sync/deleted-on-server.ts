@@ -28,7 +28,7 @@ export interface DeletedListHost {
 /** The client calls this needs. */
 export interface DeletedListClient {
 	getWorld(): Promise<Record<string, unknown>>;
-	changesWalk(since?: string): Promise<{ changes: { id: string; op: string }[]; head?: number }>;
+	changesWalk(since?: string): Promise<{ changes: { id: string; op: string }[]; cursor?: string | null; head?: number }>;
 }
 
 /**
@@ -50,10 +50,12 @@ export interface DeletedView {
 }
 
 /**
- * The no-cursor full reads, per plugin (the host) and world id, for the
- * session: memory only, gone with the plugin object (amended rule 2).
+ * Per plugin (the host) and world id, for the session, in memory only, gone
+ * with the plugin object: the cursor the last walk ended at, and (for a device
+ * with no stored cursor) the deletes the session has seen (amended rule 2;
+ * Kael's delta read, 1).
  */
-const sessionViews = new WeakMap<object, Map<string, Set<string>>>();
+const sessionState = new WeakMap<object, Map<string, { cursor?: string; seen: Set<string> }>>();
 
 /** `ids` with each change's latest op applied: a delete adds its id, any other op takes it out. */
 function foldDeletes(ids: Set<string>, changes: { id: string; op: string }[]): Set<string> {
@@ -78,40 +80,38 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	const stored = host.settings.syncCursors?.[worldId];
 	const cursor = stored?.cursor;
 	if (!worldId) return { worldId, ids, known: false, reason: "failed" };
-	if (!cursor) {
-		// No stored cursor, yet a kept note can still sit here (notes outlive
-		// data.json: a reinstall, a vault synced by git, Syncthing or iCloud).
-		// Read the feed from the start once, and keep that view for the
-		// session, in memory: never written as a cursor or into the list
-		// (amended rule 2, Kael's correction).
-		let views = sessionViews.get(host);
-		if (!views) sessionViews.set(host, (views = new Map()));
-		let seen = views.get(worldId);
-		if (!seen) {
-			try {
-				seen = foldDeletes(new Set(), (await client.changesWalk()).changes);
-			} catch {
-				return { worldId, ids, known: false, reason: "failed" };
-			}
-			views.set(worldId, seen);
-		}
-		for (const id of seen) ids.add(id);
-		return { worldId, ids, known: true };
-	}
-	let changes: { id: string; op: string }[];
+	// The session reads on from where its last walk ended, in memory only:
+	// the first walk starts at Download's cursor, or at the start of the feed
+	// when this device has none (a kept note can sit here anyway: notes
+	// outlive data.json through a reinstall or a vault synced by git,
+	// Syncthing or iCloud). So a delete made on the web mid-session is caught
+	// at the next 404, and each read is one short page (Kael's delta read, 1).
+	let sessions = sessionState.get(host);
+	if (!sessions) sessionState.set(host, (sessions = new Map()));
+	const session = sessions.get(worldId);
+	const since = session?.cursor ?? cursor;
+	let walk: { changes: { id: string; op: string }[]; cursor?: string | null; head?: number };
 	try {
-		const walk = await client.changesWalk(cursor);
-		// A head below the one Download stored: the server was restored, and a
-		// delete at or below the old cursor would never show (Download compares
-		// heads the same way).
-		if (typeof stored?.head === "number" && typeof walk.head === "number" && walk.head < stored.head) {
-			return { worldId, ids, known: false, reason: "rewound" };
-		}
-		changes = walk.changes;
+		walk = await client.changesWalk(since);
 	} catch {
 		return { worldId, ids, known: false, reason: "failed" };
 	}
-	foldDeletes(ids, changes);
+	// A head below the one Download stored: the server was restored, and a
+	// delete at or below the old cursor would never show (Download compares
+	// heads the same way).
+	if (cursor && typeof stored?.head === "number" && typeof walk.head === "number" && walk.head < stored.head) {
+		return { worldId, ids, known: false, reason: "rewound" };
+	}
+	const seen = session?.seen ?? new Set<string>();
+	sessions.set(worldId, { cursor: walk.cursor ?? since, seen });
+	if (!cursor) {
+		// No stored cursor: the view stays in memory, never written as a
+		// cursor or into the list (amended rule 2).
+		foldDeletes(seen, walk.changes);
+		for (const id of seen) ids.add(id);
+		return { worldId, ids, known: true };
+	}
+	foldDeletes(ids, walk.changes);
 	host.settings.deletedOnServer = { ...(host.settings.deletedOnServer ?? {}), [worldId]: [...ids] };
 	try {
 		await host.saveSettings?.();
@@ -137,7 +137,7 @@ export async function storedDeleted(host: DeletedListHost, client: { getWorld():
 
 /** Take ids out of the list once they exist on the server again (created again by the user's choice). */
 export async function forgetDeleted(host: DeletedListHost, worldId: string, created: string[]): Promise<void> {
-	const seen = sessionViews.get(host)?.get(worldId);
+	const seen = sessionState.get(host)?.get(worldId)?.seen;
 	for (const id of created) seen?.delete(id);
 	const list = host.settings.deletedOnServer?.[worldId];
 	if (!list || created.length === 0) return;

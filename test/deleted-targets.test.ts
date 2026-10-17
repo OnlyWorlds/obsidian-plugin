@@ -411,22 +411,59 @@ test("no stored cursor, the full read fails: auto-sync refuses the tick, the man
 	assert.ok(manual.dialogs[0]?.lines?.some((l) => /could not read onlyworlds\.com's change feed/.test(l)));
 });
 
-test("the full read is kept for the session: a second check of the same world reads nothing more", async () => {
-	const host = { settings: { deletedOnServer: {}, syncCursors: {} } };
-	let reads = 0;
-	const client = {
-		getWorld: async () => ({ id: WID }),
-		changesWalk: async () => {
-			reads++;
-			return { changes: [del(VALLAKI, 3)], head: 3 };
+/**
+ * A feed that grows: each walk returns what was added since `since` (a cursor
+ * "c<n>" is the length of the log it has seen), and the new cursor.
+ */
+function growingFeed(log: { id: string; op: string }[]) {
+	const sinces: (string | undefined)[] = [];
+	return {
+		sinces,
+		client: {
+			getWorld: async () => ({ id: WID }),
+			changesWalk: async (since?: string) => {
+				sinces.push(since);
+				const from = since ? Number(since.slice(1)) : 0;
+				return { changes: log.slice(from), cursor: `c${log.length}`, head: log.length };
+			},
 		},
 	};
-	const first = await readDeletedOnServer(host, client);
-	const second = await readDeletedOnServer(host, client);
-	assert.equal(reads, 1);
-	assert.ok(first.ids.has(VALLAKI) && second.ids.has(VALLAKI));
-	assert.equal(second.known, true);
-	assert.deepEqual(host.settings.syncCursors, {});
+}
+
+test("★ no stored cursor: a delete made after the session's first walk is caught at the next 404 (the session reads on from its own cursor)", async () => {
+	const host = { settings: { deletedOnServer: {}, syncCursors: {} } };
+	const log = [{ id: KREZK, op: "upsert" }];
+	const feed = growingFeed(log);
+	const first = await readDeletedOnServer(host, feed.client);
+	assert.equal(first.ids.has(VALLAKI), false);
+	log.push({ id: VALLAKI, op: "delete" }); // deleted on the web mid-session
+	const second = await readDeletedOnServer(host, feed.client);
+	assert.ok(second.ids.has(VALLAKI), "the later delete was missed");
+	assert.deepEqual(feed.sinces, [undefined, "c1"], "the second read walked from the start again");
+	assert.deepEqual(host.settings.syncCursors, {}, "the session cursor was written to data.json");
+});
+
+test("★ a stored cursor: the second 404 reads on from where the first walk ended, not from the stored cursor again", async () => {
+	const host = { settings: { deletedOnServer: {} as Record<string, string[]>, syncCursors: { [WID]: { cursor: "c1", head: 1 } } } };
+	const log = [{ id: KREZK, op: "upsert" }, { id: BRAVE, op: "upsert" }];
+	const feed = growingFeed(log);
+	await readDeletedOnServer(host, feed.client);
+	log.push({ id: VALLAKI, op: "delete" });
+	const second = await readDeletedOnServer(host, feed.client);
+	assert.ok(second.ids.has(VALLAKI));
+	assert.deepEqual(feed.sinces, ["c1", "c2"]);
+	assert.deepEqual(host.settings.syncCursors[WID], { cursor: "c1", head: 1 }, "Download's cursor was moved");
+});
+
+test("a later re-create clears the session's delete, and a later delete after Create again is caught", async () => {
+	const host = { settings: { deletedOnServer: {}, syncCursors: {} } };
+	const log = [{ id: VALLAKI, op: "delete" }];
+	const feed = growingFeed(log);
+	assert.ok((await readDeletedOnServer(host, feed.client)).ids.has(VALLAKI));
+	log.push({ id: VALLAKI, op: "upsert" });
+	assert.equal((await readDeletedOnServer(host, feed.client)).ids.has(VALLAKI), false);
+	log.push({ id: VALLAKI, op: "delete" });
+	assert.ok((await readDeletedOnServer(host, feed.client)).ids.has(VALLAKI));
 });
 
 // --- Kael's third read, 4b: a stored cursor past the server's head ----------
