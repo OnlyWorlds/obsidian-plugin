@@ -23,7 +23,9 @@ export class CreateFirstModal extends Modal {
         readonly noteLabel: string,
         readonly items: CreateFirstItem[],
         readonly leftOut: CreateFirstItem[],
-        private onChoice: (create: boolean) => void
+        private onChoice: (create: boolean) => void,
+        /** No stored change-feed cursor: a 404 cannot be told from a delete here (Kael's second read, N3). */
+        readonly cannotTell = false
     ) {
         super(app);
     }
@@ -40,6 +42,7 @@ export class CreateFirstModal extends Modal {
         const list = contentEl.createEl('ul');
         for (const item of this.items) list.createEl('li', { text: itemLabel(item) });
         for (const line of leftOutLines(this.leftOut)) contentEl.createEl('p', { text: line });
+        if (this.cannotTell) contentEl.createEl('p', { text: CANNOT_TELL_LINE });
         new Setting(contentEl)
             .addButton((b) => b.setButtonText('Create').setCta().onClick(() => this.choose(true)))
             .addButton((b) => b.setButtonText('Cancel').onClick(() => this.choose(false)));
@@ -58,6 +61,11 @@ export class CreateFirstModal extends Modal {
         this.choose(false);
     }
 }
+
+/** What the dialog says when this device never downloaded the world (Kael's second read, N3). */
+export const CANNOT_TELL_LINE =
+    'This device has not downloaded this world, so the plugin cannot tell a note never uploaded ' +
+    'from one deleted on onlyworlds.com. Download World first if any of these may have been deleted.';
 
 /** `Location "Vallaki"`. */
 export function itemLabel(item: CreateFirstItem): string {

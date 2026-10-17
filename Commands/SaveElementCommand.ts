@@ -7,6 +7,7 @@ import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
 import { CreateFirstModal, leftOutLines, type CreateFirstItem } from '../Modals/CreateFirstModal';
+import { readDeletedOnServer, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -51,6 +52,8 @@ interface CreateFirstPlan {
     leftOut: CreateFirstItem[];
     /** More than MAX_CREATE_FIRST targets: none is created. */
     overflow?: boolean;
+    /** This device cannot tell a never-uploaded note from a deleted one (no stored cursor). */
+    cannotTell?: boolean;
 }
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
@@ -347,21 +350,19 @@ export class SaveElementCommand {
      * the server's copy lacks). OW Infra #166 row 8.
      */
     private async unsyncedTargets(
-        client: {
-            get(type: string, id: string): Promise<Record<string, unknown>>;
-            getWorld(): Promise<Record<string, unknown>>;
-        },
+        client: { get(type: string, id: string): Promise<Record<string, unknown>> } & DeletedListClient,
         worldName: string,
         rootId: string,
         rootType: string,
         rootPayload: Record<string, unknown>,
-        keep?: (key: string, id: string) => boolean
+        keep?: (key: string, id: string) => boolean,
+        known?: DeletedView
     ): Promise<CreateFirstPlan> {
         const out: PendingCreate[] = [];
         const leftOut: CreateFirstItem[] = [];
         const visited = new Set<string>([rootId]);
         let index: Map<string, TFile> | null = null;
-        let deleted: Set<string> | null = null;
+        let view: DeletedView | null = known ?? null;
         let overflow = false;
         let found = 0;
         const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
@@ -382,8 +383,10 @@ export class SaveElementCommand {
                 }
                 // A 404 is "never pushed" or "deleted": an id the change feed
                 // reported deleted is never recreated (Kael's read, blocker 1c).
-                deleted = deleted ?? (await this.deletedOnServer(client));
-                if (deleted.has(id)) {
+                // The first 404 reads the feed once from the stored cursor, so a
+                // delete no Download has seen yet counts too (second read, N3).
+                view = view ?? (await readDeletedOnServer(this.plugin, client));
+                if (view.ids.has(id)) {
                     leftOut.push({ type: parsed.category, name: parsed.name });
                     continue;
                 }
@@ -403,22 +406,7 @@ export class SaveElementCommand {
             }
         };
         await visit(rootType, rootPayload, keep);
-        return { firsts: out, leftOut, overflow };
-    }
-
-    /**
-     * The ids Download recorded as deleted on the server for the world this
-     * client's key names (settings.deletedOnServer, by world id). The world's
-     * id is asked of the server: the vault keeps none. Empty when unknown.
-     */
-    private async deletedOnServer(client: { getWorld(): Promise<Record<string, unknown>> }): Promise<Set<string>> {
-        try {
-            const world = await client.getWorld();
-            const ids = this.plugin.settings.deletedOnServer?.[String(world.id ?? '')];
-            return new Set(Array.isArray(ids) ? ids : []);
-        } catch {
-            return new Set();
-        }
+        return { firsts: out, leftOut, overflow, cannotTell: view ? !view.known : false };
     }
 
     /**
@@ -476,7 +464,8 @@ export class SaveElementCommand {
                 label,
                 plan.firsts.map((f) => ({ type: f.type, name: f.name })),
                 plan.leftOut,
-                resolve
+                resolve,
+                plan.cannotTell === true
             ).open();
         });
     }

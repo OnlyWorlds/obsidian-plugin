@@ -50,43 +50,105 @@ test("★ Download keeps the ids the change feed reported deleted, per world; a 
 const note = (id: string, name: string, links = "") =>
 	`---\nname: ${name}\nid: ${id}\n${links}---\n\n### Description\n\nAbout ${name}.\n`;
 
-async function manualSave(deleted: string[], notes: Record<string, string>, answer = true) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface SaveOpts {
+	notes: Record<string, string>;
+	/** The note saved (default the Character Ireena). */
+	save?: string;
+	/** Ids already in the plugin's deleted list. */
+	deleted?: string[];
+	/** Elements on the server now: id -> its current body. Everything else 404s. */
+	server?: Record<string, Record<string, unknown>>;
+	/** The stored change-feed cursor for the world (none: never downloaded here). */
+	cursor?: string;
+	/** What the change feed returns from that cursor. */
+	feed?: unknown[];
+	/** Every dialog is answered with this (default true: Create). */
+	answer?: boolean;
+	/** The manual Save Element (default), or auto-sync's save. */
+	manual?: boolean;
+}
+
+async function saveNote(o: SaveOpts) {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n");
 	const files: Record<string, TFile> = {};
-	for (const [rel, c] of Object.entries(notes)) files[rel] = (await vault.seed(`OnlyWorlds/Worlds/W/Elements/${rel}`, c)) as unknown as TFile;
+	for (const [rel, c] of Object.entries(o.notes)) files[rel] = (await vault.seed(`OnlyWorlds/Worlds/W/Elements/${rel}`, c)) as unknown as TFile;
+	const server = new Map(Object.entries(o.server ?? {}));
+	const calls: string[] = [];
 	const bulks: string[][] = [];
+	const sent: Record<string, unknown>[] = [];
+	/** keel refuses a write linking an element it does not have (elements/resolve.py InvalidLink). */
+	const refuseMissing = (b: Record<string, unknown>) => {
+		for (const [k, v] of Object.entries(b)) {
+			if (k === "id") continue;
+			for (const x of Array.isArray(v) ? v : [v]) {
+				if (typeof x === "string" && UUID.test(x) && !server.has(x)) {
+					throw new V2ApiError(400, "invalid_link", `${k} references Location '${x}' which does not exist.`, null);
+				}
+			}
+		}
+	};
 	const client = {
 		getWorld: async () => ({ id: WID, name: "W" }),
-		get: async () => {
+		changesWalk: async (since?: string) => {
+			calls.push(`changes ${since ?? "epoch"}`);
+			return { changes: o.feed ?? [], cursor: "c-next", head: 99 };
+		},
+		get: async (type: string, id: string) => {
+			calls.push(`get ${type} ${id}`);
+			const el = server.get(id);
+			if (el) return { id, ...el };
 			throw new V2ApiError(404, "not_found", "API Error 404", null);
 		},
-		create: async (_t: string, b: Record<string, unknown>) => {
-			if (b.birthplace) throw new V2ApiError(400, "invalid_link", "birthplace references Location which does not exist.", null);
+		create: async (type: string, b: Record<string, unknown>) => {
+			calls.push(`create ${type} ${String(b.id)}`);
+			refuseMissing(b);
+			sent.push(b);
+			server.set(String(b.id), b);
 			return b;
 		},
-		update: async () => ({}),
+		update: async (type: string, id: string, b: Record<string, unknown>) => {
+			calls.push(`update ${type} ${id}`);
+			refuseMissing(b);
+			sent.push(b);
+			return {};
+		},
 		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[]) => {
+			calls.push("bulk");
 			bulks.push(items.map((i) => String(i.element.id)));
+			for (const i of items) server.set(String(i.element.id), i.element);
 			return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
 		},
 	};
-	const plugin = { settings: { apiKey: "", deletedOnServer: { [WID]: deleted } }, buildV2Client: async () => client };
+	const settings = {
+		apiKey: "",
+		deletedOnServer: { [WID]: o.deleted ?? [] } as Record<string, string[]>,
+		syncCursors: (o.cursor ? { [WID]: { cursor: o.cursor, head: 5 } } : {}) as Record<string, unknown>,
+	};
+	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => client };
 	__notices.length = 0;
 	__modals.length = 0;
-	const dialogs: { items: unknown[]; leftOut: unknown[]; choose(b: boolean): void }[] = [];
+	const dialogs: { items?: unknown[]; leftOut?: unknown[]; cannotTell?: boolean; lines?: string[]; choose(b: boolean): void }[] = [];
 	let done = false;
-	const run = new SaveElementCommand(app, plugin as never).execute(files["Character/Ireena.md"], { manual: true }).finally(() => (done = true));
+	const file = files[o.save ?? "Character/Ireena.md"];
+	const run = new SaveElementCommand(app, plugin as never).execute(file, { manual: o.manual ?? true }).finally(() => (done = true));
 	while (!done) {
 		await new Promise((r) => setImmediate(r));
 		for (const m of __modals.splice(0)) {
 			const d = m as unknown as (typeof dialogs)[number];
 			if (typeof d.choose !== "function") continue;
 			dialogs.push(d);
-			d.choose(answer);
+			d.choose(o.answer ?? true);
 		}
 	}
-	return { result: await run, bulks, dialogs, notices: [...__notices] };
+	return { result: await run, calls, bulks, sent, dialogs, settings, notices: [...__notices], vault, file };
+}
+
+/** The first round's shape: a manual Save with a deleted list and no feed. */
+async function manualSave(deleted: string[], notes: Record<string, string>, answer = true) {
+	return saveNote({ deleted, notes, answer });
 }
 
 test("★ a target the change feed reported deleted is never recreated; the dialog says it is left out", async () => {
@@ -112,4 +174,36 @@ test("★ the only target deleted: no dialog, nothing recreated, the notice name
 		r.notices.some((n) => n.includes('Location "Vallaki" was deleted on onlyworlds.com and is left out.')),
 		r.notices.join(" | ")
 	);
+});
+
+// --- Kael's second read, N3: a delete no Download has seen yet ---------------
+
+const IREENA_TO_VALLAKI = {
+	"Character/Ireena.md": note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\nlocation: "[[Krezk]]"\n'),
+	"Location/Vallaki.md": note(VALLAKI, "Vallaki"),
+	"Location/Krezk.md": note(KREZK, "Krezk"),
+};
+
+test("★ the walk's first 404 reads the change feed once from the stored cursor: another member's delete is left out, not offered", async () => {
+	const r = await saveNote({ notes: IREENA_TO_VALLAKI, cursor: "c5", feed: [del(VALLAKI, 6)] });
+	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), ["changes c5"], "the feed was not read once from the cursor");
+	assert.equal(r.dialogs.length, 1);
+	assert.deepEqual(r.dialogs[0].items, [{ type: "location", name: "Krezk" }]);
+	assert.deepEqual(r.dialogs[0].leftOut, [{ type: "location", name: "Vallaki" }]);
+	for (const b of r.bulks) assert.ok(!b.includes(VALLAKI), "a deleted element was recreated");
+	assert.deepEqual(r.settings.deletedOnServer[WID], [VALLAKI], "the delete was not kept in the list");
+	assert.equal(r.settings.syncCursors[WID] && (r.settings.syncCursors[WID] as { cursor: string }).cursor, "c5", "the save moved Download's cursor");
+});
+
+test("★ no stored cursor: the dialog says this device cannot tell a never-uploaded note from a deleted one", async () => {
+	const r = await saveNote({ notes: IREENA_TO_VALLAKI });
+	assert.equal(r.dialogs.length, 1);
+	assert.equal(r.dialogs[0].cannotTell, true);
+	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), [], "no cursor, no feed read");
+});
+
+test("with a stored cursor and no delete in the feed, the dialog makes no such caveat", async () => {
+	const r = await saveNote({ notes: IREENA_TO_VALLAKI, cursor: "c5", feed: [] });
+	assert.equal(r.dialogs.length, 1);
+	assert.equal(r.dialogs[0].cannotTell, false);
 });
