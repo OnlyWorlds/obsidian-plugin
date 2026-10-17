@@ -30,6 +30,13 @@ export interface OnlyWorldsPluginSettings {
 	syncCursors: Record<string, { cursor: string; head: number }>;
 
 	/**
+	 * Per world id: element ids the change feed reported deleted on the server,
+	 * kept by Download (whose notes stay, on purpose). A save never recreates
+	 * them as link targets (OW Infra #166 row 8; Kael's cold read, blocker 1c).
+	 */
+	deletedOnServer: Record<string, string[]>;
+
+	/**
 	 * An OnlyWorlds account token (`ow_a_`), kept like the API key (masked in
 	 * the UI), and the username it signed in as. Empty: not signed in, and every
 	 * command works as it did before accounts (key and PIN per world).
@@ -52,6 +59,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	renameNoteOnNameChange: true,
 
 	syncCursors: {},
+	deletedOnServer: {},
 
 	accountToken: "",
 	accountUsername: "",

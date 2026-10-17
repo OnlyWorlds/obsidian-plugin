@@ -173,6 +173,18 @@ export class DownloadWorldCommand {
                     // failed run must re-pull the same changes next time.
                     if (this.plugin && walk.cursor) {
                         this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
+                        // The ids the feed reported deleted (their notes stay):
+                        // a save never recreates them as link targets. A later
+                        // upsert of an id clears it (Kael's read, blocker 1c).
+                        const deleted = new Set(this.plugin.settings.deletedOnServer?.[worldId] ?? []);
+                        for (const change of latest.values()) {
+                            if (change.op === 'delete') deleted.add(change.id);
+                            else deleted.delete(change.id);
+                        }
+                        this.plugin.settings.deletedOnServer = {
+                            ...(this.plugin.settings.deletedOnServer ?? {}),
+                            [worldId]: [...deleted],
+                        };
                         await this.plugin.saveSettings();
                     }
 

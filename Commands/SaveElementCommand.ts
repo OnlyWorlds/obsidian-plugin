@@ -6,7 +6,7 @@ import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
-import { CreateFirstModal } from '../Modals/CreateFirstModal';
+import { CreateFirstModal, leftOutLines, type CreateFirstItem } from '../Modals/CreateFirstModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -41,6 +41,17 @@ export function ambiguousLinksMessage(links: string[]): string {
         `${names.length === 1 ? 'That name matches' : 'Those names match'} notes of more than one type — ` +
         `rename one of the notes, then save again.`;
 }
+
+/**
+ * What the create-first walk found: the targets to create, in order, and
+ * those left out because the change feed reported them deleted.
+ */
+interface CreateFirstPlan {
+    firsts: PendingCreate[];
+    leftOut: CreateFirstItem[];
+}
+
+const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
 
 /** What a cancelled create-first dialog leaves the user with. */
 const CANCELLED_MESSAGE = 'Save cancelled: nothing was created or saved.';
@@ -244,10 +255,11 @@ export class SaveElementCommand {
                     // server go first, or keel refuses the note (row 8).
                     // Only the manual Save walks (Kael's read, blocker): auto-sync
                     // leaves keel's refusal and says how to get past it.
-                    const firsts = manual ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload) : [];
-                    if (firsts.length > 0 && !(await this.confirmCreateFirst(String(label), firsts))) {
+                    const plan = manual ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload) : NO_PLAN;
+                    if (!(await this.approveCreateFirst(String(label), plan))) {
                         return this.fail(CANCELLED_MESSAGE);
                     }
+                    const firsts = plan.firsts;
                     new Notice(`Creating ${category} "${label}"...`);
                     if (firsts.length > 0) {
                         const refused = await this.createTogether(client, [
@@ -283,15 +295,16 @@ export class SaveElementCommand {
             // A link this save adds may name a note not on the server yet:
             // create those first (row 8). Only ids the server's copy lacks are
             // looked up, so an unchanged link costs nothing.
-            const firsts = manual
+            const plan = manual
                 ? await this.unsyncedTargets(
                     client, worldName, elementUuid, type, changed, (key, id) => !linkHolds(current?.[key], id)
                 )
-                : [];
+                : NO_PLAN;
             let firstNote = '';
-            if (firsts.length > 0 && !(await this.confirmCreateFirst(String(label), firsts))) {
+            if (!(await this.approveCreateFirst(String(label), plan))) {
                 return this.fail(CANCELLED_MESSAGE);
             }
+            const firsts = plan.firsts;
             if (firsts.length > 0) {
                 const refused = await this.createTogether(client, firsts);
                 if (refused) return this.fail(`${category} "${label}" not saved: ${refused}`, 12000);
@@ -319,16 +332,21 @@ export class SaveElementCommand {
      * the server's copy lacks). OW Infra #166 row 8.
      */
     private async unsyncedTargets(
-        client: { get(type: string, id: string): Promise<Record<string, unknown>> },
+        client: {
+            get(type: string, id: string): Promise<Record<string, unknown>>;
+            getWorld(): Promise<Record<string, unknown>>;
+        },
         worldName: string,
         rootId: string,
         rootType: string,
         rootPayload: Record<string, unknown>,
         keep?: (key: string, id: string) => boolean
-    ): Promise<PendingCreate[]> {
+    ): Promise<CreateFirstPlan> {
         const out: PendingCreate[] = [];
+        const leftOut: CreateFirstItem[] = [];
         const visited = new Set<string>([rootId]);
         let index: Map<string, TFile> | null = null;
+        let deleted: Set<string> | null = null;
         const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
             for (const id of linkIdsOf(type, payload, filter)) {
                 if (visited.has(id)) continue;
@@ -344,13 +362,46 @@ export class SaveElementCommand {
                 } catch (error) {
                     if (!this.isNotFound(error)) continue;
                 }
+                // A 404 is "never pushed" or "deleted": an id the change feed
+                // reported deleted is never recreated (Kael's read, blocker 1c).
+                deleted = deleted ?? (await this.deletedOnServer(client));
+                if (deleted.has(id)) {
+                    leftOut.push({ type: parsed.category, name: parsed.name });
+                    continue;
+                }
                 const targetPayload = toV2Payload(parsed.fields);
                 await visit(parsed.category, targetPayload);
                 out.push({ type: parsed.category, id, name: parsed.name, payload: targetPayload });
             }
         };
         await visit(rootType, rootPayload, keep);
-        return out;
+        return { firsts: out, leftOut };
+    }
+
+    /**
+     * The ids Download recorded as deleted on the server for the world this
+     * client's key names (settings.deletedOnServer, by world id). The world's
+     * id is asked of the server: the vault keeps none. Empty when unknown.
+     */
+    private async deletedOnServer(client: { getWorld(): Promise<Record<string, unknown>> }): Promise<Set<string>> {
+        try {
+            const world = await client.getWorld();
+            const ids = this.plugin.settings.deletedOnServer?.[String(world.id ?? '')];
+            return new Set(Array.isArray(ids) ? ids : []);
+        } catch {
+            return new Set();
+        }
+    }
+
+    /**
+     * Before the creates: ask when there is something to create (the dialog
+     * also lists what is left out), else name what is left out in a notice.
+     * True means go on with the save.
+     */
+    private async approveCreateFirst(label: string, plan: CreateFirstPlan): Promise<boolean> {
+        if (plan.firsts.length > 0) return this.confirmCreateFirst(label, plan);
+        if (plan.leftOut.length > 0) new Notice(leftOutLines(plan.leftOut).join(' '), 12000);
+        return true;
     }
 
     /**
@@ -389,13 +440,13 @@ export class SaveElementCommand {
      * dialog lists each by type and name, Create or Cancel (Kael's read,
      * blocker 1b). Resolves true only on Create.
      */
-    private confirmCreateFirst(label: string, firsts: PendingCreate[]): Promise<boolean> {
+    private confirmCreateFirst(label: string, plan: CreateFirstPlan): Promise<boolean> {
         return new Promise((resolve) => {
             new CreateFirstModal(
                 this.app,
                 label,
-                firsts.map((f) => ({ type: f.type, name: f.name })),
-                [],
+                plan.firsts.map((f) => ({ type: f.type, name: f.name })),
+                plan.leftOut,
                 resolve
             ).open();
         });
