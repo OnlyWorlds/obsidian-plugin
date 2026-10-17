@@ -3,6 +3,7 @@ import { WorldRenameModal } from '../Modals/WorldRenameModal';
 import { READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { safeWorldFolderName } from '../vault/world-name';
 import { moveWorldBasesFileAfterRename } from '../vault/bases-writer';
+import { WorldService } from '../Scripts/WorldService';
 import type OnlyWorldsPlugin from '../main';
 
 
@@ -128,9 +129,20 @@ export class RenameWorldCommand {
             // Correctly using renameFolder through the FileManager
             await this.app.fileManager.renameFile(oldFolder, newPath);
             new Notice(`World folder renamed successfully from '${oldWorldName}' to '${newWorldName}'.`);
+            // The once-only Notice list names world folders: the old name no
+            // longer names this world, or any (round C, 12).
+            const noticed = this.plugin?.settings.basesKeptNoticed ?? [];
+            if (this.plugin && oldWorldName !== newWorldName && noticed.includes(oldWorldName)) {
+                this.plugin.settings.basesKeptNoticed = noticed.filter((w) => w !== oldWorldName);
+                await this.plugin.saveSettings();
+            }
             // The world's Bases file moved with the folder, but its filters still
             // name the old one (OW Infra #188): rewrite the plugin's own file.
             await moveWorldBasesFileAfterRename(this.app, oldWorldName, newWorldName, this.plugin ?? undefined);
+            // Each type folder's count, `Character (4)`, counted again under
+            // the new name: a recount queued for the old name finds no folder
+            // once it has moved (round C, 12).
+            await new WorldService(this.app).updateAllCategoryFolderNames(newWorldName);
         } else {
             new Notice('World folder does not exist.');
         }
