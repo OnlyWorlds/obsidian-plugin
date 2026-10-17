@@ -57,6 +57,8 @@ The body holds one `###` section per text field, in schema order. **Manage Field
 
 Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included. A line of a value that starts with `### ` is written as `\### ` (Markdown's escape, so the note shows it as typed) and read back without the backslash, so it never starts a new field. A code fence (```` ``` ````) inside a value must close: a note with one that never closes is not saved, uploaded or exported, and the notice names the field and the line.
 
+Fields are read from Properties and `###` sections only. A list you type in the body, as `- height: 172` or `- **Height:** 172`, is description text; the one body list read as fields is the old `<span>` format, which **Migrate world notes to frontmatter** converts.
+
 The note's identity is the `id` in its Properties, so renaming a note does not break anything.
 
 ## Sync
