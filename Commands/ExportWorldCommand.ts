@@ -12,6 +12,8 @@ import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage } from './SaveElementCommand';
+import { confirm } from '../Modals/ConfirmModal';
+import { forgetDeleted } from '../sync/deleted-on-server';
 
 export class ExportWorldCommand {
     app: App;
@@ -179,6 +181,15 @@ export class ExportWorldCommand {
             }
             const serverOnly = [...serverIds].filter(id => !localIds.has(id)).length;
 
+            // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
+            // save or Download kept. Their kept notes are never recreated
+            // without the user's word (Kael's second read, N4).
+            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate);
+            for (const id of leftOut.ids) {
+                const at = toCreate.findIndex(i => String(i.element.id) === id);
+                if (at >= 0) toCreate.splice(at, 1);
+            }
+
             // Progress feedback — the sweep can run for a minute on a big world.
             new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
 
@@ -193,6 +204,7 @@ export class ExportWorldCommand {
             // #166 row 9). An item with no result is a failure, never a guess.
             let created = 0;
             let replaced = 0;
+            const landed: string[] = [];
             const failures: string[] = [];
             if (toCreate.length > 0) {
                 const body = await client.bulkCreate(toCreate);
@@ -202,8 +214,10 @@ export class ExportWorldCommand {
                     const status = typeof r?.status === 'number' ? r.status : null;
                     if (status === 201) {
                         created++;
+                        landed.push(String(item.element.id));
                     } else if (status === 200) {
                         replaced++; // the id already existed: keel replaced it
+                        landed.push(String(item.element.id));
                     } else {
                         const name = item.element.name ? String(item.element.name) : String(item.element.id);
                         const why = typeof r?.error?.message === 'string'
@@ -250,6 +264,11 @@ export class ExportWorldCommand {
                 summary += ` ${serverOnly} element${serverOnly === 1 ? '' : 's'} exist only on the server (not deleted).`;
             }
             new Notice(summary, 8000);
+            if (leftOut.names.length > 0) {
+                new Notice(`Left out, deleted on onlyworlds.com: ${leftOut.names.join(', ')}. Their notes are kept.`, 12000);
+            }
+            const recreated = landed.filter(id => leftOut.recreate.has(id));
+            if (this.plugin && recreated.length > 0) await forgetDeleted(this.plugin, leftOut.worldId, recreated);
             if (this.skippedLinkFields > 0) {
                 new Notice(`${this.skippedLinkFields} link field${this.skippedLinkFields === 1 ? '' : 's'} skipped (unresolvable links) — server values kept. See console for details.`, 10000);
             }
@@ -345,6 +364,57 @@ export class ExportWorldCommand {
         }
     }
     
+    /**
+     * The new elements of this sweep that were deleted on onlyworlds.com: the
+     * walk's own latest delete for an id, or an id in the deleted list a save or
+     * Download kept (settings.deletedOnServer). The list is brought up to the
+     * walk (a full walk from the epoch, so it is current) and kept. When any is
+     * about to be created, one dialog asks "create them again?": Create again
+     * keeps them in the batch (`recreate`), Leave out returns them (`ids`,
+     * named in `names`). Kael's second read, N4.
+     */
+    private async askAboutDeleted(
+        client: V2Client,
+        latestOp: Map<string, string>,
+        serverIds: Set<string>,
+        toCreate: { type: string; element: Record<string, unknown> }[]
+    ): Promise<{ ids: string[]; names: string[]; recreate: Set<string>; worldId: string }> {
+        const none = { ids: [], names: [], recreate: new Set<string>(), worldId: '' };
+        let worldId = '';
+        try {
+            worldId = String((await client.getWorld()).id ?? '');
+        } catch {
+            worldId = '';
+        }
+        const deleted = new Set<string>();
+        for (const id of (worldId && this.plugin?.settings.deletedOnServer?.[worldId]) || []) {
+            if (!serverIds.has(id)) deleted.add(id);
+        }
+        for (const [id, op] of latestOp) {
+            if (op === 'delete') deleted.add(id);
+            else deleted.delete(id);
+        }
+        if (worldId && this.plugin) {
+            this.plugin.settings.deletedOnServer = { ...(this.plugin.settings.deletedOnServer ?? {}), [worldId]: [...deleted] };
+            try { await this.plugin.saveSettings(); } catch { /* the list is right for this sweep */ }
+        }
+        const again = toCreate.filter(i => deleted.has(String(i.element.id)));
+        if (again.length === 0) return { ...none, worldId };
+        const names = again.map(i => `${i.type.charAt(0).toUpperCase()}${i.type.slice(1)} "${String(i.element.name ?? i.element.id)}"`);
+        const one = again.length === 1;
+        const yes = await confirm(
+            this.app,
+            `${one ? '1 element was' : `${again.length} elements were`} deleted on onlyworlds.com: create ${one ? 'it' : 'them'} again?`,
+            [...names, `Their notes are still in the vault. Creating ${one ? 'it' : 'them'} again brings ${one ? 'it' : 'them'} back for everyone in the world; Leave out uploads everything else.`],
+            'Create again',
+            'Leave out'
+        );
+        const ids = again.map(i => String(i.element.id));
+        return yes
+            ? { ids: [], names: [], recreate: new Set(ids), worldId }
+            : { ids, names, recreate: new Set<string>(), worldId };
+    }
+
     /** The unit fields collectWorldData read from World.md (absent stays absent). */
     private localWorldUnits(worldData: Record<string, unknown>): WorldUnits {
         const world = worldData['World'];
