@@ -133,7 +133,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// Not trimmed: the last section's value runs to the end of the note, and
 		// its own trailing whitespace is part of it (OW Infra #166 row 16). What
 		// sits between the `---` and the first heading is the preamble, which
-		// parseElementBody trims.
+		// parseElementBody keeps byte for byte too (round C, 2).
 		// The separator joinNote writes, and only it: the `---` line's ending,
 		// then one blank line. A body with no field heading is the description
 		// itself, so nothing more of it is cut (Seethe's mark 2).

@@ -559,6 +559,18 @@ function sectionValue(raw: string, eol: string): string {
 }
 
 /**
+ * The text before a body's first `###` heading as a value: byte for byte,
+ * less the blank line (or the line ending) that sets the heading apart; "" when
+ * it is whitespace only (round C, 2: it used to be trimmed).
+ */
+function preambleValue(raw: string, eol: string): string {
+	if (!raw.trim()) return "";
+	if (raw.endsWith(eol + eol)) return raw.slice(0, -2 * eol.length);
+	if (raw.endsWith(eol)) return raw.slice(0, -eol.length);
+	return raw;
+}
+
+/**
  * Parse a note body into its `###` field sections.
  *
  * Only `###` (SECTION_HEADING, the level the plugin writes) starts a section;
@@ -580,6 +592,7 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	let inFence = false;
 	let fenceOpen: { heading: string | null; line: number } | null = null;
 	let lineNo = 0;
+	let firstHeadingEol = "\n";
 
 	const flush = (end: number) => {
 		if (!current) return;
@@ -611,7 +624,10 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 		if (m) {
 			sawHeading = true;
 			if (current) flush(pos);
-			else preambleEnd = pos;
+			else {
+				preambleEnd = pos;
+				firstHeadingEol = cr ? "\r\n" : "\n";
+			}
 			current = { heading: m[1], start: next, eol: cr ? "\r\n" : "\n" };
 		}
 		if (nl < 0) break;
@@ -622,10 +638,13 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	// A body with no field heading at all IS the body field's value (a hand-made
 	// or 3.0/3.1 note): its bytes are kept, but for the file's final line ending
 	// (Seethe's mark 2, h37 #6632: the trim here was the strip she saw on the
-	// server). Prose before a first heading is salvage, and is tidied.
+	// server). Prose before a first heading is the description too (round C,
+	// 2): its bytes are kept, but for the one blank line (or line ending)
+	// before that heading, the layout's; a preamble of whitespace alone is
+	// layout, not a value.
 	const preamble = !sawHeading
 		? body.replace(/\r?\n$/, "")
-		: body.slice(0, preambleEnd).trim();
+		: preambleValue(body.slice(0, preambleEnd), firstHeadingEol);
 	return inFence && fenceOpen ? { fields, unknown, preamble, unclosedFence: fenceOpen } : { fields, unknown, preamble };
 }
 
