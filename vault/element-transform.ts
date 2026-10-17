@@ -830,17 +830,25 @@ function pluralSlip(a: string, b: string): boolean {
  * the same name in another case, one edit away, or a plural/singular slip
  * (`friend`, `freinds`, `Rivals` for `friends`, `rivals`). Such a key is not a
  * field, so it is sent as an `x_` field; the caller names the likely field and
- * corrects nothing (round C, 4). The first match in schema order.
+ * corrects nothing (round C, 4).
+ *
+ * The notice exists for a link that would silently miss, so the candidates
+ * are only the type's link fields, and a slip keeps the key's first letter
+ * (`factions` is no slip for a Creature's `actions`: Kael's c-read, low 6).
+ * Exactly one candidate is named; several or none, nothing (the fix round,
+ * item 5).
  */
 export function likelyLinkField(category: string, key: string): string | null {
 	const schema = getCategorySchema(category);
 	if (!schema) return null;
 	const k = key.toLowerCase();
+	const candidates: string[] = [];
 	for (const [field, def] of Object.entries(schema)) {
 		if (def.type !== "single_link" && def.type !== "multi_link") continue;
-		if (k === field || oneEditApart(k, field) || pluralSlip(k, field)) return field;
+		if (k[0] !== field[0]) continue;
+		if (k === field || oneEditApart(k, field) || pluralSlip(k, field)) candidates.push(field);
 	}
-	return null;
+	return candidates.length === 1 ? candidates[0] : null;
 }
 
 /** True when the API refuses this key for the category (see API_DROPPED_FIELDS). */
