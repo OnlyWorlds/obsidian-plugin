@@ -66,6 +66,20 @@ test("★ auto-sync leaves it out by the stored list alone, and names it", async
 	assert.ok(!r.calls.some((c) => c.startsWith("changes")), "auto-sync read the feed");
 });
 
+test("★ auto-sync creating a new note leaves out a raw id the list marks deleted, and names it (Kael's fixes read, low 4)", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note },
+		save: "Character/Ireena.md",
+		cursor: { cursor: "c0", head: 0 },
+		deleted: [GONE],
+		manual: false,
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.ok(r.calls.includes("create character"), r.calls.join(", "));
+	assert.equal("birthplace" in (r.sent[0] ?? {}), false, `sent ${JSON.stringify(r.sent)}`);
+	assert.ok(r.notices.some((n) => n.includes(GONE) && /deleted on onlyworlds\.com/.test(n)), r.notices.join(" | "));
+});
+
 test("★ Download keeps a deleted id in the list while a note here links it, though it has no note", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/Barovia/World.md", "# World Overview: Barovia\n\n- **API Key:** ow_k_test\n");

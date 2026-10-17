@@ -444,9 +444,12 @@ export class SaveElementCommand {
                     // server go first, or keel refuses the note (row 8).
                     // Only the manual Save walks (Kael's read, blocker): auto-sync
                     // leaves keel's refusal and says how to get past it.
+                    // Auto-sync walks nothing, but leaves out a link to an
+                    // element the view this 404 read names deleted, a note
+                    // here or not (Kael's fixes read, low 4).
                     const plan = manual
                         ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view)
-                        : NO_PLAN;
+                        : this.leftOutOf(worldName, type, payload, () => true, view.ids);
                     if (!(await this.approveCreateFirst(String(label), plan))) {
                         return this.fail(stopMessage(plan), plan.refused ? 15000 : plan.overflow ? 12000 : undefined);
                     }
@@ -742,10 +745,19 @@ export class SaveElementCommand {
         fields: Record<string, unknown>,
         keep: (key: string, id: string) => boolean
     ): Promise<CreateFirstPlan> {
-        const ids = [...new Set(linkIdsOf(type, fields, keep))];
-        if (ids.length === 0) return NO_PLAN;
-        const stored = await storedDeleted(this.plugin, client);
-        const hit = ids.filter((id) => stored.has(id));
+        if (linkIdsOf(type, fields, keep).length === 0) return NO_PLAN;
+        return this.leftOutOf(worldName, type, fields, keep, await storedDeleted(this.plugin, client));
+    }
+
+    /** The plan that leaves out the links of `fields` (narrowed by `keep`) to ids in `deleted`, each named by its note or its id. */
+    private leftOutOf(
+        worldName: string,
+        type: string,
+        fields: Record<string, unknown>,
+        keep: (key: string, id: string) => boolean,
+        deleted: Set<string>
+    ): CreateFirstPlan {
+        const hit = [...new Set(linkIdsOf(type, fields, keep))].filter((id) => deleted.has(id));
         if (hit.length === 0) return NO_PLAN;
         const index = this.worldNoteIndex(worldName);
         const leftOut = hit.map((id) => {
