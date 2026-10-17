@@ -71,6 +71,8 @@ Only notes inside a world's `Elements` folders are elements. Notes you already h
 
 On both Save Element and Upload World, a link field holding a `[[Name]]` that matches no note in the vault is not sent at all, so the server keeps its copy of that field. Save Element names those links; upload the target element, then save again.
 
+When a save changes an element's name, its note is renamed to match, through Obsidian, so links to it update as your **Files and links** setting says. A name another note already has gets a number, as on download: `Vallaki (1)`. Turn it off in settings.
+
 A link to a note that is in the vault but not on the server yet is fine: Save Element and auto-sync create that element first, together with the note, and say so ("Created Location "Vallaki" first."). The same goes for that element's own links to new notes.
 
 **Download World** pulls the other way. The first run fetches the whole world; later runs fetch only what changed. For each element that changed on the server, it rewrites that note's fields and body from the server's copy, so unsaved local edits in that note are replaced. Properties the plugin doesn't manage are kept. Elements deleted on the server keep their notes; the plugin tells you how many.
@@ -115,6 +117,7 @@ Updating the plugin does not change your notes, and it reads every format it has
 | Auto-sync to OnlyWorlds | off | Push edits automatically. |
 | Auto-sync debounce (ms) | 3000 | Wait after the last edit before pushing (250 to 30000). |
 | Show status bar indicator | on | Sync state in the desktop status bar. |
+| Rename note when the element's name changes | on | After a save that changes an element's name, rename its note to match. |
 
 ## Files
 

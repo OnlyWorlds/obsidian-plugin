@@ -167,6 +167,19 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			);
+
+		new Setting(containerEl)
+			.setName("Rename note when the element's name changes")
+			.setDesc(
+				"After a save that changes an element's name, rename its note to match. " +
+					"Links to it update as your Files and links setting says."
+			)
+			.addToggle((tog) =>
+				tog.setValue(this.plugin.settings.renameNoteOnNameChange).onChange(async (value) => {
+					this.plugin.settings.renameNoteOnNameChange = value;
+					await this.plugin.saveSettings();
+				})
+			);
 	}
 
 	/**

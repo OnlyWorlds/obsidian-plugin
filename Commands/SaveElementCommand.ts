@@ -2,7 +2,7 @@ import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
-import { sanitizeFileName } from '../Scripts/WorldService';
+import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
@@ -271,7 +271,9 @@ export class SaveElementCommand {
                 firstNote = `${createdFirstMessage(firsts)} `;
             }
             await client.update(type, elementUuid, changed);
-            new Notice(`${firstNote}${category} saved.`, firstNote ? 8000 : undefined);
+            const renamed = typeof changed.name === 'string' ? await this.renameToName(activeFile, changed.name, elementUuid) : null;
+            const renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
+            new Notice(`${firstNote}${category} saved.${renameNote}`, firstNote || renamed ? 8000 : undefined);
             return { ok: true, outcome: 'updated' };
         } catch (error) {
             console.error('Error during v2 update call:', error);
@@ -322,6 +324,37 @@ export class SaveElementCommand {
         };
         await visit(rootType, rootPayload, keep);
         return out;
+    }
+
+    /**
+     * After a save that changed the element's name, give its note that name
+     * (Seethe's finding 4, h37 #6503: the server took the new name, the file
+     * kept the old one). Through fileManager.renameFile, so the user's own
+     * "update internal links" setting applies. A name another note holds gets
+     * the twin suffix Download uses (`Name (1)`, WorldService
+     * .generateUniqueFileName). Nothing happens when the setting is off, or
+     * when the file already carries the name, a twin's `Name (N)` included.
+     * Returns the new basename, or null. A failed rename is logged, never
+     * failing a save that landed.
+     */
+    private async renameToName(file: TFile, name: string, id: string): Promise<string | null> {
+        if (this.plugin.settings.renameNoteOnNameChange === false) return null;
+        const base = sanitizeFileName(name);
+        const current = file.basename;
+        if (current === base || (current.startsWith(`${base} (`) && /\(\d+\)$/.test(current))) return null;
+        const folder = file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf('/'));
+        // A change of case only is the same file on Windows and macOS: rename straight to it.
+        const leaf = current.toLowerCase() === base.toLowerCase()
+            ? `${base}.md`
+            : await new WorldService(this.app).generateUniqueFileName(folder, name, id);
+        const target = normalizePath(`${folder}/${leaf}`);
+        try {
+            await this.app.fileManager.renameFile(file, target);
+            return leaf.replace(/\.md$/i, '');
+        } catch (error) {
+            console.error('[OnlyWorlds] Saved, but the note could not be renamed:', error);
+            return null;
+        }
     }
 
     /** This world's element notes by their frontmatter id. */

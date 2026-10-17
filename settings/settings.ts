@@ -16,6 +16,11 @@ export interface OnlyWorldsPluginSettings {
 	autoSync: boolean;
 	debounceMs: number;
 	showStatusBar: boolean;
+	/**
+	 * After a save that changed an element's name, rename its note to that name
+	 * (Seethe's finding 4, h37 #6503). On by default.
+	 */
+	renameNoteOnNameChange: boolean;
 
 	/**
 	 * v2 change-feed watermarks per world id: enables incremental Download World.
@@ -44,6 +49,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	autoSync: false,
 	debounceMs: 3000,
 	showStatusBar: true,
+	renameNoteOnNameChange: true,
 
 	syncCursors: {},
 
