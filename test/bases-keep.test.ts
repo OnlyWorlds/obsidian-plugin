@@ -10,7 +10,9 @@ import assert from "node:assert/strict";
 import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { WriteBasesFileCommand } from "../Commands/WriteBasesFileCommand";
-import { writeWorldBasesFile } from "../vault/bases-writer";
+import { RenameWorldCommand } from "../Commands/RenameWorldCommand";
+import { pluginBasesSchema, writeWorldBasesFile } from "../vault/bases-writer";
+import { buildBasesFile } from "../vault/bases-file";
 import { DEFAULT_SETTINGS, type OnlyWorldsPluginSettings } from "../settings/settings";
 
 const WORLD_ID = "0199b000-0000-7000-8000-0000000000aa";
@@ -127,4 +129,85 @@ test("Write Bases file rebuilds a changed base, and keeps the user's version bes
 	// The copy is the user's from now on: a Download never touches it, never counts it as the world's base.
 	assert.equal(await writeWorldBasesFile(app, "Hyperion"), "unchanged");
 	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Hyperion/Hyperion (your copy).base"), copy);
+});
+
+// ── Item 2: Rename World leaves an empty base; Download writes a second one ──
+
+const NEW_BASE = "OnlyWorlds/Worlds/Endymion/Endymion.base";
+
+function basesUnder(vault: MockApp["vault"], folder: string): string[] {
+	return [...vault.files.keys()].filter((p) => p.startsWith(folder + "/") && p.endsWith(".base")).sort();
+}
+
+async function renameHyperion(app: MockApp["app"], plugin?: ReturnType<typeof makePlugin>): Promise<void> {
+	(app as unknown as { realRenames: boolean }).realRenames = true;
+	const cmd = new RenameWorldCommand(app, { version: "t" }, plugin as never);
+	await cmd.renameWorldFile("Hyperion", "Endymion");
+	await cmd.renameWorldFolder("Hyperion", "Endymion");
+}
+
+function endymionText(): string {
+	return buildBasesFile({ worldName: "Endymion", worldFolderPath: "OnlyWorlds/Worlds/Endymion", schema: pluginBasesSchema() });
+}
+
+test("Rename World rewrites the plugin's own base to the new folder and names it after the world", async () => {
+	const { app, vault } = makeApp();
+	const plugin = makePlugin();
+	await download(app, plugin);
+	await renameHyperion(app, plugin);
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Endymion"), [NEW_BASE]);
+	assert.equal(vault.contentAt(NEW_BASE), endymionText());
+	assert.match(vault.contentAt(NEW_BASE)!, /file\.inFolder\("OnlyWorlds\/Worlds\/Endymion\/Elements"\)/);
+});
+
+test("Rename World leaves a changed base as is and says so, naming the rename", async () => {
+	const { app, vault } = makeApp();
+	const plugin = makePlugin();
+	await download(app, plugin);
+	const edited = editBase(vault);
+	__notices.length = 0;
+	await renameHyperion(app, plugin);
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Endymion"), ["OnlyWorlds/Worlds/Endymion/Hyperion.base"]);
+	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Endymion/Hyperion.base"), edited);
+	const said = __notices.find((n) => n.startsWith("Your Bases file for Endymion has your own changes"));
+	assert.ok(said && said.includes("renamed"), __notices.join(" / "));
+	assert.deepEqual(plugin.settings.basesKeptNoticed, ["Endymion"]);
+});
+
+test("a folder renamed by hand: Download's writer moves the plugin's base, never writes a second one", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **Name:** Endymion\n");
+	assert.equal(await writeWorldBasesFile(app, "Hyperion"), "created");
+	vault.move("OnlyWorlds/Worlds/Hyperion", "OnlyWorlds/Worlds/Endymion");
+	(app as unknown as { realRenames: boolean }).realRenames = true;
+	assert.equal(await writeWorldBasesFile(app, "Endymion"), "rewritten");
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Endymion"), [NEW_BASE]);
+	assert.equal(vault.contentAt(NEW_BASE), endymionText());
+});
+
+test("a changed base with the plugin's marker anywhere under the world: Download keeps it and writes no second", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **Name:** Endymion\n");
+	await writeWorldBasesFile(app, "Hyperion");
+	editBase(vault);
+	vault.move("OnlyWorlds/Worlds/Hyperion", "OnlyWorlds/Worlds/Endymion");
+	assert.equal(await writeWorldBasesFile(app, "Endymion"), "kept");
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Endymion"), ["OnlyWorlds/Worlds/Endymion/Hyperion.base"]);
+});
+
+test("Write Bases file after a rename rebuilds the world's base in place of the old one: one base, the user's copy beside it", async () => {
+	const { app, vault } = makeApp();
+	const plugin = makePlugin();
+	await download(app, plugin);
+	const edited = editBase(vault);
+	await renameHyperion(app, plugin);
+	(app.workspace as unknown as { getActiveFile: () => unknown }).getActiveFile = () =>
+		vault.files.get("OnlyWorlds/Worlds/Endymion/World.md")!.file;
+	await new WriteBasesFileCommand(app).execute();
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Endymion"), [
+		"OnlyWorlds/Worlds/Endymion/Endymion (your copy).base",
+		NEW_BASE,
+	]);
+	assert.equal(vault.contentAt(NEW_BASE), endymionText());
+	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Endymion/Endymion (your copy).base"), edited.split("\n").slice(1).join("\n"));
 });

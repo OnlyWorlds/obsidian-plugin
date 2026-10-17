@@ -2,6 +2,7 @@ import { App, Notice, requestUrl, normalizePath, TFile, TFolder } from 'obsidian
 import { WorldRenameModal } from '../Modals/WorldRenameModal';
 import { READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { safeWorldFolderName } from '../vault/world-name';
+import { moveWorldBasesFileAfterRename } from '../vault/bases-writer';
 import type OnlyWorldsPlugin from '../main';
 
 
@@ -127,6 +128,9 @@ export class RenameWorldCommand {
             // Correctly using renameFolder through the FileManager
             await this.app.fileManager.renameFile(oldFolder, newPath);
             new Notice(`World folder renamed successfully from '${oldWorldName}' to '${newWorldName}'.`);
+            // The world's Bases file moved with the folder, but its filters still
+            // name the old one (OW Infra #188): rewrite the plugin's own file.
+            await moveWorldBasesFileAfterRename(this.app, oldWorldName, newWorldName, this.plugin ?? undefined);
         } else {
             new Notice('World folder does not exist.');
         }
