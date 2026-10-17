@@ -136,6 +136,9 @@ export class ExportFolderCommand {
 		const elements: { type: string; payload: Record<string, unknown>; path: string }[] = [];
 		const failed: { path: string; reason: string }[] = [];
 		const byPath = new Map<string, ElementRef>();
+		// This world's notes by file name (lower case), for a link Obsidian
+		// resolves outside this world (the fix round, item 2).
+		const byName = new Map<string, ElementRef[]>();
 		for (const file of files) {
 			try {
 				const parsed = await readElement(this.app, file);
@@ -150,7 +153,10 @@ export class ExportFolderCommand {
 				}
 				const payload = { ...parsed.fields, id: parsed.id, name: parsed.name };
 				elements.push({ type: parsed.category, payload, path: file.path });
-				byPath.set(file.path, { id: parsed.id, name: parsed.name, type: parsed.category });
+				const ref = { id: parsed.id, name: parsed.name, type: parsed.category };
+				byPath.set(file.path, ref);
+				const key = file.basename.toLowerCase();
+				byName.set(key, [...(byName.get(key) ?? []), ref]);
 			} catch (e) {
 				failed.push({ path: file.path, reason: e instanceof Error ? e.message : String(e) });
 			}
@@ -173,6 +179,7 @@ export class ExportFolderCommand {
 		const paths = planElementPaths(
 			elements.map((el) => ({ type: el.type, id: String(el.payload.id), name: el.payload.name }))
 		);
+		const worldPrefix = `OnlyWorlds/Worlds/${world}/`;
 		for (const el of elements) {
 			const bodyField = bodyFieldForCategory(el.type);
 			const payload = { ...el.payload };
@@ -181,7 +188,14 @@ export class ExportFolderCommand {
 					payload[bodyField] as string,
 					(n) => {
 						const dest = this.app.metadataCache.getFirstLinkpathDest(n, el.path);
-						return dest ? byPath.get(dest.path) ?? null : null;
+						if (dest && dest.path.startsWith(worldPrefix)) return byPath.get(dest.path) ?? null;
+						// Obsidian's resolution is not world-aware: in a vault with
+						// two worlds (Copy World, then Paste World) it can land on
+						// the other world's note. Then this world's own note by that
+						// name answers, when exactly one does, as the save's
+						// resolver does (buildWikilinkResolver); never a guess.
+						const named = byName.get((n.split("/").pop() ?? n).replace(/\.md$/i, "").toLowerCase()) ?? [];
+						return named.length === 1 ? named[0] : null;
 					}
 				);
 			}
