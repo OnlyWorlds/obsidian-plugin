@@ -42,6 +42,19 @@ test("★ in a vault with two worlds, [[Vallaki]] exports as the mention of this
 	assert.equal(descriptionOf(p, "ireena"), `Born in [Vallaki](ow://location/${V_BBB}).`);
 });
 
+test("★ when Obsidian picks a plain note inside this world (no id), [[Vallaki]] still exports as this world's element (Kael's fixes read, low 6)", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Bbb/Elements/Location/Vallaki.md", `---\nname: Vallaki\nid: ${V_BBB}\n---\n\n### Description\n\nA town.\n`);
+	// Beside Ireena, so Obsidian's same-folder preference picks it: a note with no id.
+	await vault.seed("OnlyWorlds/Worlds/Bbb/Elements/Character/Vallaki.md", "Notes about the town.\n");
+	await vault.seed(
+		"OnlyWorlds/Worlds/Bbb/Elements/Character/Ireena.md",
+		`---\nname: Ireena\nid: ${IREENA}\n---\n\n### Description\n\nBorn in [[Vallaki]].\n`
+	);
+	const p = await plan(app, "Bbb");
+	assert.equal(descriptionOf(p, "ireena"), `Born in [Vallaki](ow://location/${V_BBB}).`);
+});
+
 test("two notes of this world by that name are never guessed: the link stays as written", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/Aaa/Elements/Character/Twin.md", `---\nname: Twin\nid: ${V_AAA}\n---\n`);

@@ -137,8 +137,12 @@ export class ExportFolderCommand {
 		const failed: { path: string; reason: string }[] = [];
 		const byPath = new Map<string, ElementRef>();
 		// This world's notes by file name (lower case), for a link Obsidian
-		// resolves outside this world (the fix round, item 2).
+		// resolves to no element note of this world (the fix round, item 2;
+		// Kael's fixes read, low 6).
 		const byName = new Map<string, ElementRef[]>();
+		// Element notes of this world refused for an open fence: a link that
+		// lands on one is left as written, never sent to a same-name note.
+		const refusedPaths = new Set<string>();
 		for (const file of files) {
 			try {
 				const parsed = await readElement(this.app, file);
@@ -149,6 +153,7 @@ export class ExportFolderCommand {
 				if (parsed.unclosedFence) {
 					// Never written cut short (round C, 1).
 					failed.push({ path: file.path, reason: unclosedFenceMessage(parsed.name, parsed.unclosedFence) });
+					refusedPaths.add(file.path);
 					continue;
 				}
 				const payload = { ...parsed.fields, id: parsed.id, name: parsed.name };
@@ -179,7 +184,6 @@ export class ExportFolderCommand {
 		const paths = planElementPaths(
 			elements.map((el) => ({ type: el.type, id: String(el.payload.id), name: el.payload.name }))
 		);
-		const worldPrefix = `OnlyWorlds/Worlds/${world}/`;
 		for (const el of elements) {
 			const bodyField = bodyFieldForCategory(el.type);
 			const payload = { ...el.payload };
@@ -188,12 +192,15 @@ export class ExportFolderCommand {
 					payload[bodyField] as string,
 					(n) => {
 						const dest = this.app.metadataCache.getFirstLinkpathDest(n, el.path);
-						if (dest && dest.path.startsWith(worldPrefix)) return byPath.get(dest.path) ?? null;
-						// Obsidian's resolution is not world-aware: in a vault with
-						// two worlds (Copy World, then Paste World) it can land on
-						// the other world's note. Then this world's own note by that
-						// name answers, when exactly one does, as the save's
-						// resolver does (buildWikilinkResolver); never a guess.
+						const picked = dest ? byPath.get(dest.path) : undefined;
+						if (picked) return picked;
+						if (dest && refusedPaths.has(dest.path)) return null;
+						// Obsidian's pick is no element note of this world: in a
+						// vault with two worlds (Copy World, then Paste World) it
+						// can land on the other world's note, or on a plain note
+						// with no id inside this one. Then this world's own element
+						// note by that name answers, when exactly one does, as the
+						// save's resolver does (buildWikilinkResolver); never a guess.
 						const named = byName.get((n.split("/").pop() ?? n).replace(/\.md$/i, "").toLowerCase()) ?? [];
 						return named.length === 1 ? named[0] : null;
 					}
