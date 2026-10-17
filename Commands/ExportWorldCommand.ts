@@ -6,7 +6,7 @@ import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
-import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
+import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
@@ -42,6 +42,15 @@ export class ExportWorldCommand {
             return;
         }
 
+        // The picker offers only worlds this vault can write to, and a vault
+        // whose every world is read-only is refused here, before any PIN or
+        // dialog (Kael's cold read, h37 #6484). Same split as Rename World.
+        const { writable, readOnly } = await splitWorldsByWrite(this.app, this.plugin?.settings.apiKey);
+        if (writable.length === 0 && readOnly.length > 0) {
+            new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
+            return;
+        }
+
         // If a PIN is cached/persisted AND we have an active world, skip the picker.
         const cachedPin = this.plugin ? await this.plugin.pinCache.get() : null;
         if (cachedPin && activeWorldName) {
@@ -52,9 +61,11 @@ export class ExportWorldCommand {
             }
         }
 
-        new WorldPinSelectionModal(this.app, async (pin: number, worldFolder: string) => {
+        const picker = new WorldPinSelectionModal(this.app, async (pin: number, worldFolder: string) => {
             await this.runExport(pin, worldFolder);
-        }, activeWorldName).open();
+        }, activeWorldName);
+        picker.worlds = writable;
+        picker.open();
     }
 
     /** Validate a world and, on errors, show them. Returns true when clean.

@@ -155,3 +155,39 @@ test("Rename World in a vault holding a read-key world and a write-key world off
 	assert.deepEqual((__modals[0] as unknown as { worlds?: string[] }).worlds, ["Hyperion"]);
 	assert.deepEqual(__requests, []);
 });
+
+// --- Upload World's picker offers only writable worlds (Kael's cold read, h37 #6484) ---
+
+function uploadCommand(h: Awaited<ReturnType<typeof setup>>, activeWorld: string, pin: string | null) {
+	const asked = { pin: false };
+	const plugin = { ...h.plugin, pinCache: { get: async () => ((asked.pin = true), pin), clear: () => {} } };
+	const cmd = new ExportWorldCommand(h.app, {} as never, { getWorldName: async () => activeWorld } as never, plugin as never);
+	return { cmd, asked };
+}
+
+test("Upload in a vault holding a read-key world and a write-key world: the picker offers only the writable one", async () => {
+	const h = await setup("ow_r_player_strahd");
+	await (h.app as unknown as { vault: { seed(p: string, c: string): Promise<unknown> } }).vault.seed(
+		"OnlyWorlds/Worlds/Hyperion/World.md",
+		"- **API Key:** ow_w_owner_hyperion\n",
+	);
+	setRequestUrl(() => ({ status: 599 }));
+	const { cmd } = uploadCommand(h, "Hyperion", null);
+	await cmd.execute();
+	assert.equal(__modals.length, 1);
+	assert.equal(__modals[0].constructor.name, "WorldPinSelectionModal");
+	assert.deepEqual((__modals[0] as unknown as { worlds?: string[] }).worlds, ["Hyperion"]);
+	assert.deepEqual(__requests, []);
+});
+
+test("Upload in a vault whose every world is read-only refuses up front: the read-only line, no modal, no PIN, no request", async () => {
+	const h = await setup("ow_r_player_strahd");
+	setRequestUrl(() => ({ status: 599 }));
+	// No active world named: the refusal must not rest on the active-world check.
+	const { cmd, asked } = uploadCommand(h, "", "1234");
+	await cmd.execute();
+	assert.equal(__modals.length, 0, "a modal opened");
+	assert.equal(asked.pin, false, "the PIN was asked");
+	assert.deepEqual(__requests, [], "a request was sent");
+	assert.ok(__notices.some((n) => READ_ONLY_LINE.test(n)), __notices.join(" / "));
+});

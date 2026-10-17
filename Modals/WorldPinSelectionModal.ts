@@ -4,6 +4,8 @@ import { applyMobileModal, suppressAutofocus } from './mobile';
 export class WorldPinSelectionModal extends Modal {
     onChoose: (pin: number, worldFolder: string) => void;
     activeWorldName: string;
+    /** The worlds to offer; when unset, every world folder in the vault. */
+    worlds?: string[];
 
     constructor(app: App, onChoose: (pin: number, worldFolder: string) => void, activeWorldName: string) {
         super(app);
@@ -28,7 +30,7 @@ export class WorldPinSelectionModal extends Modal {
         worldLabel.style.marginBottom = '4px';
         worldLabel.style.fontWeight = 'bold';
         
-        const worldFolders = await this.getWorldFolders();
+        const worldFolders = this.worlds ?? await this.getWorldFolders();
         const dropdown = new DropdownComponent(contentEl);
         dropdown.selectEl.addClass('pin-selection-dropdown');
         dropdown.selectEl.style.width = '100%';

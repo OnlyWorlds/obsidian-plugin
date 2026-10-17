@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath } from 'obsidian';
+import { App, TFile, TFolder, normalizePath } from 'obsidian';
 
 /**
  * Resolve the API key for a SPECIFIC world folder, safely.
@@ -71,4 +71,28 @@ export async function resolveWorldKey(
 ): Promise<ResolvedWorldKey> {
     const own = await worldFileApiKey(app, worldName);
     return classifyWorldKey(own, settingsKey);
+}
+
+/**
+ * The vault's worlds (folders under OnlyWorlds/Worlds holding a World.md),
+ * split by whether this vault can write to them: a read key (ow_r_) is
+ * read-only, every other key or a local world is writable. The one split every
+ * world picker that writes uses (Rename World, Upload World), so their lists
+ * cannot drift (Kael's cold read, h37 #6484).
+ */
+export async function splitWorldsByWrite(
+    app: App,
+    settingsKey: string | undefined,
+): Promise<{ writable: string[]; readOnly: string[] }> {
+    const writable: string[] = [];
+    const readOnly: string[] = [];
+    const worlds = app.vault.getAbstractFileByPath(normalizePath('OnlyWorlds/Worlds'));
+    if (!(worlds instanceof TFolder)) return { writable, readOnly };
+    for (const child of worlds.children) {
+        if (!(child instanceof TFolder)) continue;
+        if (!child.children.some((f) => f instanceof TFile && f.name === 'World.md')) continue;
+        const resolved = await resolveWorldKey(app, child.name, settingsKey);
+        (resolved.readOnly ? readOnly : writable).push(child.name);
+    }
+    return { writable, readOnly };
 }

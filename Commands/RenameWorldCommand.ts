@@ -1,6 +1,6 @@
 import { App, Notice, requestUrl, normalizePath, TFile, TFolder } from 'obsidian';
 import { WorldRenameModal } from '../Modals/WorldRenameModal';
-import { READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
+import { READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { safeWorldFolderName } from '../vault/world-name';
 import type OnlyWorldsPlugin from '../main';
 
@@ -40,13 +40,8 @@ export class RenameWorldCommand {
         // such worlds are not offered, and a vault whose every world is
         // read-only is refused before the dialog opens, with nothing renamed
         // and nothing sent (Seethe's walk of rc-next, h37 #6462).
-        const folders = await modal.getWorldFolders();
-        const writable: string[] = [];
-        for (const folder of folders) {
-            const resolved = await resolveWorldKey(this.app, folder, this.plugin?.settings.apiKey);
-            if (!resolved.readOnly) writable.push(folder);
-        }
-        if (folders.length > 0 && writable.length === 0) {
+        const { writable, readOnly } = await splitWorldsByWrite(this.app, this.plugin?.settings.apiKey);
+        if (writable.length === 0 && readOnly.length > 0) {
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
             return;
         }
