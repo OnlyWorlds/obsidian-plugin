@@ -592,6 +592,24 @@ test("row 18: an element made in the vault exports every field of its type, unse
 	assert.equal(body.element_type, "");
 });
 
+// --- Row 19: key order as received survives an edit between import and export
+
+test("row 19: an imported element edited in its note still exports in its source's key order", async () => {
+	const { app, vault } = makeApp();
+	const src = {
+		x_mood: "wary", id: CHAR_ID, background: "Born in Vallaki.", created_at: "2026-01-02T03:04:05.123456Z",
+		name: "Ireena", description: "A noble.", type: "character", height: 170, traits: [], supertype: "noble",
+	};
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, { "elements/character/ireena--000000c1.json": src });
+	await importDir(app, "in/barovia");
+	const note = [...vault.files.keys()].find((p) => p.includes("/Elements/Character/"))!;
+	await vault.modify(vault.files.get(note)!.file, (vault.contentAt(note) ?? "").replace("A noble.", "A noble, now wed."));
+	const out = await exportWorld(app, vault, "Barovia");
+	const body = JSON.parse(out[Object.keys(out).find((p) => p.startsWith("elements/character/"))!]);
+	assert.equal(body.description, "A noble, now wed.");
+	assert.deepEqual(Object.keys(body).slice(0, Object.keys(src).length), Object.keys(src), "source keys reordered");
+});
+
 // --- Row 15: prose crosses import and export unaltered ----------------------
 
 test("row 15: a description's mention label and an unresolved [[X]] survive import then export byte for byte", async () => {
