@@ -361,7 +361,7 @@ export async function writeElement(
 // --- helpers -----------------------------------------------------------------
 
 /** Parse a raw `---\n...\n---` YAML block (cache-independent read fallback). */
-function parseRawFrontmatter(content: string): Record<string, unknown> | null {
+export function parseRawFrontmatter(content: string): Record<string, unknown> | null {
 	if (!content.startsWith("---")) return null;
 	const end = content.indexOf("\n---", 3);
 	if (end < 0) return null;
@@ -504,7 +504,7 @@ function buildIdToNameResolver(app: App, worldName: string): (id: string) => str
  * null (reported unresolved, never guessed). Obsidian's own click on an
  * ambiguous name stays Obsidian's.
  */
-function buildWikilinkResolver(
+export function buildWikilinkResolver(
 	app: App,
 	sourcePath: string
 ): (name: string, target?: string) => string | null | typeof AMBIGUOUS_LINK {

@@ -26,7 +26,8 @@
  *     Obsidian's does: a status of 400 or more throws unless `throw: false`.
  *   - adapter.write to a path with no dot-segment writes a real note (Obsidian
  *     creates a file the vault then lists); a dot-path stays a hidden file.
- *   - vault.getName() is "Test Vault"; fileManager.renameFile and
+ *   - vault.getName() is "Test Vault"; workspace.getLeaf().openFile records the
+ *     path in `opened`; fileManager.renameFile and
  *     workspace.openLinkText only record or do nothing, unless a test sets
  *     `realRenames` on the app: then renameFile also moves the file or the
  *     folder with everything under it, as Obsidian does.
@@ -351,9 +352,16 @@ export class MockMetadataCache {
 export class App {
 	vault = new MockVault();
 	metadataCache = new MockMetadataCache(this.vault);
+	/** Paths opened through workspace.getLeaf().openFile, in order. */
+	opened: string[] = [];
 	workspace = {
 		getActiveFile: (): TFile | null => null,
 		openLinkText: async (): Promise<void> => {},
+		getLeaf: () => ({
+			openFile: async (f: TFile): Promise<void> => {
+				this.opened.push(f.path);
+			},
+		}),
 	};
 	renames: string[] = [];
 	/** When true, renameFile moves what it renames (see the header). */

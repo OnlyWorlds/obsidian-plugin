@@ -100,6 +100,7 @@ With Obsidian Sync or another sync tool, a base is rebuilt from your world on Do
 | Add Custom Field | Add your own text field (stored as `x_<name>`). |
 | Rename World | Rename the world folder, and the world on onlyworlds.com if it has a key. |
 | Write Bases file | Write the active world's `.base` file (see Bases); rebuilds one you changed, keeping your version beside it. |
+| Draw relationships on a canvas | Draw the active element, what it links to and what links to it as an Obsidian canvas beside its note, each arrow labelled with its field. A Relation keeps its own card. Running it again redraws the canvas. |
 | Export as OnlyWorlds folder | Write the world as an OnlyWorlds folder (`world.json` plus one JSON file per element). Into the vault, or on desktop into any folder, such as your [Atlas](https://atlas.onlyworlds.com) folder. Never overwrites an existing folder. |
 | Import OnlyWorlds folder | Read an OnlyWorlds folder placed in the vault into notes. Skips elements that already have a note; refuses to merge into a different world of the same name. |
 | Copy World to Clipboard / Paste World from Clipboard | The world as JSON, out and back in. |
@@ -123,6 +124,7 @@ Updating the plugin does not change your notes, and it reads every format it has
 | Auto-sync debounce (ms) | 3000 | Wait after the last edit before pushing (250 to 30000). |
 | Show status bar indicator | on | Sync state in the desktop status bar. |
 | Write a Bases file per world | on | Download World and Create World write the world's `.base` file (see Bases). |
+| Relationship canvas: links to the element | on | Draw relationships on a canvas also draws the elements that link to the active one. |
 
 ## Files
 
