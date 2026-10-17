@@ -341,7 +341,7 @@ export class ExportWorldCommand {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
                 const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements/${category}`);
-                const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
+                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     // Phase B: frontmatter notes read via the shared element reader
@@ -548,7 +548,7 @@ export class ExportWorldCommand {
     
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
         const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements/${elementType}`);
-        const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
+        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
         
         for (const file of files) {
             try {
