@@ -59,7 +59,7 @@ Text fields round-trip byte for byte through the plugin, spaces, tabs and line e
 
 In a note, a line `\### ` means the text `### `: wherever a line starts with backslashes and then `### ` (or a fence), the plugin reads one backslash off it, so to keep a backslash in the value, type two (`\\### `).
 
-Fields are read from Properties and `###` sections only. A list you type in the body, as `- height: 172` or `- **Height:** 172`, is description text; the one body list read as fields is the old `<span>` format, which **Migrate world notes to frontmatter** converts.
+In an element note, fields are read from Properties and `###` sections, and from the old `<span>` lines until **Migrate world notes to frontmatter** converts them. A list you type in an element note's body, as `- height: 172` or `- **Height:** 172`, is description text. The `- **Field:** value` lines are read as fields only in `World.md`, the world's own note.
 
 The note's identity is the `id` in its Properties, so renaming a note does not break anything.
 
