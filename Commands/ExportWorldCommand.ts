@@ -11,7 +11,7 @@ import { readElement } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
-import { ambiguousLinksMessage } from './SaveElementCommand';
+import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
 import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 
@@ -189,6 +189,19 @@ export class ExportWorldCommand {
                 const at = toCreate.findIndex(i => String(i.element.id) === id);
                 if (at >= 0) toCreate.splice(at, 1);
             }
+            // And out of every note's links, new and existing alike: keel
+            // refuses a payload linking an element it does not have, all its
+            // other fields with it (Kael's third read, 1). The notes keep them.
+            let linksStripped = 0;
+            if (leftOut.ids.length > 0) {
+                const strip = (type: string, fields: Record<string, unknown>) => {
+                    const out = withoutLinks(type, fields, leftOut.ids);
+                    if (JSON.stringify(out) !== JSON.stringify(fields)) linksStripped++;
+                    return out;
+                };
+                for (const item of toCreate) item.element = strip(item.type, item.element);
+                for (const item of toUpdate) item.payload = strip(item.type, item.payload);
+            }
 
             // Progress feedback — the sweep can run for a minute on a big world.
             new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
@@ -262,6 +275,9 @@ export class ExportWorldCommand {
             let summary = `Upload complete: ${created} created, ${updated + replaced} updated${failedNote}.${unitsNote}`;
             if (serverOnly > 0) {
                 summary += ` ${serverOnly} element${serverOnly === 1 ? '' : 's'} exist only on the server (not deleted).`;
+            }
+            if (linksStripped > 0) {
+                summary += ` Links to ${leftOut.names.join(', ')} left out of ${linksStripped} note${linksStripped === 1 ? '' : 's'}.`;
             }
             new Notice(summary, 8000);
             if (leftOut.names.length > 0) {

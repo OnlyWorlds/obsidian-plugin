@@ -125,7 +125,7 @@ function linkIdsOf(
  * link holding one is dropped from the payload (the server keeps its value), a
  * multi-link loses it from its list. Other fields are untouched.
  */
-function withoutLinks(type: string, fields: Record<string, unknown>, ids: string[] | undefined): Record<string, unknown> {
+export function withoutLinks(type: string, fields: Record<string, unknown>, ids: string[] | undefined): Record<string, unknown> {
     if (!ids || ids.length === 0) return fields;
     const drop = new Set(ids);
     const schema = getCategorySchema(type);

@@ -24,7 +24,7 @@ const IDS = {
 	Gela: "019a0000-0000-7000-8000-0000000000c2",
 	Syracuse: "019a0000-0000-7000-8000-0000000000c3",
 };
-const note = (id: string, name: string) => `---\nname: ${name}\nid: ${id}\n---\n\n### Description\n\nA city.\n`;
+const note = (id: string, name: string, links = "") => `---\nname: ${name}\nid: ${id}\n${links}---\n\n### Description\n\nA city.\n`;
 
 type Proto = Record<string, unknown>;
 const proto = V2Client.prototype as unknown as Proto;
@@ -38,11 +38,13 @@ interface Dialog {
 }
 
 /** Upload W, where the feed says Akragas exists and Gela was deleted; Syracuse is new. */
-async function upload(opts: { answer: boolean; deleted?: string[] }) {
+async function upload(opts: { answer: boolean; deleted?: string[]; links?: Record<string, string> }) {
 	const { app, vault } = makeApp();
 	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **API Key:** ow_k_test\n");
-	for (const [name, id] of Object.entries(IDS)) await vault.seed(`${W}/Elements/Location/${name}.md`, note(id, name));
+	for (const [name, id] of Object.entries(IDS)) await vault.seed(`${W}/Elements/Location/${name}.md`, note(id, name, opts.links?.[name] ?? ""));
 	const created: string[] = [];
+	const bulkSent: Record<string, unknown>[] = [];
+	const patches: Record<string, Record<string, unknown>> = {};
 	proto.getWorld = async () => ({ id: WID, name: "W" });
 	proto.changesWalk = async () => ({
 		changes: [
@@ -55,9 +57,13 @@ async function upload(opts: { answer: boolean; deleted?: string[] }) {
 	});
 	proto.bulkCreate = async (items: { element: { id: string } }[]) => {
 		created.push(...items.map((i) => i.element.id));
+		bulkSent.push(...items.map((i) => i.element as Record<string, unknown>));
 		return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
 	};
-	proto.update = async () => ({});
+	proto.update = async (_t: string, id: string, b: Record<string, unknown>) => {
+		patches[id] = b;
+		return {};
+	};
 	proto.patchWorld = async () => ({});
 	const plugin = {
 		settings: { apiKey: "", deletedOnServer: { [WID]: opts.deleted ?? [] } as Record<string, string[]>, syncCursors: {} },
@@ -87,7 +93,7 @@ async function upload(opts: { answer: boolean; deleted?: string[] }) {
 	} finally {
 		for (const [k, v] of Object.entries(saved)) proto[k] = v;
 	}
-	return { created, dialogs, notices: [...__notices], settings: plugin.settings };
+	return { created, bulkSent, patches, dialogs, notices: [...__notices], settings: plugin.settings };
 }
 
 test("★ an element the feed reports deleted is not recreated: asked, left out on 'Leave out', named in the summary", async () => {
@@ -107,4 +113,24 @@ test("Create again sends it with the new ones and takes it off the deleted list"
 	assert.equal(r.dialogs.length, 1);
 	assert.deepEqual([...r.created].sort(), [IDS.Gela, IDS.Syracuse].sort());
 	assert.deepEqual(r.settings.deletedOnServer[WID], []);
+});
+
+// --- Kael's third read, 1: Leave out never sinks the notes that link it -----
+
+test("★ Leave out takes the left-out id out of every note's links, new and existing alike, and the summary says so", async () => {
+	const r = await upload({
+		answer: false,
+		links: { Akragas: 'rival: "[[Gela]]"\n', Syracuse: 'partner: "[[Gela]]"\n' },
+	});
+	const syracuse = r.bulkSent.find((e) => e.id === IDS.Syracuse);
+	assert.ok(syracuse, "Syracuse was not sent");
+	assert.equal("partner" in syracuse, false, "the new note still links the left-out element");
+	assert.ok(r.patches[IDS.Akragas], "Akragas was not updated");
+	assert.equal("rival" in r.patches[IDS.Akragas], false, "the existing note still links the left-out element");
+	assert.ok(r.notices.some((n) => /links to Location "Gela" left out of 2 notes/i.test(n)), r.notices.join(" | "));
+});
+
+test("Create again keeps those links: the element comes back with them", async () => {
+	const r = await upload({ answer: true, links: { Akragas: 'rival: "[[Gela]]"\n' } });
+	assert.equal(r.patches[IDS.Akragas]?.rival, IDS.Gela);
 });
