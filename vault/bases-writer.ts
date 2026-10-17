@@ -1,7 +1,7 @@
 import { App, Notice, TFile, normalizePath } from "obsidian";
 import { Category } from "../enums";
 import { getCategorySchema } from "./element-transform";
-import { buildBasesFile, hasBasesMarker, mayOverwriteBasesFile, stripBasesMarker, type BasesSchema } from "./bases-file";
+import { buildBasesFile, mayOverwriteBasesFile, stripBasesMarker, type BasesSchema } from "./bases-file";
 import type { OnlyWorldsPluginSettings } from "../settings/settings";
 
 /**
@@ -32,13 +32,17 @@ export interface BasesMemory {
 
 /**
  * The Notice Download shows the first time it keeps a world's base because the
- * user changed it; Rename World shows it naming the rename.
+ * user changed it; Rename World shows it naming the rename (`renamedTo`: the
+ * new folder, whose own base the next Download writes beside the user's).
  */
-export function basesKeptNotice(worldName: string, renamed = false): string {
-	const kept = renamed
-		? "so it was left as is when you renamed the world, and its views still look in the old folder"
-		: "so it was left as is";
-	return `Your Bases file for ${worldName} has your own changes, ${kept}; delete it or run Write Bases file to rebuild it.`;
+export function basesKeptNotice(worldName: string, renamedTo?: string): string {
+	if (renamedTo !== undefined) {
+		return (
+			`Your Bases file for ${worldName} has your own changes, so it was left as is when you renamed the world, ` +
+			`and its views still look in the old folder; the next Download writes a fresh ${renamedTo}.base beside it.`
+		);
+	}
+	return `Your Bases file for ${worldName} has your own changes, so it was left as is; delete it or run Write Bases file to rebuild it.`;
 }
 
 /** The Notice the first base Download writes into a world folder that had none shows, once per vault. */
@@ -90,7 +94,7 @@ async function freeCopyPath(app: App, worldFolder: string): Promise<string> {
 }
 
 interface FoundBase {
-	/** The world's base, wherever it sits under the world folder; null when there is none. */
+	/** The world's base, at its path or adopted from the world folder; null when there is none. */
 	file: TFile | null;
 	/** A folder sits at the base's path. */
 	blocked: boolean;
@@ -103,12 +107,14 @@ interface FoundBase {
  * ignores case (Windows, macOS), the file the disk holds at that path under
  * another case (the vault's lookup is exact, the disk's is not: `exists`
  * without and with `sensitive`, the adapter's own test, as note names use);
- * else a `.base` under the world folder named `alsoNamed` (Rename World: the
- * old name), else the first, by path, that carries the plugin's marker (a
- * folder renamed by hand, the file renamed). So there is never a second base
- * beside the plugin's own, and never a create that the disk refuses.
+ * else the first `.base`, by path, among the world folder's OWN files (no
+ * subfolder) that is the plugin's and unchanged since: marker and hash (a
+ * folder renamed by hand, the file renamed). A changed file anywhere but the
+ * base's own path is the user's: never adopted, rewritten or renamed (Kael's
+ * read of round 2, should-fix 1). So there is never a second base beside the
+ * plugin's own unchanged one, and never a create that the disk refuses.
  */
-async function findWorldBase(app: App, worldFolder: string, alsoNamed?: string): Promise<FoundBase> {
+async function findWorldBase(app: App, worldFolder: string): Promise<FoundBase> {
 	const path = basesFilePath(worldFolder);
 	const at = app.vault.getAbstractFileByPath(path);
 	if (at instanceof TFile) return { file: at, blocked: false };
@@ -119,14 +125,12 @@ async function findWorldBase(app: App, worldFolder: string, alsoNamed?: string):
 		return twin ? { file: twin, blocked: false, caseTwin: true } : { file: null, blocked: true };
 	}
 	const root = normalizePath(`OnlyWorlds/Worlds/${worldFolder}`) + "/";
-	const under = app.vault
+	const own = app.vault
 		.getFiles()
-		.filter((f) => f.extension === "base" && f.path.startsWith(root))
+		.filter((f) => f.extension === "base" && f.path.startsWith(root) && !f.path.slice(root.length).includes("/"))
 		.sort((a, b) => a.path.localeCompare(b.path));
-	const named = alsoNamed ? under.find((f) => f.path === normalizePath(root + alsoNamed)) : undefined;
-	if (named) return { file: named, blocked: false };
-	for (const f of under) {
-		if (hasBasesMarker(await app.vault.read(f))) return { file: f, blocked: false };
+	for (const f of own) {
+		if (mayOverwriteBasesFile(await app.vault.read(f))) return { file: f, blocked: false };
 	}
 	return { file: null, blocked: false };
 }
@@ -159,12 +163,12 @@ function sameText(current: string, text: string): boolean {
 export async function writeWorldBasesFileOutcome(
 	app: App,
 	worldFolder: string,
-	opts: { create?: boolean; alsoNamed?: string } = {}
+	opts: { create?: boolean } = {}
 ): Promise<BasesWriteOutcome> {
 	const worldName = await worldNameOf(app, worldFolder);
 	const text = worldBasesText(worldName, worldFolder);
 	const path = basesFilePath(worldFolder);
-	const found = await findWorldBase(app, worldFolder, opts.alsoNamed);
+	const found = await findWorldBase(app, worldFolder);
 	if (found.blocked) return { result: "kept", path, worldName };
 	const file = found.file;
 	if (file) {
@@ -255,7 +259,8 @@ export async function writeWorldBasesFileQuietly(app: App, worldFolder: string, 
  * Rename World's step, after the folder moved: the world's base still names
  * the old folder in its filters. The plugin's own unchanged file is rewritten
  * for the new folder and renamed after the world; a base the user changed is
- * left as is, and a Notice says so, naming the rename. Never creates a base.
+ * the user's from now on, left as is, and a Notice says so, naming the rename
+ * (the next Download writes the world's own beside it). Never creates a base.
  */
 export async function moveWorldBasesFileAfterRename(
 	app: App,
@@ -264,15 +269,12 @@ export async function moveWorldBasesFileAfterRename(
 	memory?: BasesMemory
 ): Promise<void> {
 	try {
-		const outcome = await writeWorldBasesFileOutcome(app, newFolder, { create: false, alsoNamed: `${oldFolder}.base` });
+		const outcome = await writeWorldBasesFileOutcome(app, newFolder, { create: false });
 		const noticed = memory?.settings.basesKeptNoticed ?? [];
-		if (outcome.result === "kept") {
-			new Notice(basesKeptNotice(outcome.worldName, true), 12000);
-			if (memory && !noticed.includes(newFolder)) {
-				memory.settings.basesKeptNoticed = [...noticed, newFolder];
-				await memory.saveSettings();
-			}
-		} else if (memory && noticed.includes(newFolder)) {
+		const left = app.vault.getAbstractFileByPath(normalizePath(`OnlyWorlds/Worlds/${newFolder}/${oldFolder}.base`));
+		if (outcome.result === "absent" && oldFolder !== newFolder && left instanceof TFile) {
+			new Notice(basesKeptNotice(outcome.worldName, newFolder), 12000);
+		} else if (outcome.result !== "kept" && outcome.result !== "absent" && memory && noticed.includes(newFolder)) {
 			memory.settings.basesKeptNoticed = noticed.filter((w) => w !== newFolder);
 			await memory.saveSettings();
 		}
