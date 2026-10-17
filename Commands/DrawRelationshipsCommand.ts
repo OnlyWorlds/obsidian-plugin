@@ -2,7 +2,7 @@ import { App, Notice, TFile, TFolder, normalizePath } from "obsidian";
 import { sanitizeFileName } from "../Scripts/WorldService";
 import { parseElementPath } from "../vault/element-file";
 import { gatherRelationshipGraph } from "../vault/relationship-graph";
-import { buildRelationshipCanvas, canvasStatus, withoutCanvasMarker } from "../vault/relationship-canvas";
+import { buildRelationshipCanvas, canvasStatus, withoutCanvasMarker, type CanvasVaultView } from "../vault/relationship-canvas";
 
 /**
  * Draw relationships on a canvas (OW Infra #188, round 2, phase 2): the active
@@ -22,6 +22,19 @@ export class DrawRelationshipsCommand {
 		return typeof id === "string" ? id : null;
 	};
 
+	/** What is at a path, and where an element's note is: a rename told from a card re-pointed (round C, 6). */
+	private view: CanvasVaultView = {
+		// A note Obsidian has not indexed yet is "unread", never taken as one
+		// without an id: a cold cache keeps the card's own element.
+		fileAt: (path) => {
+			const f = this.app.vault.getAbstractFileByPath(path);
+			if (!(f instanceof TFile)) return "none";
+			return f.extension !== "md" || this.app.metadataCache.getFileCache(f) !== null ? "read" : "unread";
+		},
+		notePathOf: (elementId) =>
+			this.app.vault.getMarkdownFiles().find((f) => this.app.metadataCache.getFileCache(f)?.frontmatter?.id === elementId)?.path ?? null,
+	};
+
 	async execute(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!(file instanceof TFile) || file.extension !== "md" || !parseElementPath(file.path)) {
@@ -39,7 +52,7 @@ export class DrawRelationshipsCommand {
 			const base = sanitizeFileName(`${graph.elementName} — relationships`);
 			const { path, existing } = await this.claimCanvasPath(folder, base, graph.elementId);
 			let copy: string | null = null;
-			if (existing && canvasStatus(await this.app.vault.read(existing), graph.elementId, this.idOf) === "changed") {
+			if (existing && canvasStatus(await this.app.vault.read(existing), graph.elementId, this.idOf, this.view) === "changed") {
 				copy = await this.freePath(folder, `${base} (your copy)`);
 				await this.app.vault.create(copy, withoutCanvasMarker(await this.app.vault.read(existing), graph.elementId));
 			}
@@ -74,7 +87,7 @@ export class DrawRelationshipsCommand {
 		const out: string[] = [];
 		for (const c of parent.children) {
 			if (!(c instanceof TFile) || c.extension !== "canvas" || c.path === drawn) continue;
-			if (canvasStatus(await this.app.vault.read(c), elementId, this.idOf) !== "none") out.push(c.name);
+			if (canvasStatus(await this.app.vault.read(c), elementId, this.idOf, this.view) !== "none") out.push(c.name);
 		}
 		return out.sort();
 	}
@@ -102,7 +115,7 @@ export class DrawRelationshipsCommand {
 			const path = normalizePath(`${folder}/${n === 0 ? base : `${base} (${n})`}.canvas`);
 			const taken = siblings.get(path.toLowerCase()) ?? this.app.vault.getAbstractFileByPath(path);
 			if (!taken) return { path, existing: null };
-			if (taken instanceof TFile && canvasStatus(await this.app.vault.read(taken), elementId, this.idOf) !== "none") {
+			if (taken instanceof TFile && canvasStatus(await this.app.vault.read(taken), elementId, this.idOf, this.view) !== "none") {
 				return { path: taken.path, existing: taken };
 			}
 		}

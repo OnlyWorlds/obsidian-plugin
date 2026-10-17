@@ -14,7 +14,11 @@
  * other node's and edge's own JSON Canvas keys, in id order, with one
  * substitution: a file node's path is hashed as the element id its note
  * names (the vault's, through `idOf`; else the node's own `el-<element id>`,
- * for a path no note holds any more). So a rename of a note or its folders
+ * for a path no file holds any more while that element's note is in the
+ * vault under the same file name: a folder rename nothing rewrote). A card
+ * re-pointed to a file with no element id, or to any other path no file
+ * holds, is hashed as its path, so it counts as the user's (round C, 6;
+ * Kael's delta read, low 2). So a rename of a note or its folders
  * (Rename World, a type folder's count, rename-on-save) changes no hash,
  * whether or not Obsidian rewrites the canvas's paths (Kael's seam read of
  * rc-350, low 2), while a card re-pointed to another note, moved, resized,
@@ -101,18 +105,41 @@ const v = (o: Loose, k: string, dflt: unknown = null): unknown => (o[k] === unde
 export type IdOfPath = (path: string) => string | null;
 
 /**
+ * What the hash asks the vault beyond `idOf`: what is at a path ("none", a
+ * file not yet indexed, or one read), and where an element's note is now.
+ */
+export interface CanvasVaultView {
+	fileAt(path: string): "none" | "unread" | "read";
+	notePathOf(elementId: string): string | null;
+}
+
+const leafOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+
+/**
  * The hash of a drawing: every node but the marker, and every edge, by their
  * own JSON Canvas keys, in id order; a file node's `file` is hashed as the
  * element id its note names (see the header), never as the path.
  */
-function drawingHash(nodes: Loose[], edges: Loose[], markerPrefix: string, idOf?: IdOfPath): string {
+function drawingHash(nodes: Loose[], edges: Loose[], markerPrefix: string, idOf?: IdOfPath, vault?: CanvasVaultView): string {
 	const byId = (a: Loose, b: Loose) => String(a.id).localeCompare(String(b.id));
 	const element = (n: Loose): unknown => {
 		if (typeof n.file !== "string") return v(n, "file");
 		const named = idOf?.(n.file);
 		if (named) return named;
 		const id = String(n.id);
-		return id.startsWith("el-") ? id.slice(3) : n.file;
+		if (!id.startsWith("el-")) return n.file;
+		// The node's own element stands in for a folder rename nothing
+		// rewrote (no file at the path, the element's note under the same
+		// file name elsewhere) and for a note not yet indexed. A read file
+		// with no id, or a path to nothing else, is the user's.
+		const el = id.slice(3);
+		const at = vault?.fileAt(n.file);
+		if (at === "read") return n.file;
+		if (at === "none") {
+			const now = vault?.notePathOf(el);
+			if (!now || leafOf(now) !== leafOf(n.file)) return n.file;
+		}
+		return el;
 	};
 	const ns = nodes
 		.filter((n) => !String(n.id).startsWith(markerPrefix))
@@ -142,9 +169,15 @@ function drawingHash(nodes: Loose[], edges: Loose[], markerPrefix: string, idOf?
  * Whose canvas `text` is, for the element `elementId`: "none" (no plugin
  * marker for it: someone else's, or not a canvas), "unchanged" (the plugin's,
  * as drawn), "changed" (the plugin's marker, but the drawing moved on: the
- * user's). `idOf` reads a note path's element id from the vault.
+ * user's). `idOf` reads a note path's element id from the vault; `vault`
+ * tells a rename from a card re-pointed (see the header).
  */
-export function canvasStatus(text: string, elementId: string, idOf?: IdOfPath): "none" | "unchanged" | "changed" {
+export function canvasStatus(
+	text: string,
+	elementId: string,
+	idOf?: IdOfPath,
+	vault?: CanvasVaultView
+): "none" | "unchanged" | "changed" {
 	let data: { nodes?: unknown; edges?: unknown };
 	try {
 		data = JSON.parse(text) as { nodes?: unknown; edges?: unknown };
@@ -156,7 +189,7 @@ export function canvasStatus(text: string, elementId: string, idOf?: IdOfPath): 
 	const prefix = canvasMarkerId(elementId) + "-";
 	const marker = nodes.find((n) => typeof n.id === "string" && n.id.startsWith(prefix));
 	if (!marker) return "none";
-	return String(marker.id).slice(prefix.length) === drawingHash(nodes, edges, prefix, idOf) ? "unchanged" : "changed";
+	return String(marker.id).slice(prefix.length) === drawingHash(nodes, edges, prefix, idOf, vault) ? "unchanged" : "changed";
 }
 
 /** True when `text` is a canvas this plugin drew for the element `elementId`, changed since or not. */
