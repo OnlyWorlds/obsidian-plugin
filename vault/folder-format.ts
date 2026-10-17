@@ -286,6 +286,33 @@ export function parseFolderElementBody(
 	return { type: resolvedType, payload, carried };
 }
 
+/**
+ * The element type a file's place in the folder says, for a body with no
+ * `type` of its own (spec §4: readers fill `type` from the directory, never
+ * overriding a declared one). `rel` is the path inside the world folder.
+ *   - `elements/<type>/<file>.json` (or legacy `spatial/<type>/`): `<type>`,
+ *     when it is one of the element types.
+ *   - a file directly in `elements/`, `elements/character_twin-01.json`: the
+ *     filename's leading word when it is an element type, followed by `_`,
+ *     `-` or the extension. Not the spec's layout, but one a hand-made folder
+ *     uses (Seethe's mark 4 fixture, h37 #6632).
+ *   - anything else: null. The caller reports the file, never filing it under
+ *     a folder named after the file (mark 4: `Character_twin-01.json/Twin.md`).
+ */
+export function typeFromFolderPath(rel: string): string | null {
+	const parts = rel.split("/");
+	const known = (t: string): string | null => {
+		const type = t.trim().toLowerCase();
+		return type && getCategorySchema(type) ? type : null;
+	};
+	if (parts.length >= 3) return known(parts[1]);
+	if (parts.length === 2) {
+		const m = /^([a-z]+)(?:[_-]|\.json$)/i.exec(parts[1]);
+		return m ? known(m[1]) : null;
+	}
+	return null;
+}
+
 /** Is this a valid UUID string (used to validate world.json / mention ids). */
 export function isUuid(s: unknown): s is string {
 	return typeof s === "string" && UUID_RE.test(s);

@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { writeElement } from "../vault/element-file";
-import { bodyFieldForCategory, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
+import { bodyFieldForCategory, getCategorySchema, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
 import { sanitizeFileName } from "../Scripts/WorldService";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
@@ -8,6 +8,7 @@ import { renderWorldMd, worldJsonToKeep } from "../vault/world-json";
 import { safeWorldFolderName } from "../vault/world-name";
 import {
 	parseFolderElementBody,
+	typeFromFolderPath,
 	owMentionsToWikilinks,
 	isUuid,
 	type ElementRef,
@@ -143,10 +144,22 @@ export class ImportFolderCommand {
 		for (const file of elementFiles) {
 			try {
 				const json = JSON.parse(await this.app.vault.read(file)) as Record<string, unknown>;
-				// Fallback type from the containing bucket folder: <dir>/<bucket>/<type>/file.
+				// Fallback type from the file's place: elements/<type>/file, or a
+				// flat elements/<type>_<slug>.json (Seethe's mark 4). A declared
+				// `type` in the body wins (spec §4).
 				const rel = file.path.slice(dir.length + 1); // strip "<dir>/"
-				const fallbackType = normalizeCategory(rel.split("/")[1] ?? "");
-				const { type, payload, carried } = parseFolderElementBody(json, fallbackType);
+				const { type, payload, carried } = parseFolderElementBody(json, typeFromFolderPath(rel) ?? "");
+				// An unknown type would be filed under a folder named after it
+				// (mark 4: `Character_twin-01.json/`), its links left as uuids.
+				if (!getCategorySchema(type)) {
+					failed.push({
+						path: file.path,
+						reason: type
+							? `unknown element type "${type}"`
+							: "no element type: put the file under elements/<type>/ or give it a type",
+					});
+					continue;
+				}
 				const id = payload.id;
 				const name = payload.name;
 				if (!isUuid(id) || typeof name !== "string") {
