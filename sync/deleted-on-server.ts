@@ -68,6 +68,13 @@ function foldDeletes(ids: Set<string>, changes: { id: string; op: string }[]): S
 	return ids;
 }
 
+/**
+ * Per plugin (the host) and world id: the feed read in flight, so saves that
+ * reach a 404 together share one walk (round C, 7; Kael's delta read, low 4:
+ * two first saves on a device with no cursor each walked the whole feed).
+ */
+const inFlight = new WeakMap<object, Map<string, Promise<DeletedView>>>();
+
 /** The deleted ids of the world `client`'s key names, the feed read once from the stored cursor. */
 export async function readDeletedOnServer(host: DeletedListHost, client: DeletedListClient): Promise<DeletedView> {
 	let worldId: string;
@@ -76,10 +83,29 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	} catch {
 		return { worldId: "", ids: new Set(), known: false, reason: "failed" };
 	}
+	if (!worldId) return { worldId, ids: new Set(host.settings.deletedOnServer?.[worldId] ?? []), known: false, reason: "failed" };
+	let pending = inFlight.get(host);
+	if (!pending) inFlight.set(host, (pending = new Map()));
+	const running = pending.get(worldId);
+	if (running) {
+		const view = await running;
+		return { ...view, ids: new Set(view.ids) };
+	}
+	const read = readFeed(host, client, worldId);
+	pending.set(worldId, read);
+	try {
+		const view = await read;
+		return { ...view, ids: new Set(view.ids) };
+	} finally {
+		pending.delete(worldId);
+	}
+}
+
+/** One feed read for `worldId`, folded into the view (readDeletedOnServer shares it). */
+async function readFeed(host: DeletedListHost, client: DeletedListClient, worldId: string): Promise<DeletedView> {
 	const ids = new Set(host.settings.deletedOnServer?.[worldId] ?? []);
 	const stored = host.settings.syncCursors?.[worldId];
 	const cursor = stored?.cursor;
-	if (!worldId) return { worldId, ids, known: false, reason: "failed" };
 	// The session reads on from where its last walk ended, in memory only:
 	// the first walk starts at Download's cursor, or at the start of the feed
 	// when this device has none (a kept note can sit here anyway: notes
