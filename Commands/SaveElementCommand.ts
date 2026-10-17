@@ -1,6 +1,6 @@
 import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { readElement } from '../vault/element-file';
+import { readElement, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
@@ -58,9 +58,17 @@ interface CreateFirstPlan {
     cannotTellReason?: CannotTellReason;
     /** The ids of `leftOut`: stripped from this save's link fields (Kael's second read, N5). */
     leftOutIds?: string[];
+    /** A target that cannot be sent whole (an unclosed code fence): nothing is created or saved, and this says why. */
+    refused?: string;
 }
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
+
+/** Why a save stopped before its creates: a target refused, past the cap, or the dialog cancelled. */
+function stopMessage(plan: CreateFirstPlan): string {
+    if (plan.refused) return `${plan.refused} Nothing was created or saved.`;
+    return plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE;
+}
 
 /** The most link targets one save creates first (Kael's read, should-fix 2). */
 const MAX_CREATE_FIRST = 50;
@@ -221,6 +229,9 @@ export class SaveElementCommand {
         let elementData: ElementData | null = null;
         const v2 = await readElement(this.app, activeFile);
         if (v2 && v2.id) {
+            // A fence that never closes swallowed the sections after it: the
+            // note is refused, never sent cut short (round C, 1).
+            if (v2.unclosedFence) return this.fail(unclosedFenceMessage(v2.name, v2.unclosedFence), 15000);
             elementData = { id: v2.id, ...v2.fields };
             // A [[Name]] pointing at an element that exists only in the vault
             // resolves to nothing, so its whole field is omitted to avoid
@@ -373,7 +384,7 @@ export class SaveElementCommand {
                         ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view)
                         : NO_PLAN;
                     if (!(await this.approveCreateFirst(String(label), plan))) {
-                        return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
+                        return this.fail(stopMessage(plan), plan.refused ? 15000 : plan.overflow ? 12000 : undefined);
                     }
                     const firsts = plan.firsts;
                     // A link to a deleted element is left out of what is sent;
@@ -425,7 +436,7 @@ export class SaveElementCommand {
                 : await this.storedLeftOut(client, worldName, type, changed, addedLink);
             let firstNote = '';
             if (!(await this.approveCreateFirst(String(label), plan))) {
-                return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
+                return this.fail(stopMessage(plan), plan.refused ? 15000 : plan.overflow ? 12000 : undefined);
             }
             const firsts = plan.firsts;
             // A link to a deleted element is left out of the PATCH, so keel
@@ -487,6 +498,7 @@ export class SaveElementCommand {
         let index: Map<string, TFile> | null = null;
         let view: DeletedView | null = known ?? null;
         let overflow = false;
+        let refused: string | undefined;
         let found = 0;
         const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
             for (const id of linkIdsOf(type, payload, filter)) {
@@ -524,6 +536,13 @@ export class SaveElementCommand {
                     overflow = true;
                     return;
                 }
+                // A target whose fence never closes would be created cut short
+                // (round C, 1): the save stops and names it.
+                if (parsed.unclosedFence) {
+                    refused = unclosedFenceMessage(`${capitalize(parsed.category)} "${parsed.name}"`, parsed.unclosedFence);
+                    overflow = true;
+                    return;
+                }
                 const targetPayload = toV2Payload(parsed.fields);
                 await visit(parsed.category, targetPayload);
                 if (overflow) return;
@@ -531,6 +550,7 @@ export class SaveElementCommand {
             }
         };
         await visit(rootType, rootPayload, keep);
+        if (refused) return { firsts: [], leftOut, leftOutIds, refused };
         return { firsts: out, leftOut, leftOutIds, overflow, cannotTell: view ? !view.known : false, cannotTellReason: view?.reason };
     }
 
@@ -540,7 +560,7 @@ export class SaveElementCommand {
      * True means go on with the save.
      */
     private async approveCreateFirst(label: string, plan: CreateFirstPlan): Promise<boolean> {
-        if (plan.overflow) return false;
+        if (plan.overflow || plan.refused) return false;
         if (plan.firsts.length > 0) return this.confirmCreateFirst(label, plan);
         return true;
     }

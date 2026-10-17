@@ -7,7 +7,7 @@ import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { readElement } from '../vault/element-file';
+import { readElement, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -25,6 +25,8 @@ export class ExportWorldCommand {
     private skippedLinkFields = 0;
     /** Generic-link names left out because they match several types (row 2). */
     private ambiguousLinks: string[] = [];
+    /** Notes this sweep does not send whole (an unclosed code fence), each with why (round C, 1). */
+    private refusedNotes: string[] = [];
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
@@ -218,7 +220,7 @@ export class ExportWorldCommand {
             let created = 0;
             let replaced = 0;
             const landed: string[] = [];
-            const failures: string[] = [];
+            const failures: string[] = [...this.refusedNotes];
             if (toCreate.length > 0) {
                 const body = await client.bulkCreate(toCreate);
                 const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
@@ -316,6 +318,7 @@ export class ExportWorldCommand {
     async collectWorldData(worldFolder: string) {
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
+        this.refusedNotes = [];
         const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};
     
@@ -354,6 +357,11 @@ export class ExportWorldCommand {
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
+                        if (parsed?.unclosedFence) {
+                            // Never sent cut short: named in the summary instead.
+                            this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
+                            return {};
+                        }
                         if (parsed) {
                             this.ambiguousLinks.push(...parsed.ambiguousLinks);
                             return { id: parsed.id, ...parsed.fields };

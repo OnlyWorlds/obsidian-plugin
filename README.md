@@ -55,7 +55,7 @@ Weathered, quick hands, a limp she never explains.
 
 The body holds one `###` section per text field, in schema order. **Manage Fields** adds or removes fields on a note; **Add Custom Field** adds one of your own (type `Looks`, get a `### Looks` section, synced as `x_looks`). Empty fields are not uploaded.
 
-Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included, with two exceptions: a line that starts with `### ` starts a new field, and a code fence (```` ``` ````) inside a value must be closed, or the sections after it are read as part of it.
+Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included. A line of a value that starts with `### ` is written as `\### ` (Markdown's escape, so the note shows it as typed) and read back without the backslash, so it never starts a new field. A code fence (```` ``` ````) inside a value must close: a note with one that never closes is not saved, uploaded or exported, and the notice names the field and the line.
 
 The note's identity is the `id` in its Properties, so renaming a note does not break anything.
 

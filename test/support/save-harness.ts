@@ -1,0 +1,77 @@
+/**
+ * A small Save Element harness for the round C tests: notes seeded in world W,
+ * a server held in a map (everything else 404s), every dialog answered yes.
+ * Returns what was sent, the calls in order and the notices shown.
+ */
+import type { TFile } from "obsidian";
+import { makeApp, __notices, __modals } from "./obsidian-mock";
+import { SaveElementCommand } from "../../Commands/SaveElementCommand";
+import { V2ApiError } from "../../client-v2";
+
+export const HARNESS_WID = "019e0000-0000-7000-8000-0000000000ee";
+
+export interface HarnessOpts {
+	notes: Record<string, string>;
+	/** The note saved, relative to the world's Elements folder. */
+	save: string;
+	/** Elements on the server: id -> its body. */
+	server?: Record<string, Record<string, unknown>>;
+	manual?: boolean;
+}
+
+export async function harnessSave(o: HarnessOpts) {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n");
+	const files: Record<string, TFile> = {};
+	for (const [rel, c] of Object.entries(o.notes)) {
+		files[rel] = (await vault.seed(`OnlyWorlds/Worlds/W/Elements/${rel}`, c)) as unknown as TFile;
+	}
+	const server = new Map(Object.entries(o.server ?? {}));
+	const calls: string[] = [];
+	const sent: Record<string, unknown>[] = [];
+	const client = {
+		getWorld: async () => ({ id: HARNESS_WID, name: "W" }),
+		changesWalk: async (since?: string) => {
+			calls.push(`changes ${since ?? "epoch"}`);
+			return { changes: [], cursor: "c1", head: 1 };
+		},
+		get: async (type: string, id: string) => {
+			calls.push(`get ${type} ${id}`);
+			const el = server.get(id);
+			if (el) return { id, ...el };
+			throw new V2ApiError(404, "not_found", "API Error 404", null);
+		},
+		create: async (type: string, b: Record<string, unknown>) => {
+			calls.push(`create ${type}`);
+			sent.push(b);
+			server.set(String(b.id), b);
+			return b;
+		},
+		update: async (type: string, id: string, b: Record<string, unknown>) => {
+			calls.push(`update ${type} ${id}`);
+			sent.push(b);
+			return {};
+		},
+		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[]) => {
+			calls.push("bulk");
+			for (const i of items) sent.push(i.element);
+			return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
+		},
+	};
+	const settings = { apiKey: "", deletedOnServer: {}, syncCursors: {} };
+	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => client };
+	__notices.length = 0;
+	__modals.length = 0;
+	let done = false;
+	const run = new SaveElementCommand(app, plugin as never)
+		.execute(files[o.save], { manual: o.manual ?? true })
+		.finally(() => (done = true));
+	while (!done) {
+		await new Promise((r) => setImmediate(r));
+		for (const m of __modals.splice(0)) {
+			const d = m as unknown as { choose?: (b: boolean) => void };
+			if (typeof d.choose === "function") d.choose(true);
+		}
+	}
+	return { result: await run, calls, sent, notices: [...__notices], vault, app, files };
+}

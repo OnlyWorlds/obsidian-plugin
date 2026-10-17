@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Platform, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { v7 as uuidv7 } from "uuid";
-import { readElement } from "../vault/element-file";
+import { readElement, unclosedFenceMessage } from "../vault/element-file";
 import { bodyFieldForCategory } from "../vault/element-transform";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
@@ -139,6 +139,11 @@ export class ExportFolderCommand {
 				const parsed = await readElement(this.app, file);
 				if (!parsed || !parsed.id) {
 					failed.push({ path: file.path, reason: "no id / unreadable" });
+					continue;
+				}
+				if (parsed.unclosedFence) {
+					// Never written cut short (round C, 1).
+					failed.push({ path: file.path, reason: unclosedFenceMessage(parsed.name, parsed.unclosedFence) });
 					continue;
 				}
 				const payload = { ...parsed.fields, id: parsed.id, name: parsed.name };

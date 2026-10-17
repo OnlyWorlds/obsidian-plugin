@@ -243,13 +243,62 @@ export function buildElementBody(
 		const label = fieldToHeading(isExtensionKey(key) ? stripExtensionPrefix(key) : key);
 		const raw = values[key];
 		// The value as it is, never trimmed (OW Infra #166 row 16): sectionValue
-		// strips exactly the layout written here and nothing of the value.
-		const text = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+		// strips exactly the layout written here and nothing of the value. A
+		// value line that would read as a `###` heading is escaped (round C, 1).
+		const text = escapeSectionValue(typeof raw === "string" ? raw : raw == null ? "" : String(raw));
 		// An EMPTY section still gets its blank line: the gap is where the user
 		// types, and without it the cursor lands against the next heading.
 		parts.push(`${SECTION_HEADING} ${label}\n\n${text ? `${text}\n` : ""}`);
 	}
 	return parts.join("\n");
+}
+
+/** A code fence line, opening or closing (the parser's own test). */
+const FENCE_LINE = /^\s*(```|~~~)/;
+/** A value line that would read as a `###` field heading, or one already escaped. */
+const HEADING_LIKE_LINE = /^\\*###[ \t]/;
+/** A value line escaped by escapeSectionValue. */
+const ESCAPED_HEADING_LINE = /^\\+###[ \t]/;
+
+/**
+ * `value` with `f` applied to each line outside a code fence; a fence line and
+ * the lines inside a fence are kept as they are (the parser never reads a
+ * heading inside a fence, so they need no escape). Line endings are kept.
+ */
+function mapValueLines(value: string, f: (line: string) => string): string {
+	let out = "";
+	let inFence = false;
+	let pos = 0;
+	for (;;) {
+		const nl = value.indexOf("\n", pos);
+		const line = value.slice(pos, nl < 0 ? value.length : nl);
+		if (FENCE_LINE.test(line)) {
+			inFence = !inFence;
+			out += line;
+		} else {
+			out += inFence ? line : f(line);
+		}
+		if (nl < 0) return out;
+		out += "\n";
+		pos = nl + 1;
+	}
+}
+
+/**
+ * A text value as its section writes it: a line that starts with `### ` (or
+ * with backslashes and then `### `) gets one more leading backslash, so it is
+ * never read as a field heading. `\### ` is also Markdown's own escape, so the
+ * note shows the line as typed (round C, 1; Kael's cold read, 5).
+ */
+export function escapeSectionValue(value: string): string {
+	if (!value.includes("###")) return value;
+	return mapValueLines(value, (line) => (HEADING_LIKE_LINE.test(line) ? `\\${line}` : line));
+}
+
+/** The inverse of escapeSectionValue: one leading backslash off each escaped line, so a value reads back byte for byte. */
+export function unescapeSectionValue(value: string): string {
+	if (!value.includes("###")) return value;
+	return mapValueLines(value, (line) => (ESCAPED_HEADING_LINE.test(line) ? line.slice(1) : line));
 }
 
 /**
@@ -472,6 +521,13 @@ export interface ParsedBody {
 	unknown: Array<{ heading: string; text: string }>;
 	/** Content appearing BEFORE the first `##` heading. Also never discarded. */
 	preamble: string;
+	/**
+	 * A code fence that never closes: every heading after it was read as its
+	 * text. The section it opened in (null: before the first heading) and its
+	 * line, 1-based in the body. A caller that sends values refuses the note
+	 * (round C, 1): the values after it would be cut short.
+	 */
+	unclosedFence?: { heading: string | null; line: number };
 }
 
 /**
@@ -483,9 +539,12 @@ export interface ParsedBody {
  * byte: its own edge whitespace, CRLF and lone CR included (OW Infra #166 row
  * 16; it used to be trimmed and CRLF folded to LF).
  *
- * ⚑ Two limits, not escaped (Kael's cold read, 5): a line of the value that
- * starts with `### ` starts a new field there, and a code fence (``` or ~~~)
- * in a value must close, or every later heading is read as its prose.
+ * A value line that starts with `### ` is written escaped (`\### `,
+ * escapeSectionValue) and unescaped here, so it never starts a field (round
+ * C, 1; Kael's cold read, 5). A code fence (``` or ~~~) in a value must
+ * close, or every later heading is read as its prose: parseElementBody
+ * reports such a fence, and Save, Upload World and the folder export refuse
+ * the note rather than send it cut short.
  *
  * EOL is the heading line's own ending, so a note saved with CRLF throughout
  * by another editor strips CRLF layout the same way. An empty section is
@@ -496,7 +555,7 @@ function sectionValue(raw: string, eol: string): string {
 	let v = raw.startsWith(eol) ? raw.slice(eol.length) : raw;
 	if (v.endsWith(eol + eol)) v = v.slice(0, -2 * eol.length);
 	else if (v.endsWith(eol)) v = v.slice(0, -eol.length);
-	return v;
+	return unescapeSectionValue(v);
 }
 
 /**
@@ -519,6 +578,8 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	let preambleEnd = body.length;
 	let sawHeading = false;
 	let inFence = false;
+	let fenceOpen: { heading: string | null; line: number } | null = null;
+	let lineNo = 0;
 
 	const flush = (end: number) => {
 		if (!current) return;
@@ -539,7 +600,11 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 		let line = body.slice(pos, nl < 0 ? body.length : nl);
 		const cr = line.endsWith("\r");
 		if (cr) line = line.slice(0, -1);
-		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+		lineNo++;
+		if (FENCE_LINE.test(line)) {
+			inFence = !inFence;
+			fenceOpen = inFence ? { heading: current ? (current as { heading: string }).heading : null, line: lineNo } : null;
+		}
 		// Only `###` is a section boundary (row 1): `#`, `##` and `####`+ are
 		// prose and stay inside the section they sit in.
 		const m = !inFence ? /^###[ \t]+(.+?)\s*$/.exec(line) : null;
@@ -561,7 +626,7 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	const preamble = !sawHeading
 		? body.replace(/\r?\n$/, "")
 		: body.slice(0, preambleEnd).trim();
-	return { fields, unknown, preamble };
+	return inFence && fenceOpen ? { fields, unknown, preamble, unclosedFence: fenceOpen } : { fields, unknown, preamble };
 }
 
 /**

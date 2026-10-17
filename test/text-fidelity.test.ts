@@ -8,9 +8,8 @@
  * blank line. What changed is the read: it now strips exactly that layout and
  * nothing of the value.
  *
- * Two limits (Kael's cold read, 5; not escaped): a line starting with `### `
- * inside a value starts a new field, and a code fence inside a value must
- * close. These tests hold values without either.
+ * A `### ` line inside a value and a fence that never closes are round C's
+ * (test/heading-escape.test.ts); these tests hold values without either.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";

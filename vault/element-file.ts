@@ -62,6 +62,19 @@ export interface ParsedElement {
 	 * unresolvedLinks (OW Infra #166 row 2).
 	 */
 	ambiguousLinks: string[];
+	/**
+	 * A code fence in the body that never closes, so every section after it
+	 * was read as its text (round C, 1): the field it opened in, as its
+	 * heading reads, and its line in the note. The CALLER refuses to send the
+	 * note (unclosedFenceMessage), never sends it cut short.
+	 */
+	unclosedFence?: { field: string; line: number };
+}
+
+/** Why a note with an unclosed code fence is not sent: the field and the line. */
+export function unclosedFenceMessage(name: string, fence: { field: string; line: number }): string {
+	return `${name} not sent: the code fence on line ${fence.line} (in ${fence.field}) never closes, ` +
+		"so every section after it would be read as its text. Close it with a line of three backticks, then try again.";
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
@@ -133,7 +146,17 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		const ambiguous: string[] = [];
 		// A Pin's `element_type` (a text field, so a body section) narrows its
 		// generic `element_id` to that type's notes (OW Infra #166 row 2).
-		const elementType = body ? parseElementBody(body, category).fields.element_type : undefined;
+		const parsedBody = body ? parseElementBody(body, category) : null;
+		const elementType = parsedBody?.fields.element_type;
+		// The body is the end of the note, so its line 1 is the note's line
+		// after everything before it.
+		const fence = parsedBody?.unclosedFence;
+		const unclosedFence = fence
+			? {
+				field: fence.heading?.trim() || (bodyFieldForCategory(category) === "story" ? "Story" : "Description"),
+				line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
+			}
+			: undefined;
 		const fields = frontmatterToPayloadFields(fm, category, {
 			resolveNameToId: buildWikilinkResolver(app, file.path),
 			unresolved,
@@ -175,7 +198,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			// The user's own `x_color` in the frontmatter still claims the heading
 			// (OW Infra #166 row 12).
 			const toolShadows = toolShadowHeadings(fm);
-			const unknownHeadings = parseElementBody(body, category).unknown.map((u) => u.heading.trim());
+			const unknownHeadings = (parsedBody ?? parseElementBody(body, category)).unknown.map((u) => u.heading.trim());
 			const customKeys = unknownHeadings
 				.filter((h) => /^[A-Za-z][A-Za-z0-9 _-]{0,40}$/.test(h) && h.split(/\s+/).length <= 3)
 				.map((h) => `x_${headingToFieldKey(h)}`)
@@ -198,6 +221,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			fields,
 			unresolvedLinks: unresolved,
 			ambiguousLinks: ambiguous,
+			...(unclosedFence ? { unclosedFence } : {}),
 		};
 	}
 
