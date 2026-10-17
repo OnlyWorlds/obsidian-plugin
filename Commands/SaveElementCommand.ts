@@ -321,7 +321,12 @@ export class SaveElementCommand {
                 firstNote = `${createdFirstMessage(firsts)} `;
             }
             await client.update(type, elementUuid, changed);
-            const renamed = typeof changed.name === 'string' ? await this.renameToName(activeFile, changed.name, elementUuid) : null;
+            // Only the manual Save renames: auto-sync fires at every pause while
+            // a name is typed, and each rename can rewrite every linking note
+            // (Kael's read, 7).
+            const renamed = manual && typeof changed.name === 'string'
+                ? await this.renameToName(activeFile, changed.name, elementUuid)
+                : null;
             const renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
             new Notice(`${firstNote}${category} saved.${renameNote}`, firstNote || renamed ? 8000 : undefined);
             return { ok: true, outcome: 'updated' };

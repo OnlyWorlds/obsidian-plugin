@@ -17,7 +17,7 @@ export interface OnlyWorldsPluginSettings {
 	debounceMs: number;
 	showStatusBar: boolean;
 	/**
-	 * After a save that changed an element's name, rename its note to that name
+	 * After Save Element changed an element's name, rename its note to that name
 	 * (Seethe's finding 4, h37 #6503). On by default.
 	 */
 	renameNoteOnNameChange: boolean;

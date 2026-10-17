@@ -24,7 +24,7 @@ const note = (id: string, name: string) => `---\nname: ${JSON.stringify(name)}\n
 async function save(
 	fileName: string,
 	noteName: string,
-	opts: { serverName?: string; setting?: boolean; others?: Record<string, string>; updateError?: Error } = {}
+	opts: { serverName?: string; setting?: boolean; others?: Record<string, string>; updateError?: Error; manual?: boolean } = {}
 ) {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n");
@@ -45,7 +45,7 @@ async function save(
 	if (opts.setting !== undefined) settings.renameNoteOnNameChange = opts.setting;
 	const plugin = { settings, buildV2Client: async () => client };
 	__notices.length = 0;
-	const result = await new SaveElementCommand(app as App, plugin as never).execute(file);
+	const result = await new SaveElementCommand(app as App, plugin as never).execute(file, { manual: opts.manual ?? true });
 	return { result, renames: (app as unknown as { renames: string[] }).renames, notices: [...__notices] };
 }
 
@@ -59,6 +59,12 @@ test("★ Seethe 4: a save whose name changed renames the note, through fileMana
 test("★ Seethe 4: a name another note holds gets the twin suffix Download uses", async () => {
 	const r = await save("Vallaki.md", "Krezk", { others: { "Krezk.md": note(OTHER, "Krezk") } });
 	assert.deepEqual(r.renames, [`${DIR}/Vallaki.md -> ${DIR}/Krezk (1).md`]);
+});
+
+test("★ auto-sync never renames: a name typed with pauses is saved, the file keeps its name (Kael's read, 7)", async () => {
+	const r = await save("Vallaki.md", "Vallaki Town", { manual: false });
+	assert.deepEqual(r.result, { ok: true, outcome: "updated" });
+	assert.deepEqual(r.renames, []);
 });
 
 test("Seethe 4: the setting off leaves the note's name alone", async () => {
