@@ -149,6 +149,13 @@ export class ExportWorldCommand {
             const walk = await client.changesWalk();
             const latestOp = new Map<string, string>();
             for (const change of walk.changes) latestOp.set(change.id, change.op);
+            // What the feed last called each element (an upsert before its
+            // delete), to name a deleted link target no note here holds.
+            const feedName = new Map<string, string>();
+            for (const change of walk.changes) {
+                const name = (change as { element?: { name?: unknown } }).element?.name;
+                if (typeof name === 'string' && name) feedName.set(change.id, `${change.type.charAt(0).toUpperCase()}${change.type.slice(1)} "${name}"`);
+            }
             for (const [id, op] of latestOp) if (op === 'upsert') serverIds.add(id);
 
             // Partition local elements.
@@ -193,17 +200,27 @@ export class ExportWorldCommand {
             }
             // And out of every note's links, new and existing alike: keel
             // refuses a payload linking an element it does not have, all its
-            // other fields with it (Kael's third read, 1). The notes keep them.
+            // other fields with it (Kael's third read, 1). That is every id
+            // deleted on onlyworlds.com and not being created again, whether a
+            // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
-            if (leftOut.ids.length > 0) {
+            const strippedTargets = new Set<string>();
+            const stripIds = [...leftOut.deleted].filter(id => !leftOut.recreate.has(id));
+            if (stripIds.length > 0) {
                 const strip = (type: string, fields: Record<string, unknown>) => {
-                    const out = withoutLinks(type, fields, leftOut.ids);
-                    if (JSON.stringify(out) !== JSON.stringify(fields)) linksStripped++;
+                    const out = withoutLinks(type, fields, stripIds);
+                    if (JSON.stringify(out) === JSON.stringify(fields)) return fields;
+                    linksStripped++;
+                    const kept = new Set(Object.values(out).flat());
+                    for (const v of Object.values(fields).flat()) {
+                        if (typeof v === 'string' && stripIds.includes(v) && !kept.has(v)) strippedTargets.add(v);
+                    }
                     return out;
                 };
                 for (const item of toCreate) item.element = strip(item.type, item.element);
                 for (const item of toUpdate) item.payload = strip(item.type, item.payload);
             }
+            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? feedName.get(id) ?? `an element deleted there (${id})`);
 
             // Progress feedback — the sweep can run for a minute on a big world.
             new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
@@ -279,7 +296,7 @@ export class ExportWorldCommand {
                 summary += ` ${serverOnly} element${serverOnly === 1 ? '' : 's'} exist only on the server (not deleted).`;
             }
             if (linksStripped > 0) {
-                summary += ` Links to ${leftOut.names.join(', ')} left out of ${linksStripped} note${linksStripped === 1 ? '' : 's'}.`;
+                summary += ` Links to ${strippedNames.join(', ')} left out of ${linksStripped} note${linksStripped === 1 ? '' : 's'}.`;
             }
             new Notice(summary, 8000);
             if (leftOut.names.length > 0) {
@@ -403,8 +420,8 @@ export class ExportWorldCommand {
         serverIds: Set<string>,
         toCreate: { type: string; element: Record<string, unknown> }[],
         localIds: Set<string>
-    ): Promise<{ ids: string[]; names: string[]; recreate: Set<string>; worldId: string }> {
-        const none = { ids: [], names: [], recreate: new Set<string>(), worldId: '' };
+    ): Promise<{ ids: string[]; names: string[]; recreate: Set<string>; worldId: string; deleted: Set<string>; nameOf: Map<string, string> }> {
+        const none = { ids: [], names: [], recreate: new Set<string>(), worldId: '', deleted: new Set<string>(), nameOf: new Map<string, string>() };
         let worldId = '';
         try {
             worldId = String((await client.getWorld()).id ?? '');
@@ -428,7 +445,7 @@ export class ExportWorldCommand {
             try { await this.plugin.saveSettings(); } catch { /* the list is right for this sweep */ }
         }
         const again = toCreate.filter(i => deleted.has(String(i.element.id)));
-        if (again.length === 0) return { ...none, worldId };
+        if (again.length === 0) return { ...none, worldId, deleted };
         const names = again.map(i => `${i.type.charAt(0).toUpperCase()}${i.type.slice(1)} "${String(i.element.name ?? i.element.id)}"`);
         const one = again.length === 1;
         const yes = await confirm(
@@ -439,9 +456,10 @@ export class ExportWorldCommand {
             'Leave out'
         );
         const ids = again.map(i => String(i.element.id));
+        const nameOf = new Map(ids.map((id, n) => [id, names[n]]));
         return yes
-            ? { ids: [], names: [], recreate: new Set(ids), worldId }
-            : { ids, names, recreate: new Set<string>(), worldId };
+            ? { ids: [], names: [], recreate: new Set(ids), worldId, deleted, nameOf }
+            : { ids, names, recreate: new Set<string>(), worldId, deleted, nameOf };
     }
 
     /** The unit fields collectWorldData read from World.md (absent stays absent). */
