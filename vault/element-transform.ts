@@ -363,6 +363,48 @@ export function unescapeSectionValue(value: string): string {
 	});
 }
 
+/** A `###` or fence line led by any run of backslashes (none included): the lines the escape adds one to. */
+const ESCAPABLE_FENCE_LINE = /^ {0,3}\\*(`{3,}|~{3,})/;
+
+/**
+ * True when `read` is `server` with one backslash taken off some of its
+ * `###` or fence lines and nothing else changed: a line a note from before
+ * the escape holds as typed (`\### x` on disk and on the server alike), which
+ * the reversible read now takes one backslash off (the keeper's amendment to
+ * items 1 and 3, Kael's second read).
+ */
+export function onlyEscapesRemoved(read: string, server: string): boolean {
+	const a = read.split("\n");
+	const b = server.split("\n");
+	if (a.length !== b.length) return false;
+	let removed = false;
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] === b[i]) continue;
+		const one =
+			(HEADING_LIKE_LINE.test(a[i]) && b[i] === `\\${a[i]}`) ||
+			(ESCAPABLE_FENCE_LINE.test(a[i]) && b[i] === addFenceBackslash(a[i]));
+		if (!one) return false;
+		removed = true;
+	}
+	return removed;
+}
+
+/**
+ * `changed` (a read-before-PATCH diff) less every text value that differs
+ * from the server's only by the backslashes the read took off
+ * (onlyEscapesRemoved): the server's value is kept, so a typed `\###` line
+ * never loses its backslash on onlyworlds.com.
+ */
+export function keepServerEscapes(changed: Record<string, unknown>, server: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(changed)) {
+		const was = server[key];
+		if (typeof value === "string" && typeof was === "string" && onlyEscapesRemoved(value, was)) continue;
+		out[key] = value;
+	}
+	return out;
+}
+
 /**
  * The line ending of the body's last `###` section heading, the one
  * sectionValue reads that section's layout by; `\n` when there is none. A

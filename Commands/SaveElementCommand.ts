@@ -5,7 +5,7 @@ import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } fr
 import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
-import { diffPayload, getCategorySchema } from '../vault/element-transform';
+import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { confirm } from '../Modals/ConfirmModal';
@@ -482,7 +482,11 @@ export class SaveElementCommand {
             return this.fail(`Failed to save ${category}: ${msg}`, 10000);
         }
 
-        const changed = diffPayload(payload, current ?? {});
+        // A value that differs from the server's only by a backslash the
+        // read took off a `###` or fence line (a note from before the escape
+        // holds `\### x` as typed) keeps the server's value (the keeper's
+        // amendment to items 1 and 3).
+        const changed = keepServerEscapes(diffPayload(payload, current ?? {}), current ?? {});
         if (Object.keys(changed).length === 0) {
             const renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
