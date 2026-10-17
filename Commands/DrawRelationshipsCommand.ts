@@ -40,17 +40,36 @@ export class DrawRelationshipsCommand {
 			if (existing) await this.app.vault.modify(existing, text);
 			const links = graph.outgoing.length + graph.incoming.length;
 			const name = path.split("/").pop();
+			const earlier = await this.earlierCanvases(folder, path, graph.elementId);
+			const left = earlier.length
+				? ` Its canvas under an earlier name, ${earlier.join(", ")}, is left as is.`
+				: "";
 			new Notice(
-				copy
+				(copy
 					? `${name} had your changes, so they were saved as ${copy.split("/").pop()}; ${name} is redrawn fresh (${links} link${links === 1 ? "" : "s"}).`
-					: `${links} link${links === 1 ? "" : "s"} drawn: ${name}`,
-				copy ? 12000 : undefined
+					: `${links} link${links === 1 ? "" : "s"} drawn: ${name}.`) + left,
+				copy || left ? 12000 : undefined
 			);
 			await this.app.workspace.getLeaf(true).openFile(canvas);
 		} catch (error) {
 			console.error("OnlyWorlds: could not draw the relationships canvas", error);
 			new Notice(`Could not draw the canvas: ${error instanceof Error ? error.message : String(error)}`, 8000);
 		}
+	}
+
+	/**
+	 * The plugin's other canvases for this element beside the note (drawn under
+	 * a name the element had before): their names, for the Notice. Left as is.
+	 */
+	private async earlierCanvases(folder: string, drawn: string, elementId: string): Promise<string[]> {
+		const parent = this.app.vault.getAbstractFileByPath(folder);
+		if (!(parent instanceof TFolder)) return [];
+		const out: string[] = [];
+		for (const c of parent.children) {
+			if (!(c instanceof TFile) || c.extension !== "canvas" || c.path === drawn) continue;
+			if (canvasStatus(await this.app.vault.read(c), elementId) !== "none") out.push(c.name);
+		}
+		return out.sort();
 	}
 
 	/** `<base>.canvas`, or `<base> 2.canvas`, 3 and on: the first free name (the user's copy). */

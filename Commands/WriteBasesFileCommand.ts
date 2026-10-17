@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from "obsidian";
 import { WorldService } from "../Scripts/WorldService";
-import { basesFilePath, rebuildWorldBasesFile } from "../vault/bases-writer";
+import { basesFilePath, rebuildWorldBasesFile, type BasesMemory } from "../vault/bases-writer";
 
 /**
  * Write Bases file (OW Infra #188): `<world>.base` beside World.md, a table and
@@ -12,7 +12,8 @@ import { basesFilePath, rebuildWorldBasesFile } from "../vault/bases-writer";
 export class WriteBasesFileCommand {
 	private worldService: WorldService;
 
-	constructor(private app: App) {
+	/** `memory`: the plugin's settings; a rebuild forgets the world in the once-only Notice list. */
+	constructor(private app: App, private memory?: BasesMemory) {
 		this.worldService = new WorldService(app);
 	}
 
@@ -25,6 +26,11 @@ export class WriteBasesFileCommand {
 		const path = basesFilePath(folder);
 		try {
 			const { result, copy } = await rebuildWorldBasesFile(this.app, folder);
+			const noticed = this.memory?.settings.basesKeptNoticed ?? [];
+			if (this.memory && result !== "kept" && noticed.includes(folder)) {
+				this.memory.settings.basesKeptNoticed = noticed.filter((w) => w !== folder);
+				await this.memory.saveSettings();
+			}
 			if (result === "kept") {
 				new Notice(`${path} is a folder, so no Bases file was written. Rename or move it, then run Write Bases file again.`, 10000);
 			} else if (copy) {
