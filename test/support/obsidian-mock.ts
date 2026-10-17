@@ -30,6 +30,10 @@
  *     workspace.openLinkText only record or do nothing, unless a test sets
  *     `realRenames` on the app: then renameFile also moves the file or the
  *     folder with everything under it, as Obsidian does.
+ *   - `vault.caseInsensitive` (off by default) makes the disk behave like
+ *     Windows' or macOS': adapter.exists(p) matches any case unless asked to be
+ *     `sensitive`, and create refuses a path differing only in case. The vault's
+ *     own lookup (getAbstractFileByPath) stays exact, as Obsidian's does.
  */
 import type { App as ObsidianApp } from "obsidian";
 // Both parsers are in node_modules through the eslint toolchain, not as
@@ -174,10 +178,19 @@ export class MockVault {
 	files = new Map<string, { file: TFile; content: string }>();
 	folders = new Map<string, TFolder>();
 	dotfiles = new Map<string, string>();
+	/** The disk is case-insensitive (Windows, macOS): see the header. */
+	caseInsensitive = false;
+	private onDisk(p: string): boolean {
+		if (this.dotfiles.has(p) || this.files.has(p) || this.folders.has(p)) return true;
+		if (!this.caseInsensitive) return false;
+		const low = p.toLowerCase();
+		return [...this.dotfiles.keys(), ...this.files.keys(), ...this.folders.keys()].some((k) => k.toLowerCase() === low);
+	}
 	adapter = {
-		exists: async (p: string) => {
+		exists: async (p: string, sensitive?: boolean) => {
 			p = normalizePath(p);
-			return this.dotfiles.has(p) || this.files.has(p) || this.folders.has(p);
+			if (sensitive) return this.dotfiles.has(p) || this.files.has(p) || this.folders.has(p);
+			return this.onDisk(p);
 		},
 		read: async (p: string) => {
 			p = normalizePath(p);
@@ -224,7 +237,7 @@ export class MockVault {
 	}
 	async create(p: string, content: string): Promise<TFile> {
 		p = normalizePath(p);
-		if (this.files.has(p) || this.folders.has(p)) throw new Error("File already exists.");
+		if (this.files.has(p) || this.folders.has(p) || (this.caseInsensitive && this.onDisk(p))) throw new Error("File already exists.");
 		const parentPath = this.parentOf(p);
 		if (!this.folders.has(parentPath)) throw new Error("Parent folder does not exist: " + parentPath);
 		const f = new TFile(this, p);
