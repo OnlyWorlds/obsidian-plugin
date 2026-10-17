@@ -27,7 +27,9 @@
  *   - adapter.write to a path with no dot-segment writes a real note (Obsidian
  *     creates a file the vault then lists); a dot-path stays a hidden file.
  *   - vault.getName() is "Test Vault"; fileManager.renameFile and
- *     workspace.openLinkText only record or do nothing.
+ *     workspace.openLinkText only record or do nothing, unless a test sets
+ *     `realRenames` on the app: then renameFile also moves the file or the
+ *     folder with everything under it, as Obsidian does.
  */
 import type { App as ObsidianApp } from "obsidian";
 // Both parsers are in node_modules through the eslint toolchain, not as
@@ -257,6 +259,40 @@ export class MockVault {
 		if (!this.folders.has(parentPath)) await this.createFolder(parentPath);
 		return this.create(p, content);
 	}
+	/** Move a file, or a folder with everything under it (what renameFile does in Obsidian). */
+	move(from: string, to: string): void {
+		from = normalizePath(from);
+		to = normalizePath(to);
+		const moved = (p: string) => (p === from ? to : p.startsWith(from + "/") ? to + p.slice(from.length) : null);
+		const reparent = (f: TAbstractFile, p: string) => {
+			f.parent?.children.splice(f.parent.children.indexOf(f), 1);
+			f.parent = this.folders.get(this.parentOf(p)) ?? null;
+			f.parent?.children.push(f);
+		};
+		if (!this.folders.has(this.parentOf(to))) throw new Error("move: no parent folder for " + to);
+		for (const [p, f] of [...this.folders].sort(([a], [b]) => a.length - b.length)) {
+			const np = moved(p);
+			if (np === null) continue;
+			this.folders.delete(p);
+			f.path = np;
+			f.name = np.split("/").pop() ?? np;
+			this.folders.set(np, f);
+			reparent(f, np);
+		}
+		for (const [p, e] of [...this.files]) {
+			const np = moved(p);
+			if (np === null) continue;
+			this.files.delete(p);
+			const f = e.file;
+			f.path = np;
+			f.name = np.split("/").pop() ?? np;
+			const dot = f.name.lastIndexOf(".");
+			f.basename = dot > 0 ? f.name.slice(0, dot) : f.name;
+			f.extension = dot > 0 ? f.name.slice(dot + 1) : "";
+			this.files.set(np, e);
+			reparent(f, np);
+		}
+	}
 	/** Test helper: the raw content at a path (undefined if absent). */
 	contentAt(p: string): string | undefined {
 		return this.files.get(normalizePath(p))?.content;
@@ -307,9 +343,12 @@ export class App {
 		openLinkText: async (): Promise<void> => {},
 	};
 	renames: string[] = [];
+	/** When true, renameFile moves what it renames (see the header). */
+	realRenames = false;
 	fileManager = {
 		renameFile: async (f: TAbstractFile, to: string): Promise<void> => {
 			this.renames.push(`${f.path} -> ${to}`);
+			if (this.realRenames) this.vault.move(f.path, to);
 		},
 	};
 }
