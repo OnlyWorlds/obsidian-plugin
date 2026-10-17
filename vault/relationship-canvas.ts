@@ -9,9 +9,13 @@
  * node's `file`, a text node's `text`); an edge is `id`, `fromNode`, `toNode`,
  * optional sides, ends, `color` and `label`. The spec names no place for a
  * tool's own data, so the plugin's mark is a text node: its `id` is
- * `owb-relationships-<element id>`, its text a caption that says the command
- * redraws the canvas. A canvas carrying that node for this element is the
- * plugin's, and is overwritten when the command runs again.
+ * `owb-relationships-<element id>-<hash>`, its text a caption that says the
+ * command redraws the canvas. The hash covers what the plugin drew (every
+ * other node's and edge's own JSON Canvas keys, in id order), so a card moved,
+ * added or removed, or a label changed, makes the canvas the user's; a key the
+ * plugin never writes (a viewer's own) and the spec's default arrow ends do
+ * not count. The command redraws its own unchanged canvas in place, and saves
+ * a changed one as `(your copy)` first (Kael's read of round 2, should-fix 2).
  *
  * The drawing: the element at the centre; the elements it links to on the
  * right half of a ring, those linking to it on the left (one node per
@@ -68,19 +72,78 @@ const CENTRE_H = 200;
 const REACH = Math.ceil(Math.hypot(NODE_W, NODE_H)) + 60;
 const MIN_RADIUS = 650;
 
+/** The marker node's id, before its hash: `owb-relationships-<element id>`. */
 export function canvasMarkerId(elementId: string): string {
 	return `owb-relationships-${elementId}`;
 }
 
-/** True when `text` is a canvas this plugin drew for the element `elementId`. */
-export function isPluginCanvasFor(text: string, elementId: string): boolean {
-	try {
-		const data = JSON.parse(text) as { nodes?: Array<{ id?: unknown }> };
-		const id = canvasMarkerId(elementId);
-		return Array.isArray(data.nodes) && data.nodes.some((n) => n && n.id === id);
-	} catch {
-		return false;
+/** FNV-1a 32-bit, hex (as the Bases file's marker). */
+function hash(s: string): string {
+	let h = 0x811c9dc5;
+	for (let i = 0; i < s.length; i++) {
+		h ^= s.charCodeAt(i);
+		h = Math.imul(h, 0x01000193) >>> 0;
 	}
+	return h.toString(16).padStart(8, "0");
+}
+
+type Loose = Record<string, unknown>;
+const v = (o: Loose, k: string, dflt: unknown = null): unknown => (o[k] === undefined ? dflt : o[k]);
+
+/** The hash of a drawing: every node but the marker, and every edge, by their own JSON Canvas keys, in id order. */
+function drawingHash(nodes: Loose[], edges: Loose[], markerPrefix: string): string {
+	const byId = (a: Loose, b: Loose) => String(a.id).localeCompare(String(b.id));
+	const ns = nodes
+		.filter((n) => !String(n.id).startsWith(markerPrefix))
+		.sort(byId)
+		.map((n) => ["id", "type", "x", "y", "width", "height", "color", "file", "subpath", "text", "url", "label"].map((k) => v(n, k)));
+	const es = [...edges]
+		.sort(byId)
+		.map((e) => [
+			v(e, "id"),
+			v(e, "fromNode"),
+			v(e, "fromSide"),
+			v(e, "fromEnd", "none"),
+			v(e, "toNode"),
+			v(e, "toSide"),
+			v(e, "toEnd", "arrow"),
+			v(e, "color"),
+			v(e, "label"),
+		]);
+	return hash(JSON.stringify([ns, es]));
+}
+
+/**
+ * Whose canvas `text` is, for the element `elementId`: "none" (no plugin
+ * marker for it: someone else's, or not a canvas), "unchanged" (the plugin's,
+ * as drawn), "changed" (the plugin's marker, but the drawing moved on: the user's).
+ */
+export function canvasStatus(text: string, elementId: string): "none" | "unchanged" | "changed" {
+	let data: { nodes?: unknown; edges?: unknown };
+	try {
+		data = JSON.parse(text) as { nodes?: unknown; edges?: unknown };
+	} catch {
+		return "none";
+	}
+	const nodes = Array.isArray(data?.nodes) ? (data.nodes as Loose[]).filter((n) => n && typeof n === "object") : [];
+	const edges = Array.isArray(data?.edges) ? (data.edges as Loose[]).filter((e) => e && typeof e === "object") : [];
+	const prefix = canvasMarkerId(elementId) + "-";
+	const marker = nodes.find((n) => typeof n.id === "string" && n.id.startsWith(prefix));
+	if (!marker) return "none";
+	return String(marker.id).slice(prefix.length) === drawingHash(nodes, edges, prefix) ? "unchanged" : "changed";
+}
+
+/** True when `text` is a canvas this plugin drew for the element `elementId`, changed since or not. */
+export function isPluginCanvasFor(text: string, elementId: string): boolean {
+	return canvasStatus(text, elementId) !== "none";
+}
+
+/** `text` without the plugin's marker node for `elementId`: the user's copy, never taken for the plugin's. */
+export function withoutCanvasMarker(text: string, elementId: string): string {
+	const data = JSON.parse(text) as { nodes?: Loose[] };
+	const prefix = canvasMarkerId(elementId) + "-";
+	if (Array.isArray(data.nodes)) data.nodes = data.nodes.filter((n) => !(n && typeof n.id === "string" && n.id.startsWith(prefix)));
+	return JSON.stringify(data, null, "\t");
 }
 
 function refKey(ref: CanvasRef): string {
@@ -199,8 +262,9 @@ export function buildRelationshipCanvas(g: RelationshipGraph): CanvasData {
 	// The plugin's mark: a caption below the drawing's lower-left corner.
 	const minX = Math.min(...nodes.map((n) => n.x));
 	const maxY = Math.max(...nodes.map((n) => n.y + n.height));
+	const prefix = canvasMarkerId(g.elementId) + "-";
 	nodes.push({
-		id: canvasMarkerId(g.elementId),
+		id: prefix + drawingHash(nodes as unknown as Loose[], edges as unknown as Loose[], prefix),
 		type: "text",
 		text:
 			`Drawn by OnlyWorlds Builder from the links of ${g.elementName}. ` +
