@@ -290,3 +290,37 @@ test("no dialog when there is nothing to create first", async () => {
 	assert.equal(h.dialogs.length, 0);
 	assert.ok(h.calls.includes(`create character ${ID.ireena}`));
 });
+
+// --- Kael's read, should-fix 2: the walk stops at 50 targets ------------------
+
+/** Ireena linking to `n` new trait notes. */
+function manyTraits(n: number): Record<string, string> {
+	const notes: Record<string, string> = {};
+	const links: string[] = [];
+	for (let i = 0; i < n; i++) {
+		const id = `019b0000-0000-7000-8000-${String(i).padStart(12, "0")}`;
+		notes[`Trait/T${i}.md`] = note(id, `T${i}`);
+		links.push(`  - "[[T${i}]]"`);
+	}
+	notes["Character/Ireena.md"] = note(ID.ireena, "Ireena", `traits:\n${links.join("\n")}\n`);
+	return notes;
+}
+
+test("★ more than 50 targets to create first: nothing is created, and the notice points to Upload World", async () => {
+	const h = await harness(manyTraits(51));
+	const result = await h.save(h.files["Character/Ireena.md"]);
+	assert.equal(result.ok, false);
+	assert.match((result as { reason: string }).reason, /Upload World/);
+	assert.equal(h.dialogs.length, 0, "no dialog past the cap");
+	assert.deepEqual(h.bulks, []);
+	assert.ok(!h.calls.some((c) => c.startsWith("create ") || c.startsWith("update ")));
+	assert.ok(h.calls.filter((c) => c.startsWith("get trait")).length <= 51, "the walk ran past the cap");
+});
+
+test("exactly 50 targets: the dialog lists all 50 and Create sends them", async () => {
+	const h = await harness(manyTraits(50));
+	const result = await h.save(h.files["Character/Ireena.md"]);
+	assert.equal(result.ok, true);
+	assert.equal(h.dialogs[0]?.items.length, 50);
+	assert.equal(h.bulks[0].length, 51);
+});

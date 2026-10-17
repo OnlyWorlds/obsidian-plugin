@@ -49,9 +49,19 @@ export function ambiguousLinksMessage(links: string[]): string {
 interface CreateFirstPlan {
     firsts: PendingCreate[];
     leftOut: CreateFirstItem[];
+    /** More than MAX_CREATE_FIRST targets: none is created. */
+    overflow?: boolean;
 }
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
+
+/** The most link targets one save creates first (Kael's read, should-fix 2). */
+const MAX_CREATE_FIRST = 50;
+
+/** Past the cap: nothing is created, Upload World sends the group. */
+const OVERFLOW_MESSAGE =
+    `More than ${MAX_CREATE_FIRST} linked notes are not on onlyworlds.com yet, so nothing was created or saved. ` +
+    'Run Upload World to send them all, then save this note again.';
 
 /** What a cancelled create-first dialog leaves the user with. */
 const CANCELLED_MESSAGE = 'Save cancelled: nothing was created or saved.';
@@ -257,7 +267,7 @@ export class SaveElementCommand {
                     // leaves keel's refusal and says how to get past it.
                     const plan = manual ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload) : NO_PLAN;
                     if (!(await this.approveCreateFirst(String(label), plan))) {
-                        return this.fail(CANCELLED_MESSAGE);
+                        return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
                     }
                     const firsts = plan.firsts;
                     new Notice(`Creating ${category} "${label}"...`);
@@ -302,7 +312,7 @@ export class SaveElementCommand {
                 : NO_PLAN;
             let firstNote = '';
             if (!(await this.approveCreateFirst(String(label), plan))) {
-                return this.fail(CANCELLED_MESSAGE);
+                return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
             }
             const firsts = plan.firsts;
             if (firsts.length > 0) {
@@ -347,8 +357,10 @@ export class SaveElementCommand {
         const visited = new Set<string>([rootId]);
         let index: Map<string, TFile> | null = null;
         let deleted: Set<string> | null = null;
+        let overflow = false;
         const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
             for (const id of linkIdsOf(type, payload, filter)) {
+                if (overflow) return;
                 if (visited.has(id)) continue;
                 visited.add(id);
                 index = index ?? this.worldNoteIndex(worldName);
@@ -369,13 +381,19 @@ export class SaveElementCommand {
                     leftOut.push({ type: parsed.category, name: parsed.name });
                     continue;
                 }
+                // A cap, not a sweep: past it the whole group is Upload World's
+                // (Kael's read, should-fix 2; keel's /bulk takes at most 1000).
+                if (out.length >= MAX_CREATE_FIRST) {
+                    overflow = true;
+                    return;
+                }
                 const targetPayload = toV2Payload(parsed.fields);
                 await visit(parsed.category, targetPayload);
                 out.push({ type: parsed.category, id, name: parsed.name, payload: targetPayload });
             }
         };
         await visit(rootType, rootPayload, keep);
-        return { firsts: out, leftOut };
+        return { firsts: out, leftOut, overflow };
     }
 
     /**
@@ -399,6 +417,7 @@ export class SaveElementCommand {
      * True means go on with the save.
      */
     private async approveCreateFirst(label: string, plan: CreateFirstPlan): Promise<boolean> {
+        if (plan.overflow) return false;
         if (plan.firsts.length > 0) return this.confirmCreateFirst(label, plan);
         if (plan.leftOut.length > 0) new Notice(leftOutLines(plan.leftOut).join(' '), 12000);
         return true;
