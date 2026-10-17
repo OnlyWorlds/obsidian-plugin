@@ -144,12 +144,12 @@ export class UpdateWorldFormatCommand {
 				if (values[key] === undefined && typeof fm[key] === 'string') values[key] = fm[key];
 			}
 			if (values[bodyField] === undefined) {
-				// A 3.0/3.1 note's whole body IS the description. Preserve it.
+				// A 3.0/3.1 note's whole body IS the description. Preserve it,
+				// byte for byte as a save reads it (round C, 11).
 				const legacy = [parsed.preamble, ...parsed.unknown.map((u) => u.text)]
 					.filter(Boolean)
-					.join('\n\n')
-					.trim();
-				if (legacy) values[bodyField] = legacy;
+					.join('\n\n');
+				if (legacy.trim()) values[bodyField] = legacy;
 			}
 
 			const customKeys = parsed.unknown
@@ -161,7 +161,10 @@ export class UpdateWorldFormatCommand {
 
 			const fmBlock = extractFrontmatterBlock(content);
 			const newBody = buildElementBody(values, category, customKeys);
-			const newContent = joinNote(fmBlock, newBody);
+			// The body ends as writeElement ends it, one newline after the last
+			// section, or the last value's own final newline is read away
+			// (round C, 11).
+			const newContent = joinNote(fmBlock, `${newBody}\n`);
 			if (newContent !== content) {
 				this.markSelfWrite?.(file.path);
 				await this.app.vault.modify(file, newContent);
