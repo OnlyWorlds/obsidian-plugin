@@ -45,6 +45,12 @@ export interface OnlyWorldsPluginSettings {
 	 * every Download. A world leaves the list when the plugin owns its file again.
 	 */
 	basesKeptNoticed: string[];
+
+	/**
+	 * Download has said, once for this vault, that it now writes a Bases file
+	 * (the first time it wrote one into a world folder that had none).
+	 */
+	basesIntroShown: boolean;
 }
 
 export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
@@ -66,4 +72,5 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 
 	writeBasesFile: true,
 	basesKeptNoticed: [],
+	basesIntroShown: false,
 };

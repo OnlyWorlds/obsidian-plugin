@@ -26,7 +26,7 @@ export interface BasesWriteOutcome {
 
 /** The plugin's settings and their save: what remembers which Notices were shown. */
 export interface BasesMemory {
-	settings: Pick<OnlyWorldsPluginSettings, "basesKeptNoticed">;
+	settings: Pick<OnlyWorldsPluginSettings, "basesKeptNoticed" | "basesIntroShown">;
 	saveSettings(): Promise<void>;
 }
 
@@ -39,6 +39,11 @@ export function basesKeptNotice(worldName: string, renamed = false): string {
 		? "so it was left as is when you renamed the world, and its views still look in the old folder"
 		: "so it was left as is";
 	return `Your Bases file for ${worldName} has your own changes, ${kept}; delete it or run Write Bases file to rebuild it.`;
+}
+
+/** The Notice the first base Download writes into a world folder that had none shows, once per vault. */
+export function basesIntroNotice(worldName: string): string {
+	return `New: a Bases file for ${worldName} (tables and cards per type). Turn it off in Settings.`;
 }
 
 /** The 22 categories in the plugin's folder order, each with its schema fields. */
@@ -195,7 +200,7 @@ export async function rebuildWorldBasesFile(app: App, worldFolder: string): Prom
  * rides on. With the plugin's settings (`memory`), the first time it keeps a
  * world's base because the user changed it, a Notice says so; the world is
  * remembered so the Notice shows once, and forgotten when the plugin owns
- * the file again.
+ * the file again. The first base it creates in this vault is announced once.
  */
 export async function writeWorldBasesFileQuietly(app: App, worldFolder: string, memory?: BasesMemory): Promise<void> {
 	try {
@@ -208,10 +213,20 @@ export async function writeWorldBasesFileQuietly(app: App, worldFolder: string, 
 				memory.settings.basesKeptNoticed = [...noticed, worldFolder];
 				await memory.saveSettings();
 			}
-		} else if (memory && noticed.includes(worldFolder)) {
-			memory.settings.basesKeptNoticed = noticed.filter((w) => w !== worldFolder);
-			await memory.saveSettings();
+			return;
 		}
+		if (!memory) return;
+		let changed = false;
+		if (noticed.includes(worldFolder)) {
+			memory.settings.basesKeptNoticed = noticed.filter((w) => w !== worldFolder);
+			changed = true;
+		}
+		if (outcome.result === "created" && !memory.settings.basesIntroShown) {
+			new Notice(basesIntroNotice(outcome.worldName), 10000);
+			memory.settings.basesIntroShown = true;
+			changed = true;
+		}
+		if (changed) await memory.saveSettings();
 	} catch (error) {
 		console.error("OnlyWorlds: could not write the world's Bases file", error);
 	}

@@ -211,3 +211,35 @@ test("Write Bases file after a rename rebuilds the world's base in place of the 
 	assert.equal(vault.contentAt(NEW_BASE), endymionText());
 	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Endymion/Endymion (your copy).base"), edited.split("\n").slice(1).join("\n"));
 });
+
+// ── Item 3: existing users get a new file with no word ──
+
+const INTRO_NOTICE = "New: a Bases file for Hyperion (tables and cards per type). Turn it off in Settings.";
+
+test("the first base Download writes into a world that had none says so, once per vault", async () => {
+	const { app, vault } = makeApp();
+	const plugin = makePlugin();
+	assert.equal(DEFAULT_SETTINGS.basesIntroShown, false);
+	__notices.length = 0;
+	await download(app, plugin);
+	assert.ok(vault.contentAt(BASE));
+	assert.equal(__notices.filter((n) => n === INTRO_NOTICE).length, 1, __notices.join(" / "));
+	assert.equal(plugin.settings.basesIntroShown, true);
+
+	vault.files.delete(BASE); // written again into a world with none: no second word
+	__notices.length = 0;
+	await download(app, plugin);
+	assert.ok(vault.contentAt(BASE));
+	assert.equal(__notices.includes(INTRO_NOTICE), false, __notices.join(" / "));
+});
+
+test("a Download that only refreshes the plugin's base says nothing new and leaves the flag unset", async () => {
+	const { app, vault } = makeApp();
+	await download(app, makePlugin()); // the world and its base are already there
+	const plugin = makePlugin(); // a vault whose flag is still unset
+	__notices.length = 0;
+	await download(app, plugin);
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds"), [BASE]);
+	assert.equal(__notices.includes(INTRO_NOTICE), false, __notices.join(" / "));
+	assert.equal(plugin.settings.basesIntroShown, false);
+});
