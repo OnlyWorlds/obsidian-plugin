@@ -242,12 +242,28 @@ export function buildElementBody(
 	for (const key of keys) {
 		const label = fieldToHeading(isExtensionKey(key) ? stripExtensionPrefix(key) : key);
 		const raw = values[key];
-		const text = typeof raw === "string" ? raw.trim() : raw == null ? "" : String(raw);
+		// The value as it is, never trimmed (OW Infra #166 row 16): sectionValue
+		// strips exactly the layout written here and nothing of the value.
+		const text = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
 		// An EMPTY section still gets its blank line: the gap is where the user
 		// types, and without it the cursor lands against the next heading.
 		parts.push(`${SECTION_HEADING} ${label}\n\n${text ? `${text}\n` : ""}`);
 	}
 	return parts.join("\n");
+}
+
+/**
+ * A body with one more, empty `### Label` section at its end (Add Custom
+ * Field). The last value already there keeps its trailing whitespace: the body
+ * is closed with the layout's blank line only where it lacks one, which reads
+ * back the same value (sectionValue), instead of being trimmed (OW Infra #166
+ * row 16).
+ */
+export function appendBodySection(body: string, label: string): string {
+	const eol = body.includes("\r\n") ? "\r\n" : "\n";
+	let b = body.trim() ? body : "";
+	if (b && !b.endsWith(eol + eol)) b += b.endsWith(eol) ? eol : eol + eol;
+	return `${b}${SECTION_HEADING} ${label}\n\n`;
 }
 
 /**
@@ -437,26 +453,49 @@ export interface ParsedBody {
 }
 
 /**
+ * A section's value from its raw text: everything after the heading line's own
+ * line ending up to the next heading line. buildElementBody writes
+ * `### Heading` EOL, EOL (the blank line), the value, EOL, and one more EOL
+ * before the next heading (writeElement adds that last one after the final
+ * section). Exactly that layout is stripped, so the value comes back byte for
+ * byte: its own edge whitespace, CRLF and lone CR included (OW Infra #166 row
+ * 16; it used to be trimmed and CRLF folded to LF).
+ *
+ * EOL is the heading line's own ending, so a note saved with CRLF throughout
+ * by another editor strips CRLF layout the same way. An empty section is
+ * nothing, one EOL or two.
+ */
+function sectionValue(raw: string, eol: string): string {
+	if (raw === "" || raw === eol || raw === eol + eol) return "";
+	let v = raw.startsWith(eol) ? raw.slice(eol.length) : raw;
+	if (v.endsWith(eol + eol)) v = v.slice(0, -2 * eol.length);
+	else if (v.endsWith(eol)) v = v.slice(0, -eol.length);
+	return v;
+}
+
+/**
  * Parse a note body into its `###` field sections.
  *
  * Only `###` (SECTION_HEADING, the level the plugin writes) starts a section;
  * `#`, `##`, `####` and deeper belong to the prose of whatever section they sit
  * in, so a user's own structure survives. A fenced code block is skipped so a
  * heading inside ``` never splits a section.
+ *
+ * Each section's text is its value exactly (sectionValue): the body is walked
+ * by offsets with every line ending kept, never split and re-joined (row 16).
  */
 export function parseElementBody(body: string, category: string): ParsedBody {
 	const known = new Set(bodyTextFields(category));
 	const fields: Record<string, string> = {};
 	const unknown: Array<{ heading: string; text: string }> = [];
-	const lines = body.split(/\r?\n/);
 
-	let current: { heading: string; buf: string[] } | null = null;
-	const preambleBuf: string[] = [];
+	let current: { heading: string; start: number; eol: string } | null = null;
+	let preambleEnd = body.length;
 	let inFence = false;
 
-	const flush = () => {
+	const flush = (end: number) => {
 		if (!current) return;
-		const text = current.buf.join("\n").trim();
+		const text = sectionValue(body.slice(current.start, end), current.eol);
 		const key = headingToFieldKey(current.heading);
 		if (known.has(key)) {
 			fields[key] = text;
@@ -466,21 +505,28 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 		current = null;
 	};
 
-	for (const line of lines) {
+	let pos = 0;
+	for (;;) {
+		const nl = body.indexOf("\n", pos);
+		const next = nl < 0 ? body.length : nl + 1;
+		let line = body.slice(pos, nl < 0 ? body.length : nl);
+		const cr = line.endsWith("\r");
+		if (cr) line = line.slice(0, -1);
 		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
 		// Only `###` is a section boundary (row 1): `#`, `##` and `####`+ are
 		// prose and stay inside the section they sit in.
 		const m = !inFence ? /^###[ \t]+(.+?)\s*$/.exec(line) : null;
 		if (m) {
-			flush();
-			current = { heading: m[1], buf: [] };
-			continue;
+			if (current) flush(pos);
+			else preambleEnd = pos;
+			current = { heading: m[1], start: next, eol: cr ? "\r\n" : "\n" };
 		}
-		(current ? current.buf : preambleBuf).push(line);
+		if (nl < 0) break;
+		pos = next;
 	}
-	flush();
+	flush(body.length);
 
-	return { fields, unknown, preamble: preambleBuf.join("\n").trim() };
+	return { fields, unknown, preamble: body.slice(0, preambleEnd).trim() };
 }
 
 /**
@@ -521,8 +567,9 @@ export function bodyToFieldValues(
 		salvage.push(u.text ? `## ${u.heading}\n\n${u.text}` : `## ${u.heading}`);
 	}
 	if (salvage.length) {
+		// The body field's own value leads unaltered; salvage follows it (row 16).
 		const existing = out[bodyField] ? [out[bodyField]] : [];
-		out[bodyField] = [...existing, ...salvage].join("\n\n").trim();
+		out[bodyField] = [...existing, ...salvage].join("\n\n");
 	}
 	return out;
 }

@@ -117,7 +117,12 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 	}
 
 	if (fm && typeof fm.id === "string") {
-		const body = stripFrontmatter(content).trim();
+		// Not trimmed: the last section's value runs to the end of the note, and
+		// its own trailing whitespace is part of it (OW Infra #166 row 16). What
+		// sits between the `---` and the first heading is the preamble, which
+		// parseElementBody trims.
+		const raw = stripFrontmatter(content);
+		const body = raw.trim() ? raw : "";
 		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
 		// A bare-id link value passes through untouched (dangling/unmigrated).

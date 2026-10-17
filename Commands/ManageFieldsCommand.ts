@@ -13,6 +13,7 @@ import {
 	splitNote,
 	joinNote,
 	serializeFrontmatter,
+	appendBodySection,
 } from '../vault/element-transform';
 
 /**
@@ -184,7 +185,9 @@ export class ManageFieldsCommand {
 				fmOut[key] = def.type === 'multi_link' ? [] : def.type === 'number' ? null : '';
 			}
 		}
-		const finalContent = joinNote(serializeFrontmatter(fmOut), newBody);
+		// The body ends as writeElement ends it (one newline after the last
+		// section), so the last value reads back exactly (OW Infra #166 row 16).
+		const finalContent = joinNote(serializeFrontmatter(fmOut), `${newBody}\n`);
 		if (finalContent !== current) {
 			this.markSelfWrite?.(file.path);
 			await this.app.vault.modify(file, finalContent);
@@ -238,7 +241,8 @@ export class ManageFieldsCommand {
 			const { frontmatter } = splitNote(content);
 			const heading = fieldToHeading(key);
 			// `###`, matching buildElementBody — one heading level across the note.
-			const newBody = `${body.replace(/\s*$/, '')}\n\n### ${heading}\n\n`;
+			// The last section's value keeps its trailing whitespace (row 16).
+			const newBody = appendBodySection(body, heading);
 			this.markSelfWrite?.(file.path);
 			// joinNote, never string concatenation: it puts the block at byte 0 and
 			// strips leading blank lines, so this path cannot produce the note that
