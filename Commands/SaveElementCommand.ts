@@ -91,6 +91,17 @@ const misnamedShown = new Set<string>();
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
 
+/**
+ * Element ids whose new name auto-sync saved without renaming the note, this
+ * session: the next Save Element on the note renames it, even when nothing
+ * else changed (the fix round, item 6: N7, the server already held the name,
+ * so Save's diff never carried it).
+ */
+const pendingRename = new Set<string>();
+
+/** What auto-sync adds to its saved notice when the note keeps its old name. */
+const KEEPS_OLD_NAME = ' The note keeps its old name; Save Element renames it.';
+
 /** Why a save stopped before its creates: a target refused, past the cap, or the dialog cancelled. */
 function stopMessage(plan: CreateFirstPlan): string {
     if (plan.refused) return `${plan.refused} Nothing was created or saved.`;
@@ -473,7 +484,8 @@ export class SaveElementCommand {
 
         const changed = diffPayload(payload, current ?? {});
         if (Object.keys(changed).length === 0) {
-            new Notice(`${category} "${label}" already up to date.`);
+            const renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
+            new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'unchanged' };
         }
 
@@ -503,7 +515,8 @@ export class SaveElementCommand {
                 : changed;
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
-                new Notice(`${category} "${label}" already up to date.`);
+                const renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
+                new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
                 return { ok: true, outcome: 'unchanged' };
             }
             if (firsts.length > 0) {
@@ -515,12 +528,20 @@ export class SaveElementCommand {
             await client.update(type, elementUuid, toSend);
             // Only the manual Save renames: auto-sync fires at every pause while
             // a name is typed, and each rename can rewrite every linking note
-            // (Kael's read, 7).
-            const renamed = manual && typeof changed.name === 'string'
-                ? await this.renameToName(activeFile, changed.name, elementUuid)
-                : null;
-            const renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
-            new Notice(`${firstNote}${category} saved.${renameNote}`, firstExtra ? 15000 : firstNote || renamed ? 8000 : undefined);
+            // (Kael's read, 7). Auto-sync records the rename it did not make,
+            // and the next Save Element makes it (the fix round, item 6).
+            let renameNote = '';
+            if (manual && typeof changed.name === 'string') {
+                pendingRename.delete(elementUuid);
+                const renamed = await this.renameToName(activeFile, changed.name, elementUuid);
+                renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
+            } else if (manual) {
+                renameNote = await this.pendingRenameNote(activeFile, elementUuid, elementData.name, manual);
+            } else if (typeof changed.name === 'string' && this.wouldRename(activeFile, changed.name)) {
+                pendingRename.add(elementUuid);
+                renameNote = KEEPS_OLD_NAME;
+            }
+            new Notice(`${firstNote}${category} saved.${renameNote}`, firstExtra ? 15000 : firstNote || renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'updated' };
         } catch (error) {
             console.error('Error during v2 update call:', error);
@@ -636,10 +657,9 @@ export class SaveElementCommand {
      * failing a save that landed.
      */
     private async renameToName(file: TFile, name: string, id: string): Promise<string | null> {
-        if (this.plugin.settings.renameNoteOnNameChange === false) return null;
+        if (!this.wouldRename(file, name)) return null;
         const base = sanitizeFileName(name);
         const current = file.basename;
-        if (current === base || (current.startsWith(`${base} (`) && /\(\d+\)$/.test(current))) return null;
         const folder = file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf('/'));
         // A change of case only is the same file on Windows and macOS: rename straight to it.
         const leaf = current.toLowerCase() === base.toLowerCase()
@@ -653,6 +673,27 @@ export class SaveElementCommand {
             console.error('[OnlyWorlds] Saved, but the note could not be renamed:', error);
             return null;
         }
+    }
+
+    /** True when renameToName would rename `file` for `name`: the setting is on and the file does not carry the name yet. */
+    private wouldRename(file: TFile, name: string): boolean {
+        if (this.plugin.settings.renameNoteOnNameChange === false) return false;
+        const base = sanitizeFileName(name);
+        const current = file.basename;
+        return !(current === base || (current.startsWith(`${base} (`) && /\(\d+\)$/.test(current)));
+    }
+
+    /**
+     * The manual Save's rename of a note whose new name auto-sync already
+     * sent (pendingRename), and what the notice adds for it; '' when there is
+     * none, or on auto-sync (the fix round, item 6).
+     */
+    private async pendingRenameNote(file: TFile, id: string, name: unknown, manual: boolean): Promise<string> {
+        if (!manual || !pendingRename.has(id)) return '';
+        pendingRename.delete(id);
+        if (typeof name !== 'string' || !name) return '';
+        const renamed = await this.renameToName(file, name, id);
+        return renamed ? ` Note renamed to "${renamed}".` : '';
     }
 
     /**

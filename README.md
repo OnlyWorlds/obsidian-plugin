@@ -77,7 +77,7 @@ Only notes inside a world's `Elements` folders are elements. Notes you already h
 
 On both Save Element and Upload World, a link field holding a `[[Name]]` that matches no note in the vault is not sent at all, so the server keeps its copy of that field. Save Element names those links; upload the target element, then save again.
 
-When Save Element changes an element's name, its note is renamed to match, through Obsidian, so links to it update as your **Files and links** setting says. A name another note already has gets a number, as on download: `Vallaki (1)`. Auto-sync never renames. Turn it off in settings.
+When Save Element changes an element's name, its note is renamed to match, through Obsidian, so links to it update as your **Files and links** setting says. A name another note already has gets a number, as on download: `Vallaki (1)`. Auto-sync never renames: when it saves a new name, the note keeps its old one until the next Save Element renames it, even when nothing else changed. Turn it off in settings.
 
 A link to a note that is in the vault but not on the server yet: Save Element lists those elements and asks first (Create or Cancel), then creates them together with the note, and says so ("Created Location "Vallaki" first."). The same goes for that element's own links to new notes. It creates at most 50 this way; past that it creates nothing and asks you to run Upload World. Auto-sync never creates them: the server refuses that save, and the notice says to run Save Element.
 
