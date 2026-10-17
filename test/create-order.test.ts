@@ -28,6 +28,7 @@ const ID = {
 	krezk: "019b0000-0000-7000-8000-0000000000a3",
 	brave: "019b0000-0000-7000-8000-0000000000b1",
 };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const note = (id: string, name: string, links = "") =>
 	`---\nname: ${name}\nid: ${id}\n${links}---\n\n### Description\n\nAbout ${name}.\n`;
 
@@ -48,6 +49,17 @@ async function harness(notes: Record<string, string>, opts: Opts = {}) {
 	const existing = new Set(opts.existing ?? []);
 	const calls: string[] = [];
 	const bulks: { type: string; element: Record<string, unknown> }[][] = [];
+	/** keel's answer to a write linking an element it does not have (elements/resolve.py InvalidLink). */
+	const refuseMissingLinks = (body: Record<string, unknown>) => {
+		for (const [k, v] of Object.entries(body)) {
+			if (k === "id") continue;
+			for (const x of Array.isArray(v) ? v : [v]) {
+				if (typeof x === "string" && UUID.test(x) && !existing.has(x)) {
+					throw new V2ApiError(400, "invalid_link", `${k} references Location '${x}' which does not exist.`, null);
+				}
+			}
+		}
+	};
 	const client = {
 		get: async (type: string, id: string) => {
 			calls.push(`get ${type} ${id}`);
@@ -56,11 +68,13 @@ async function harness(notes: Record<string, string>, opts: Opts = {}) {
 		},
 		create: async (type: string, body: Record<string, unknown>) => {
 			calls.push(`create ${type} ${String(body.id)}`);
+			refuseMissingLinks(body);
 			existing.add(String(body.id));
 			return body;
 		},
 		update: async (type: string, id: string, body: Record<string, unknown>) => {
 			calls.push(`update ${type} ${id} ${JSON.stringify(body)}`);
+			refuseMissingLinks(body);
 			return {};
 		},
 		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[]) => {
@@ -82,7 +96,9 @@ async function harness(notes: Record<string, string>, opts: Opts = {}) {
 	};
 	const cmd = new SaveElementCommand(app as App, plugin as never);
 	__notices.length = 0;
-	return { app, vault, files, cmd, calls, bulks, notices: __notices };
+	/** The manual Save Element (`manual`), or auto-sync's save of the same note. */
+	const save = (file: TFile, manual = true) => cmd.execute(file, { manual });
+	return { app, vault, files, cmd, save, calls, bulks, notices: __notices };
 }
 
 test("★ row 8: a new note linking to a new local note creates the target first, in one /bulk", async () => {
@@ -90,7 +106,7 @@ test("★ row 8: a new note linking to a new local note creates the target first
 		"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
 		"Location/Vallaki.md": note(ID.vallaki, "Vallaki"),
 	});
-	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	const result = await h.save(h.files["Character/Ireena.md"]);
 	assert.deepEqual(result, { ok: true, outcome: "created" });
 	assert.ok(!h.calls.some((c) => c.startsWith("create ")), "a lone create would be refused by keel");
 	assert.deepEqual(h.calls.filter((c) => c.startsWith("bulk")), [
@@ -107,7 +123,7 @@ test("★ row 8: a chain is created depth-first, targets before the notes that l
 		"Location/Vallaki.md": note(ID.vallaki, "Vallaki", 'parent_location: "[[Barovia]]"\n'),
 		"Location/Barovia.md": note(ID.barovia, "Barovia"),
 	});
-	await h.cmd.execute(h.files["Character/Ireena.md"]);
+	await h.save(h.files["Character/Ireena.md"]);
 	assert.deepEqual(h.bulks[0].map((i) => i.element.id), [ID.barovia, ID.vallaki, ID.ireena]);
 });
 
@@ -117,7 +133,7 @@ test("★ row 8: cycles (a target linking back to the note, two targets linking 
 		"Location/Vallaki.md": note(ID.vallaki, "Vallaki", 'rival: "[[Krezk]]"\nfounders:\n  - "[[Ireena]]"\n'),
 		"Location/Krezk.md": note(ID.krezk, "Krezk", 'rival: "[[Vallaki]]"\n'),
 	});
-	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	const result = await h.save(h.files["Character/Ireena.md"]);
 	assert.equal(result.ok, true);
 	assert.equal(h.bulks.length, 1);
 	const ids = h.bulks[0].map((i) => i.element.id);
@@ -137,7 +153,7 @@ test("row 8: a target already on the server stops the walk; a note with no new t
 		},
 		{ existing: [ID.vallaki] }
 	);
-	await h.cmd.execute(h.files["Character/Ireena.md"]);
+	await h.save(h.files["Character/Ireena.md"]);
 	assert.deepEqual(h.calls, [`get character ${ID.ireena}`, `get location ${ID.vallaki}`, `create character ${ID.ireena}`]);
 });
 
@@ -150,7 +166,7 @@ test("★ row 8: an existing note given a link to a new local note creates the t
 		},
 		{ existing: [ID.ireena, ID.brave], current: { [ID.ireena]: { name: "Ireena", birthplace: null, traits: [ID.brave] } } }
 	);
-	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	const result = await h.save(h.files["Character/Ireena.md"]);
 	assert.deepEqual(result, { ok: true, outcome: "updated" });
 	const bulkAt = h.calls.findIndex((c) => c.startsWith("bulk"));
 	const updateAt = h.calls.findIndex((c) => c.startsWith("update"));
@@ -168,8 +184,36 @@ test("row 8: a target keel refuses fails the save, names it, and sends nothing m
 		},
 		{ bulkStatus: { [ID.vallaki]: 422, [ID.ireena]: 400 } }
 	);
-	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	const result = await h.save(h.files["Character/Ireena.md"]);
 	assert.equal(result.ok, false);
 	assert.match((result as { reason: string }).reason, /Vallaki/);
 	assert.ok(!h.calls.some((c) => c.startsWith("create ") || c.startsWith("update ")));
+});
+
+// --- Kael's read, blocker (a): the walk runs only from the manual Save --------
+
+test("★ auto-sync never runs the create-first walk: keel's refusal stands, and the notice says Save Element creates them first", async () => {
+	const h = await harness({
+		"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+		"Location/Vallaki.md": note(ID.vallaki, "Vallaki"),
+	});
+	const result = await h.save(h.files["Character/Ireena.md"], false);
+	assert.equal(result.ok, false);
+	assert.deepEqual(h.bulks, [], "auto-sync created something");
+	assert.ok(!h.calls.includes(`get location ${ID.vallaki}`), "auto-sync walked the links");
+	assert.match((result as { reason: string }).reason, /Save Element creates them first/);
+});
+
+test("auto-sync on an existing note given a link to a new note: refused, nothing created", async () => {
+	const h = await harness(
+		{
+			"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+			"Location/Vallaki.md": note(ID.vallaki, "Vallaki"),
+		},
+		{ existing: [ID.ireena], current: { [ID.ireena]: { name: "Ireena", birthplace: null } } }
+	);
+	const result = await h.save(h.files["Character/Ireena.md"], false);
+	assert.equal(result.ok, false);
+	assert.deepEqual(h.bulks, []);
+	assert.match((result as { reason: string }).reason, /Save Element creates them first/);
 });

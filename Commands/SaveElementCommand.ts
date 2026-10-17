@@ -56,6 +56,16 @@ export function createdFirstMessage(firsts: { type: string; name: string }[]): s
     return `Created ${shown}${more} first.`;
 }
 
+/**
+ * Auto-sync's addition to keel's refusal of a link to an element it does not
+ * have (400 invalid_link, elements/resolve.py): the manual Save creates such
+ * targets first, auto-sync never does (Kael's read, blocker).
+ */
+function missingLinkHint(error: unknown, manual: boolean): string {
+    if (manual || !(error instanceof V2ApiError) || error.code !== 'invalid_link') return '';
+    return ' A link names a note not on onlyworlds.com yet: Save Element creates them first.';
+}
+
 function capitalize(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -119,7 +129,10 @@ export class SaveElementCommand {
      * notes edited in the same second then all saved whichever note was active
      * (one id hit ten times, seven never — OW Infra #166 row 4).
      */
-    async execute(activeFile: TFile | null): Promise<SaveResult> {
+    async execute(activeFile: TFile | null, opts: { manual?: boolean } = {}): Promise<SaveResult> {
+        // The Save Element command passes manual; auto-sync never does. Only a
+        // manual save creates link targets first (row 8; Kael's read, blocker).
+        const manual = opts.manual === true;
         if (!activeFile || !(activeFile instanceof TFile)) {
             return this.fail("No active file selected or it's not a valid file.");
         }
@@ -225,7 +238,9 @@ export class SaveElementCommand {
                 try {
                     // Link targets that are notes in this vault but not on the
                     // server go first, or keel refuses the note (row 8).
-                    const firsts = await this.unsyncedTargets(client, worldName, elementUuid, type, payload);
+                    // Only the manual Save walks (Kael's read, blocker): auto-sync
+                    // leaves keel's refusal and says how to get past it.
+                    const firsts = manual ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload) : [];
                     new Notice(`Creating ${category} "${label}"...`);
                     if (firsts.length > 0) {
                         const refused = await this.createTogether(client, [
@@ -242,7 +257,7 @@ export class SaveElementCommand {
                 } catch (createError) {
                     console.error('Error during v2 create fallback:', createError);
                     const msg = createError instanceof Error ? createError.message : 'Unknown error';
-                    return this.fail(`Failed to create ${category}: ${msg}`, 10000);
+                    return this.fail(`Failed to create ${category}: ${msg}${missingLinkHint(createError, manual)}`, 10000);
                 }
             }
             console.error('Error during v2 GET (read-before-PATCH):', error);
@@ -261,9 +276,11 @@ export class SaveElementCommand {
             // A link this save adds may name a note not on the server yet:
             // create those first (row 8). Only ids the server's copy lacks are
             // looked up, so an unchanged link costs nothing.
-            const firsts = await this.unsyncedTargets(
-                client, worldName, elementUuid, type, changed, (key, id) => !linkHolds(current?.[key], id)
-            );
+            const firsts = manual
+                ? await this.unsyncedTargets(
+                    client, worldName, elementUuid, type, changed, (key, id) => !linkHolds(current?.[key], id)
+                )
+                : [];
             let firstNote = '';
             if (firsts.length > 0) {
                 const refused = await this.createTogether(client, firsts);
@@ -278,7 +295,7 @@ export class SaveElementCommand {
         } catch (error) {
             console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
-            return this.fail(`Failed to save ${category}: ${msg}`, 10000);
+            return this.fail(`Failed to save ${category}: ${msg}${missingLinkHint(error, manual)}`, 10000);
         }
     }
 

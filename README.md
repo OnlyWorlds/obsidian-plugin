@@ -73,7 +73,7 @@ On both Save Element and Upload World, a link field holding a `[[Name]]` that ma
 
 When a save changes an element's name, its note is renamed to match, through Obsidian, so links to it update as your **Files and links** setting says. A name another note already has gets a number, as on download: `Vallaki (1)`. Turn it off in settings.
 
-A link to a note that is in the vault but not on the server yet is fine: Save Element and auto-sync create that element first, together with the note, and say so ("Created Location "Vallaki" first."). The same goes for that element's own links to new notes.
+A link to a note that is in the vault but not on the server yet: Save Element creates that element first, together with the note, and says so ("Created Location "Vallaki" first."). The same goes for that element's own links to new notes. Auto-sync never creates them: the server refuses that save, and the notice says to run Save Element.
 
 **Download World** pulls the other way. The first run fetches the whole world; later runs fetch only what changed. For each element that changed on the server, it rewrites that note's fields and body from the server's copy, so unsaved local edits in that note are replaced. Properties the plugin doesn't manage are kept. Elements deleted on the server keep their notes; the plugin tells you how many.
 
