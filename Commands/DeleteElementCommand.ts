@@ -56,6 +56,13 @@ export class DeleteElementCommand {
         // world's delete touches nothing on onlyworlds.com.
         const preResolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
         const isLocalWorld = preResolved.source === 'local-world';
+        if (preResolved.readOnly) {
+            // A read key can never delete: refuse before the confirm dialog,
+            // so no one types a name for a delete that cannot happen
+            // (Seethe's walk of rc-next, h37 #6462). Nothing is sent.
+            new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
+            return;
+        }
 
         new DeleteConfirmModal(this.app, elementName, category, isLocalWorld, async () => {
             const resolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);

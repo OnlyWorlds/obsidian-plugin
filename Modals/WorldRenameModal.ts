@@ -3,6 +3,8 @@ import { applyMobileModal, suppressAutofocus } from './mobile';
 
 export class WorldRenameModal extends Modal {
     onRename: (oldWorldName: string, newWorldName: string) => void;
+    /** The worlds to offer; when unset, every world folder in the vault. */
+    worlds?: string[];
 
     constructor(app: App, onRename: (oldWorldName: string, newWorldName: string) => void) {
         super(app);
@@ -14,7 +16,7 @@ export class WorldRenameModal extends Modal {
         contentEl.createEl('h3', { text: 'Select and Rename World' });
         contentEl.addClass('rename-modal-container');
 
-        const worldFolders = await this.getWorldFolders();
+        const worldFolders = this.worlds ?? await this.getWorldFolders();
         const dropdown = new DropdownComponent(contentEl);
         dropdown.selectEl.addClass('rename-dropdown');
 

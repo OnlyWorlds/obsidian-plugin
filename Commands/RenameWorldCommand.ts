@@ -1,6 +1,6 @@
 import { App, Notice, requestUrl, normalizePath, TFile, TFolder } from 'obsidian';
-import { WorldRenameModal } from 'Modals/WorldRenameModal';
-import { resolveWorldKey } from '../vault/world-key';
+import { WorldRenameModal } from '../Modals/WorldRenameModal';
+import { READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { safeWorldFolderName } from '../vault/world-name';
 import type OnlyWorldsPlugin from '../main';
 
@@ -17,7 +17,7 @@ export class RenameWorldCommand {
         this.plugin = plugin ?? null;
     }
 
-    execute() {
+    async execute() {
         const modal = new WorldRenameModal(this.app, async (oldWorldName: string, newWorldName: string) => {
             try {
                 // Ensures each step completes before starting the next one
@@ -36,6 +36,21 @@ export class RenameWorldCommand {
                 new Notice('Failed to complete the renaming process.');
             }
         });
+        // A read key (ow_r_) can never rename the world on onlyworlds.com:
+        // such worlds are not offered, and a vault whose every world is
+        // read-only is refused before the dialog opens, with nothing renamed
+        // and nothing sent (Seethe's walk of rc-next, h37 #6462).
+        const folders = await modal.getWorldFolders();
+        const writable: string[] = [];
+        for (const folder of folders) {
+            const resolved = await resolveWorldKey(this.app, folder, this.plugin?.settings.apiKey);
+            if (!resolved.readOnly) writable.push(folder);
+        }
+        if (folders.length > 0 && writable.length === 0) {
+            new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
+            return;
+        }
+        modal.worlds = writable;
         modal.open();
     }
 

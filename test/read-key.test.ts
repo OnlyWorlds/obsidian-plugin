@@ -9,10 +9,12 @@ import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the m
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { App, TFile } from "obsidian";
-import { makeApp, __modals, __notices } from "./support/obsidian-mock";
+import { makeApp, setRequestUrl, __modals, __notices, __requests } from "./support/obsidian-mock";
 import { PinCache } from "../auth/pin-cache";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { ExportWorldCommand } from "../Commands/ExportWorldCommand";
+import { DeleteElementCommand } from "../Commands/DeleteElementCommand";
+import { RenameWorldCommand } from "../Commands/RenameWorldCommand";
 import { AutoSyncEngine } from "../sync/auto-sync";
 import { classifyWorldKey } from "../vault/world-key-core";
 
@@ -78,4 +80,78 @@ test("Upload with a read key refuses before the PIN is asked", async () => {
 	assert.equal(pinAsked, false, "the PIN was asked");
 	assert.equal(__modals.length, 0, "a modal opened");
 	assert.ok(__notices.some((n) => /^This world is read-only in this vault:/.test(n)));
+});
+
+// --- Delete Element and Rename World refuse BEFORE their dialogs (Seethe's walk of rc-next, h37 #6462) ---
+
+const READ_ONLY_LINE = /^This world is read-only in this vault:/;
+
+function makeActive(h: { app: App; file: TFile }): void {
+	(h.app as unknown as { workspace: { getActiveFile: () => TFile | null } }).workspace.getActiveFile = () => h.file;
+}
+
+function renamePlugin(h: Awaited<ReturnType<typeof setup>>) {
+	return {
+		...h.plugin,
+		buildClient: async (k: string) => {
+			h.clientsBuilt.push(k);
+			return null;
+		},
+	};
+}
+
+test("Delete Element with a read key refuses before the confirm dialog: the read-only line, no modal, no request", async () => {
+	const h = await setup("ow_r_player_strahd");
+	setRequestUrl(() => ({ status: 599 }));
+	makeActive(h);
+	await new DeleteElementCommand(h.app, h.plugin as never).execute();
+	assert.equal(__modals.length, 0, "a modal opened");
+	assert.deepEqual(__requests, [], "a request was sent");
+	assert.deepEqual(h.clientsBuilt, []);
+	assert.ok(__notices.some((n) => READ_ONLY_LINE.test(n)), __notices.join(" / "));
+});
+
+test("Delete Element with a write key still opens the typed-name confirm, and sends nothing yet", async () => {
+	const h = await setup("ow_w_owner_strahd");
+	setRequestUrl(() => ({ status: 599 }));
+	makeActive(h);
+	await new DeleteElementCommand(h.app, h.plugin as never).execute();
+	assert.equal(__modals.length, 1);
+	assert.equal(__modals[0].constructor.name, "DeleteConfirmModal");
+	assert.deepEqual(__requests, []);
+	assert.deepEqual(h.clientsBuilt, []);
+	assert.ok(!__notices.some((n) => READ_ONLY_LINE.test(n)));
+});
+
+test("Rename World with a read key refuses before the rename dialog: the read-only line, no modal, no rename, no request", async () => {
+	const h = await setup("ow_r_player_strahd");
+	setRequestUrl(() => ({ status: 599 }));
+	await new RenameWorldCommand(h.app, {}, renamePlugin(h) as never).execute();
+	assert.equal(__modals.length, 0, "a modal opened");
+	assert.deepEqual(__requests, [], "a request was sent");
+	assert.deepEqual(h.clientsBuilt, []);
+	assert.deepEqual((h.app as unknown as { renames: string[] }).renames, []);
+	assert.ok(__notices.some((n) => READ_ONLY_LINE.test(n)), __notices.join(" / "));
+});
+
+test("Rename World with a write key still opens the rename dialog, and sends nothing yet", async () => {
+	const h = await setup("ow_w_owner_strahd");
+	setRequestUrl(() => ({ status: 599 }));
+	await new RenameWorldCommand(h.app, {}, renamePlugin(h) as never).execute();
+	assert.equal(__modals.length, 1);
+	assert.equal(__modals[0].constructor.name, "WorldRenameModal");
+	assert.deepEqual(__requests, []);
+	assert.deepEqual(h.clientsBuilt, []);
+	assert.ok(!__notices.some((n) => READ_ONLY_LINE.test(n)));
+});
+
+test("Rename World in a vault holding a read-key world and a write-key world offers only the writable one", async () => {
+	const h = await setup("ow_r_player_strahd");
+	const { vault } = h.app as unknown as { vault: { seed(p: string, c: string): Promise<unknown> } };
+	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **API Key:** ow_w_owner_hyperion\n");
+	setRequestUrl(() => ({ status: 599 }));
+	await new RenameWorldCommand(h.app, {}, renamePlugin(h) as never).execute();
+	assert.equal(__modals.length, 1);
+	assert.deepEqual((__modals[0] as unknown as { worlds?: string[] }).worlds, ["Hyperion"]);
+	assert.deepEqual(__requests, []);
 });
