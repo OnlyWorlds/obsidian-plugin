@@ -135,3 +135,19 @@ test("★ every fence shape a value can hold round-trips byte for byte through a
 		assert.equal(back.background, "Next.", JSON.stringify(v));
 	}
 });
+
+// The keeper's amendment (Kael's second read): one rule for a closed fence both ways.
+test("★ a `### ` line inside a closed fence is written and read back unchanged, by one rule both ways", async () => {
+	const value = "Before.\n```md\n### inside\n\\### typed inside\n```\nAfter.";
+	const body = buildElementBody({ description: value, background: "Next." }, "character");
+	assert.ok(body.includes("```md\n### inside\n\\### typed inside\n```"), body);
+	const { app } = makeApp();
+	const file = await writeElement(app, "W", "character", ID, { name: "Ireena", description: value, background: "Next." });
+	const parsed = await readElement(app, file as TFile);
+	assert.equal(parsed?.fields.description, value);
+	assert.equal(parsed?.fields.background, "Next.");
+	// A hand note: the closed fence's `### ` is no heading.
+	const hand = parseElementBody("### Description\n\n~~~\n### not a field\n~~~\n\n### Background\n\nNext.\n", "character");
+	assert.equal(hand.fields.description, "~~~\n### not a field\n~~~");
+	assert.deepEqual(hand.unknown, []);
+});
