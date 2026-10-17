@@ -363,6 +363,7 @@ export class SaveElementCommand {
         let index: Map<string, TFile> | null = null;
         let deleted: Set<string> | null = null;
         let overflow = false;
+        let found = 0;
         const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
             for (const id of linkIdsOf(type, payload, filter)) {
                 if (overflow) return;
@@ -388,12 +389,16 @@ export class SaveElementCommand {
                 }
                 // A cap, not a sweep: past it the whole group is Upload World's
                 // (Kael's read, should-fix 2; keel's /bulk takes at most 1000).
-                if (out.length >= MAX_CREATE_FIRST) {
+                // Counted when found, before walking into it: a target joins
+                // `out` only on the way back out, so counting `out` let a chain
+                // run past the cap (Kael's second read, N2).
+                if (++found > MAX_CREATE_FIRST) {
                     overflow = true;
                     return;
                 }
                 const targetPayload = toV2Payload(parsed.fields);
                 await visit(parsed.category, targetPayload);
+                if (overflow) return;
                 out.push({ type: parsed.category, id, name: parsed.name, payload: targetPayload });
             }
         };

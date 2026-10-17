@@ -324,3 +324,33 @@ test("exactly 50 targets: the dialog lists all 50 and Create sends them", async 
 	assert.equal(h.dialogs[0]?.items.length, 50);
 	assert.equal(h.bulks[0].length, 51);
 });
+
+/** Ireena -> L0 -> L1 -> ... -> L(n-1), each a new location note (parent_location). */
+function chain(n: number): Record<string, string> {
+	const notes: Record<string, string> = {
+		"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[L0]]"\n'),
+	};
+	for (let i = 0; i < n; i++) {
+		const id = `019b0000-0000-7000-8000-1${String(i).padStart(11, "0")}`;
+		notes[`Location/L${i}.md`] = note(id, `L${i}`, i + 1 < n ? `parent_location: "[[L${i + 1}]]"\n` : "");
+	}
+	return notes;
+}
+
+test("★ the cap holds on a chain: 60 notes in a line create nothing, no dialog, and the walk stops at the 51st (Kael's second read, N2)", async () => {
+	const h = await harness(chain(60));
+	const result = await h.save(h.files["Character/Ireena.md"]);
+	assert.equal(result.ok, false);
+	assert.match((result as { reason: string }).reason, /Upload World/);
+	assert.equal(h.dialogs.length, 0);
+	assert.deepEqual(h.bulks, []);
+	assert.ok(h.calls.filter((c) => c.startsWith("get location")).length <= 51, "the walk ran past the cap");
+});
+
+test("a chain of exactly 50 still goes through the dialog, deepest first", async () => {
+	const h = await harness(chain(50));
+	const result = await h.save(h.files["Character/Ireena.md"]);
+	assert.equal(result.ok, true);
+	assert.equal(h.dialogs[0]?.items.length, 50);
+	assert.deepEqual(h.dialogs[0]?.items[0], { type: "location", name: "L49" });
+});
