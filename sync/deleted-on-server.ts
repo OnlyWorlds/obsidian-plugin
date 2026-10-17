@@ -19,7 +19,7 @@
 export interface DeletedListHost {
 	settings: {
 		deletedOnServer?: Record<string, string[]>;
-		syncCursors?: Record<string, { cursor?: string } | undefined>;
+		syncCursors?: Record<string, { cursor?: string; head?: number } | undefined>;
 	};
 	saveSettings?: () => Promise<void>;
 }
@@ -27,8 +27,15 @@ export interface DeletedListHost {
 /** The client calls this needs. */
 export interface DeletedListClient {
 	getWorld(): Promise<Record<string, unknown>>;
-	changesWalk(since?: string): Promise<{ changes: { id: string; op: string }[] }>;
+	changesWalk(since?: string): Promise<{ changes: { id: string; op: string }[]; head?: number }>;
 }
+
+/**
+ * Why this device cannot tell: it never downloaded the world here, the feed
+ * read failed, or the server is behind the stored cursor (restored from a
+ * backup since the last Download; Kael's third read, 4).
+ */
+export type CannotTell = "no-cursor" | "failed" | "rewound";
 
 export interface DeletedView {
 	/** The world's id, "" when it could not be read. */
@@ -38,7 +45,7 @@ export interface DeletedView {
 	/** False when this device cannot tell (no stored cursor, or the feed could not be read). */
 	known: boolean;
 	/** Why not, when `known` is false: no stored cursor (never downloaded here), or a read that failed. */
-	reason?: "no-cursor" | "failed";
+	reason?: CannotTell;
 }
 
 /** The deleted ids of the world `client`'s key names, the feed read once from the stored cursor. */
@@ -50,12 +57,20 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 		return { worldId: "", ids: new Set(), known: false, reason: "failed" };
 	}
 	const ids = new Set(host.settings.deletedOnServer?.[worldId] ?? []);
-	const cursor = host.settings.syncCursors?.[worldId]?.cursor;
+	const stored = host.settings.syncCursors?.[worldId];
+	const cursor = stored?.cursor;
 	if (!worldId) return { worldId, ids, known: false, reason: "failed" };
 	if (!cursor) return { worldId, ids, known: false, reason: "no-cursor" };
 	let changes: { id: string; op: string }[];
 	try {
-		changes = (await client.changesWalk(cursor)).changes;
+		const walk = await client.changesWalk(cursor);
+		// A head below the one Download stored: the server was restored, and a
+		// delete at or below the old cursor would never show (Download compares
+		// heads the same way).
+		if (typeof stored?.head === "number" && typeof walk.head === "number" && walk.head < stored.head) {
+			return { worldId, ids, known: false, reason: "rewound" };
+		}
+		changes = walk.changes;
 	} catch {
 		return { worldId, ids, known: false, reason: "failed" };
 	}

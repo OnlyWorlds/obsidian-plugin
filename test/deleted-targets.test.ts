@@ -66,6 +66,8 @@ interface SaveOpts {
 	feed?: unknown[];
 	/** The change feed read fails (a 503). */
 	feedFails?: boolean;
+	/** The head the feed reports (default 99; the stored head is 5). */
+	feedHead?: number;
 	/** Every dialog is answered with this (default true: Create). */
 	answer?: boolean;
 	/** The manual Save Element (default), or auto-sync's save. */
@@ -97,7 +99,7 @@ async function saveNote(o: SaveOpts) {
 		changesWalk: async (since?: string) => {
 			calls.push(`changes ${since ?? "epoch"}`);
 			if (o.feedFails) throw new V2ApiError(503, "unavailable", "Service Unavailable", null);
-			return { changes: o.feed ?? [], cursor: "c-next", head: 99 };
+			return { changes: o.feed ?? [], cursor: "c-next", head: o.feedHead ?? 99 };
 		},
 		get: async (type: string, id: string) => {
 			calls.push(`get ${type} ${id}`);
@@ -373,6 +375,21 @@ test("★ no stored cursor, manual Save: asks with the never-downloaded line on 
 	assert.equal(r.dialogs.length, 1);
 	assert.ok(r.dialogs[0].lines?.some((l) => /has not downloaded this world/.test(l)), JSON.stringify(r.dialogs[0].lines));
 	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+});
+
+// --- Kael's third read, 4b: a stored cursor past the server's head ----------
+
+test("★ a feed whose head is below the stored head (a server restore) cannot tell: auto-sync refuses and points to Download World", async () => {
+	const r = await saveNote({ ...OWN, cursor: "c5", feed: [], feedHead: 3, manual: false });
+	assert.equal(r.result.ok, false);
+	assert.match((r.result as { reason: string }).reason, /restored.*Download World/);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")));
+});
+
+test("the manual Save asks, saying the server was restored since this device's last Download", async () => {
+	const r = await saveNote({ ...OWN, cursor: "c5", feed: [], feedHead: 3, answer: false });
+	assert.equal(r.dialogs.length, 1);
+	assert.ok(r.dialogs[0].lines?.some((l) => /restored/.test(l)), JSON.stringify(r.dialogs[0].lines));
 });
 
 test("stored cursor, feed read fine, nothing deleted: no dialog, both ways", async () => {

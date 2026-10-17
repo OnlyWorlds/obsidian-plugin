@@ -6,7 +6,7 @@ import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
-import { CreateFirstModal, cannotTellLine, type CreateFirstItem } from '../Modals/CreateFirstModal';
+import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { confirm } from '../Modals/ConfirmModal';
 
@@ -55,7 +55,7 @@ interface CreateFirstPlan {
     overflow?: boolean;
     /** This device cannot tell a never-uploaded note from a deleted one (no stored cursor). */
     cannotTell?: boolean;
-    cannotTellReason?: 'no-cursor' | 'failed';
+    cannotTellReason?: CannotTellReason;
     /** The ids of `leftOut`: stripped from this save's link fields (Kael's second read, N5). */
     leftOutIds?: string[];
 }
@@ -339,6 +339,12 @@ export class SaveElementCommand {
                             return this.fail(
                                 `Could not check onlyworlds.com for a delete of ${label}; not created this time. Auto-sync tries again on the next edit.`,
                                 8000
+                            );
+                        }
+                        if (!manual && view.reason === 'rewound') {
+                            return this.fail(
+                                `onlyworlds.com was restored from a backup since this device's last Download, so ${label} was not created: run Download World.`,
+                                10000
                             );
                         }
                         if (manual) {

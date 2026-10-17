@@ -27,7 +27,7 @@ export class CreateFirstModal extends Modal {
         /** No stored change-feed cursor: a 404 cannot be told from a delete here (Kael's second read, N3). */
         readonly cannotTell = false,
         /** Why it cannot tell: never downloaded here, or the feed read failed (Kael's third read, 9). */
-        readonly cannotTellReason: 'no-cursor' | 'failed' = 'no-cursor'
+        readonly cannotTellReason: CannotTellReason = 'no-cursor'
     ) {
         super(app);
     }
@@ -74,9 +74,19 @@ export const FEED_FAILED_LINE =
     "The plugin could not read onlyworlds.com's change feed just now, so it cannot tell a note never uploaded " +
     'from one deleted on onlyworlds.com.';
 
+/** What the plugin says when the server is behind this device's last Download (Kael's third read, 4). */
+export const REWOUND_LINE =
+    'onlyworlds.com was restored from a backup since this device last downloaded the world, so the plugin ' +
+    'cannot tell a note never uploaded from one deleted there. Download World first.';
+
+/** Why the plugin cannot tell: never downloaded here, a failed feed read, or a restored server. */
+export type CannotTellReason = 'no-cursor' | 'failed' | 'rewound';
+
 /** The cannot-tell line for its reason. */
-export function cannotTellLine(reason: 'no-cursor' | 'failed' | undefined): string {
-    return reason === 'failed' ? FEED_FAILED_LINE : CANNOT_TELL_LINE;
+export function cannotTellLine(reason: CannotTellReason | undefined): string {
+    if (reason === 'failed') return FEED_FAILED_LINE;
+    if (reason === 'rewound') return REWOUND_LINE;
+    return CANNOT_TELL_LINE;
 }
 
 /** `Location "Vallaki"`. */
