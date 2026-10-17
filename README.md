@@ -91,7 +91,7 @@ Download World and Create World write `<World name>.base` beside `World.md`: a t
 
 The plugin rewrites only its own file, unchanged since it wrote it. Once you change the base (a view, a sort, a column), Download leaves it as is and says so once; delete it, or run **Write Bases file**, which rebuilds it and keeps your version beside it as `<World name> (your copy).base`. Rename World moves the plugin's file to the new name.
 
-With Obsidian Sync or another sync tool, a base is rebuilt from your world on Download, so a stale copy from another device is replaced unless it carries your own edits.
+With Obsidian Sync or another sync tool, Download rebuilds the base from your world on each device. A stale copy from another device then replaces the base, unless it carries your edits: a base with your edits is kept as is, and Write Bases file saves it as `<World name> (your copy).base` before it rebuilds. Let an edited base sync to every device before you download on another.
 
 ## Commands
 
@@ -108,7 +108,7 @@ With Obsidian Sync or another sync tool, a base is rebuilt from your world on Do
 | Add Custom Field | Add your own text field (stored as `x_<name>`). |
 | Rename World | Rename the world folder, and the world on onlyworlds.com if it has a key. |
 | Write Bases file | Write the active world's `.base` file (see Bases); rebuilds one you changed, keeping your version beside it. |
-| Draw relationships on a canvas | Draw the active element, what it links to and what links to it as an Obsidian canvas beside its note, each arrow labelled with its field. A Relation keeps its own card. Running it again redraws the canvas. |
+| Draw relationships on a canvas | Draw the active element, what it links to and what links to it as an Obsidian canvas beside its note, each arrow labelled with its field. A Relation keeps its own card. Running it again redraws the canvas; one you changed is first saved as `(your copy)`. File names stop at 255 characters, so an element whose name is longer than about 230 gets no canvas. |
 | Export as OnlyWorlds folder | Write the world as an OnlyWorlds folder (`world.json` plus one JSON file per element). Into the vault, or on desktop into any folder, such as your [Atlas](https://atlas.onlyworlds.com) folder. Never overwrites an existing folder. |
 | Import OnlyWorlds folder | Read an OnlyWorlds folder placed in the vault into notes. Skips elements that already have a note; refuses to merge into a different world of the same name. |
 | Copy World to Clipboard / Paste World from Clipboard | The world as JSON, out and back in. |

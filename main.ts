@@ -148,7 +148,7 @@ export default class OnlyWorldsPlugin extends Plugin {
                 : null,
             () => this.settings.writeBasesFile !== false
         );
-        const writeBasesFileCommand = new WriteBasesFileCommand(this.app);
+        const writeBasesFileCommand = new WriteBasesFileCommand(this.app, this);
         const drawRelationshipsCommand = new DrawRelationshipsCommand(this.app, () => this.settings.canvasIncomingLinks !== false);
         const joinWorldCommand = new JoinWorldCommand(this.app, this, downloadWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);

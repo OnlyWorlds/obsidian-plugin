@@ -275,3 +275,22 @@ test("keys a viewer adds that the plugin never writes (and default arrow ends) d
 	c.edges[0].label = "home";
 	assert.equal(canvasStatus(JSON.stringify(c), KASSAD_ID), "changed");
 });
+
+// ── Round 3, item 3: a renamed element's old canvas ──
+
+test("after the element is renamed, the new canvas is drawn under the new name and the Notice names the old one, left as is", async () => {
+	const { app, vault } = makeApp();
+	await seedWorld(vault);
+	focus(app, vault, KASSAD);
+	await draw(app);
+	const old = vault.contentAt(CANVAS);
+	await vault.modify(vault.files.get(KASSAD)!.file, vault.contentAt(KASSAD)!.replace("name: Kassad", "name: Fedmahn"));
+	__notices.length = 0;
+	await draw(app);
+	assert.ok(vault.contentAt(`${W}/Character/Fedmahn — relationships.canvas`));
+	assert.equal(vault.contentAt(CANVAS), old, "the old canvas is left as is");
+	assert.ok(
+		__notices.some((n) => n.includes("Fedmahn — relationships.canvas") && n.includes("Kassad — relationships.canvas")),
+		__notices.join(" / ")
+	);
+});

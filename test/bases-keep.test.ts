@@ -337,3 +337,24 @@ test("on a case-sensitive disk (Linux), hyperion.base is another file: Hyperion.
 	assert.equal(await writeWorldBasesFile(app, "Hyperion"), "created");
 	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Hyperion"), [BASE, LOWER].sort());
 });
+
+// ── Round 3, item 3: a rebuild clears the once-only Notice memory ──
+
+test("Write Bases file's rebuild forgets the world, so a later change is announced again", async () => {
+	const { app, vault } = makeApp();
+	const plugin = makePlugin();
+	await download(app, plugin);
+	editBase(vault);
+	await download(app, plugin);
+	assert.deepEqual(plugin.settings.basesKeptNoticed, ["Hyperion"]);
+
+	(app.workspace as unknown as { getActiveFile: () => unknown }).getActiveFile = () =>
+		vault.files.get("OnlyWorlds/Worlds/Hyperion/World.md")!.file;
+	await new WriteBasesFileCommand(app, plugin as never).execute();
+	assert.deepEqual(plugin.settings.basesKeptNoticed, []);
+
+	editBase(vault);
+	__notices.length = 0;
+	await download(app, plugin);
+	assert.ok(__notices.includes(KEPT_NOTICE), __notices.join(" / "));
+});
