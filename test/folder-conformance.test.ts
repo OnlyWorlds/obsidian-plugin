@@ -610,6 +610,26 @@ test("row 19: an imported element edited in its note still exports in its source
 	assert.deepEqual(Object.keys(body).slice(0, Object.keys(src).length), Object.keys(src), "source keys reordered");
 });
 
+// --- Row 20: an integral float is written as an int (spec §5, 2026-09-28) ----
+
+test("row 20: x_land_state 1.0 and height 170.0 in a source file export as 1 and 170, values unchanged", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("in/barovia/world.json", JSON.stringify({ id: WID, name: "Barovia" }));
+	await vault.seed(
+		"in/barovia/elements/character/ireena--000000c1.json",
+		`{"id": "${CHAR_ID}", "type": "character", "name": "Ireena", "height": 170.0, "x_land_state": 1.0, "x_ratio": 0.5}\n`
+	);
+	await importDir(app, "in/barovia");
+	const note = [...vault.files.keys()].find((p) => p.includes("/Elements/Character/"))!;
+	assert.match(vault.contentAt(note) ?? "", /^height: 170$/m);
+	assert.match(vault.contentAt(note) ?? "", /^x_land_state: 1$/m);
+	const out = await exportWorld(app, vault, "Barovia");
+	const text = out[Object.keys(out).find((p) => p.startsWith("elements/character/"))!];
+	assert.match(text, /"height": 170,/);
+	assert.match(text, /"x_land_state": 1,/);
+	assert.match(text, /"x_ratio": 0.5/);
+});
+
 // --- Row 15: prose crosses import and export unaltered ----------------------
 
 test("row 15: a description's mention label and an unresolved [[X]] survive import then export byte for byte", async () => {
