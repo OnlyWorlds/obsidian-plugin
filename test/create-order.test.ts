@@ -1,0 +1,175 @@
+/**
+ * A note is never refused for linking to a sibling note the plugin could
+ * create (OW Infra #166 row 8, hop 10 live part 1): keel 400s a write whose
+ * link names an element it does not have ("location references Location ...
+ * which does not exist"), and a vault of new notes linking among themselves
+ * failed note by note until the targets happened to save first.
+ *
+ * Now a save first finds the link targets that are local notes without a
+ * server element (depth-first, a visited set), and sends them with the note in
+ * one POST /bulk, which keel validates against the batch and applies in one
+ * transaction, cycles included (keel elements/bulk.py, the two-phase law). The
+ * notice names what it created first. Run against the REAL SaveElementCommand
+ * through the in-memory vault, with a recording fake of the v2 client.
+ */
+import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { App, TFile } from "obsidian";
+import { makeApp, __notices } from "./support/obsidian-mock";
+import { SaveElementCommand } from "../Commands/SaveElementCommand";
+import { V2ApiError } from "../client-v2";
+
+const W = "OnlyWorlds/Worlds/W";
+const ID = {
+	ireena: "019b0000-0000-7000-8000-0000000000c1",
+	vallaki: "019b0000-0000-7000-8000-0000000000a1",
+	barovia: "019b0000-0000-7000-8000-0000000000a2",
+	krezk: "019b0000-0000-7000-8000-0000000000a3",
+	brave: "019b0000-0000-7000-8000-0000000000b1",
+};
+const note = (id: string, name: string, links = "") =>
+	`---\nname: ${name}\nid: ${id}\n${links}---\n\n### Description\n\nAbout ${name}.\n`;
+
+interface Opts {
+	existing?: Iterable<string>;
+	/** /bulk answers this status for these ids (default 201 for every item). */
+	bulkStatus?: Record<string, number>;
+	current?: Record<string, Record<string, unknown>>;
+}
+
+async function harness(notes: Record<string, string>, opts: Opts = {}) {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "- **API Key:** ow_k_test\n");
+	const files: Record<string, TFile> = {};
+	for (const [rel, content] of Object.entries(notes)) {
+		files[rel] = (await vault.seed(`${W}/Elements/${rel}`, content)) as unknown as TFile;
+	}
+	const existing = new Set(opts.existing ?? []);
+	const calls: string[] = [];
+	const bulks: { type: string; element: Record<string, unknown> }[][] = [];
+	const client = {
+		get: async (type: string, id: string) => {
+			calls.push(`get ${type} ${id}`);
+			if (existing.has(id)) return { id, name: "server", ...(opts.current?.[id] ?? {}) };
+			throw new V2ApiError(404, "not_found", "API Error 404", null);
+		},
+		create: async (type: string, body: Record<string, unknown>) => {
+			calls.push(`create ${type} ${String(body.id)}`);
+			existing.add(String(body.id));
+			return body;
+		},
+		update: async (type: string, id: string, body: Record<string, unknown>) => {
+			calls.push(`update ${type} ${id} ${JSON.stringify(body)}`);
+			return {};
+		},
+		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[]) => {
+			calls.push(`bulk ${items.map((i) => `${i.type}:${String(i.element.id)}`).join(",")}`);
+			bulks.push(items);
+			const results = items.map((i) => {
+				const status = opts.bulkStatus?.[String(i.element.id)] ?? 201;
+				if (status === 201) existing.add(String(i.element.id));
+				return status === 201
+					? { status, id: i.element.id }
+					: { status, id: i.element.id, error: { message: "references Location which does not exist" } };
+			});
+			return { errors: results.some((r) => r.status !== 201), items: results };
+		},
+	};
+	const plugin = {
+		settings: { apiKey: "" },
+		buildV2Client: async () => client,
+	};
+	const cmd = new SaveElementCommand(app as App, plugin as never);
+	__notices.length = 0;
+	return { app, vault, files, cmd, calls, bulks, notices: __notices };
+}
+
+test("★ row 8: a new note linking to a new local note creates the target first, in one /bulk", async () => {
+	const h = await harness({
+		"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+		"Location/Vallaki.md": note(ID.vallaki, "Vallaki"),
+	});
+	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	assert.deepEqual(result, { ok: true, outcome: "created" });
+	assert.ok(!h.calls.some((c) => c.startsWith("create ")), "a lone create would be refused by keel");
+	assert.deepEqual(h.calls.filter((c) => c.startsWith("bulk")), [
+		`bulk location:${ID.vallaki},character:${ID.ireena}`,
+	]);
+	const ireena = h.bulks[0][1].element;
+	assert.equal(ireena.birthplace, ID.vallaki, "the link travels with the note");
+	assert.ok(h.notices.some((n) => n.includes('Created Location "Vallaki" first')), h.notices.join(" | "));
+});
+
+test("★ row 8: a chain is created depth-first, targets before the notes that link to them", async () => {
+	const h = await harness({
+		"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+		"Location/Vallaki.md": note(ID.vallaki, "Vallaki", 'parent_location: "[[Barovia]]"\n'),
+		"Location/Barovia.md": note(ID.barovia, "Barovia"),
+	});
+	await h.cmd.execute(h.files["Character/Ireena.md"]);
+	assert.deepEqual(h.bulks[0].map((i) => i.element.id), [ID.barovia, ID.vallaki, ID.ireena]);
+});
+
+test("★ row 8: cycles (a target linking back to the note, two targets linking to each other) end, and go in the one batch", async () => {
+	const h = await harness({
+		"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+		"Location/Vallaki.md": note(ID.vallaki, "Vallaki", 'rival: "[[Krezk]]"\nfounders:\n  - "[[Ireena]]"\n'),
+		"Location/Krezk.md": note(ID.krezk, "Krezk", 'rival: "[[Vallaki]]"\n'),
+	});
+	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	assert.equal(result.ok, true);
+	assert.equal(h.bulks.length, 1);
+	const ids = h.bulks[0].map((i) => i.element.id);
+	assert.deepEqual([...ids].sort(), [ID.ireena, ID.krezk, ID.vallaki].sort());
+	assert.equal(ids.at(-1), ID.ireena, "the note itself goes last");
+	const vallaki = h.bulks[0].find((i) => i.element.id === ID.vallaki)!.element;
+	assert.equal(vallaki.rival, ID.krezk, "a link inside the cycle is sent, not left bare");
+	assert.deepEqual(vallaki.founders, [ID.ireena]);
+});
+
+test("row 8: a target already on the server stops the walk; a note with no new targets creates as before", async () => {
+	const h = await harness(
+		{
+			"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+			"Location/Vallaki.md": note(ID.vallaki, "Vallaki", 'parent_location: "[[Barovia]]"\n'),
+			"Location/Barovia.md": note(ID.barovia, "Barovia"),
+		},
+		{ existing: [ID.vallaki] }
+	);
+	await h.cmd.execute(h.files["Character/Ireena.md"]);
+	assert.deepEqual(h.calls, [`get character ${ID.ireena}`, `get location ${ID.vallaki}`, `create character ${ID.ireena}`]);
+});
+
+test("★ row 8: an existing note given a link to a new local note creates the target first, then saves", async () => {
+	const h = await harness(
+		{
+			"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\ntraits:\n  - "[[Brave]]"\n'),
+			"Location/Vallaki.md": note(ID.vallaki, "Vallaki"),
+			"Trait/Brave.md": note(ID.brave, "Brave"),
+		},
+		{ existing: [ID.ireena, ID.brave], current: { [ID.ireena]: { name: "Ireena", birthplace: null, traits: [ID.brave] } } }
+	);
+	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	assert.deepEqual(result, { ok: true, outcome: "updated" });
+	const bulkAt = h.calls.findIndex((c) => c.startsWith("bulk"));
+	const updateAt = h.calls.findIndex((c) => c.startsWith("update"));
+	assert.equal(h.calls[bulkAt], `bulk location:${ID.vallaki}`, "only the new target, not Brave (already on the server)");
+	assert.ok(bulkAt >= 0 && updateAt > bulkAt, h.calls.join(" | "));
+	assert.ok(!h.calls.includes(`get trait ${ID.brave}`), "an unchanged link is not looked up");
+	assert.ok(h.notices.some((n) => n.includes('Created Location "Vallaki" first')));
+});
+
+test("row 8: a target keel refuses fails the save, names it, and sends nothing more", async () => {
+	const h = await harness(
+		{
+			"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+			"Location/Vallaki.md": note(ID.vallaki, "Vallaki"),
+		},
+		{ bulkStatus: { [ID.vallaki]: 422, [ID.ireena]: 400 } }
+	);
+	const result = await h.cmd.execute(h.files["Character/Ireena.md"]);
+	assert.equal(result.ok, false);
+	assert.match((result as { reason: string }).reason, /Vallaki/);
+	assert.ok(!h.calls.some((c) => c.startsWith("create ") || c.startsWith("update ")));
+});

@@ -5,7 +5,7 @@ import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } fr
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
-import { diffPayload } from '../vault/element-transform';
+import { diffPayload, getCategorySchema } from '../vault/element-transform';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -39,6 +39,50 @@ export function ambiguousLinksMessage(links: string[]): string {
     return `Not saved to those links: ${shown}${more}. ` +
         `${names.length === 1 ? 'That name matches' : 'Those names match'} notes of more than one type — ` +
         `rename one of the notes, then save again.`;
+}
+
+/** A local note created before the note that links to it (OW Infra #166 row 8). */
+interface PendingCreate {
+    type: string;
+    id: string;
+    name: string;
+    payload: Record<string, unknown>;
+}
+
+/** "Created Location "Vallaki", Trait "Brave" first." — what a save created before the note itself. */
+export function createdFirstMessage(firsts: { type: string; name: string }[]): string {
+    const shown = firsts.slice(0, 3).map((f) => `${capitalize(f.type)} "${f.name}"`).join(', ');
+    const more = firsts.length > 3 ? ` +${firsts.length - 3} more` : '';
+    return `Created ${shown}${more} first.`;
+}
+
+function capitalize(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** The element ids a payload's link fields hold, by its type's schema; `keep` filters by field and id. */
+function linkIdsOf(
+    type: string,
+    payload: Record<string, unknown>,
+    keep?: (key: string, id: string) => boolean
+): string[] {
+    const schema = getCategorySchema(type);
+    if (!schema) return [];
+    const ids: string[] = [];
+    for (const [key, value] of Object.entries(payload)) {
+        const def = schema[key];
+        if (!def || (def.type !== 'single_link' && def.type !== 'multi_link')) continue;
+        for (const v of Array.isArray(value) ? value : [value]) {
+            if (typeof v === 'string' && v && (!keep || keep(key, v))) ids.push(v);
+        }
+    }
+    return ids;
+}
+
+/** True when a server link value (an id, a list of ids, or stubs) already holds `id`. */
+function linkHolds(value: unknown, id: string): boolean {
+    const holds = (v: unknown) => v === id || (!!v && typeof v === 'object' && (v as { id?: unknown }).id === id);
+    return Array.isArray(value) ? value.some(holds) : holds(value);
 }
 
 export class SaveElementCommand {
@@ -179,7 +223,19 @@ export class SaveElementCommand {
         } catch (error) {
             if (this.isNotFound(error)) {
                 try {
+                    // Link targets that are notes in this vault but not on the
+                    // server go first, or keel refuses the note (row 8).
+                    const firsts = await this.unsyncedTargets(client, worldName, elementUuid, type, payload);
                     new Notice(`Creating ${category} "${label}"...`);
+                    if (firsts.length > 0) {
+                        const refused = await this.createTogether(client, [
+                            ...firsts,
+                            { type, id: elementUuid, name: String(label), payload },
+                        ]);
+                        if (refused) return this.fail(`Failed to create ${category}: ${refused}`, 12000);
+                        new Notice(`${createdFirstMessage(firsts)} ${category} created.`, 8000);
+                        return { ok: true, outcome: 'created' };
+                    }
                     await client.create(type, { id: elementUuid, ...payload });
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
@@ -202,14 +258,109 @@ export class SaveElementCommand {
 
         try {
             new Notice(`Saving ${category} "${label}"...`);
+            // A link this save adds may name a note not on the server yet:
+            // create those first (row 8). Only ids the server's copy lacks are
+            // looked up, so an unchanged link costs nothing.
+            const firsts = await this.unsyncedTargets(
+                client, worldName, elementUuid, type, changed, (key, id) => !linkHolds(current?.[key], id)
+            );
+            let firstNote = '';
+            if (firsts.length > 0) {
+                const refused = await this.createTogether(client, firsts);
+                if (refused) return this.fail(`${category} "${label}" not saved: ${refused}`, 12000);
+                firstNote = `${createdFirstMessage(firsts)} `;
+            }
             await client.update(type, elementUuid, changed);
-            new Notice(`${category} saved.`);
+            new Notice(`${firstNote}${category} saved.`, firstNote ? 8000 : undefined);
             return { ok: true, outcome: 'updated' };
         } catch (error) {
             console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
             return this.fail(`Failed to save ${category}: ${msg}`, 10000);
         }
+    }
+
+    /**
+     * The link targets of `payload` that are notes in this world without an
+     * element on the server, each after its own such targets (depth-first,
+     * one visited set, so a cycle ends). The note being saved is visited
+     * first and never returned. A target that is no note here, or that the
+     * server already has (or answers with anything but 404), is left alone.
+     * `keep` narrows the payload's own links (the update path: only the ids
+     * the server's copy lacks). OW Infra #166 row 8.
+     */
+    private async unsyncedTargets(
+        client: { get(type: string, id: string): Promise<Record<string, unknown>> },
+        worldName: string,
+        rootId: string,
+        rootType: string,
+        rootPayload: Record<string, unknown>,
+        keep?: (key: string, id: string) => boolean
+    ): Promise<PendingCreate[]> {
+        const out: PendingCreate[] = [];
+        const visited = new Set<string>([rootId]);
+        let index: Map<string, TFile> | null = null;
+        const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
+            for (const id of linkIdsOf(type, payload, filter)) {
+                if (visited.has(id)) continue;
+                visited.add(id);
+                index = index ?? this.worldNoteIndex(worldName);
+                const file = index.get(id);
+                if (!file) continue;
+                const parsed = await readElement(this.app, file);
+                if (!parsed || parsed.id !== id) continue;
+                try {
+                    await client.get(parsed.category, id);
+                    continue; // already on the server
+                } catch (error) {
+                    if (!this.isNotFound(error)) continue;
+                }
+                const targetPayload = toV2Payload(parsed.fields);
+                await visit(parsed.category, targetPayload);
+                out.push({ type: parsed.category, id, name: parsed.name, payload: targetPayload });
+            }
+        };
+        await visit(rootType, rootPayload, keep);
+        return out;
+    }
+
+    /** This world's element notes by their frontmatter id. */
+    private worldNoteIndex(worldName: string): Map<string, TFile> {
+        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+        const index = new Map<string, TFile>();
+        for (const f of this.app.vault.getMarkdownFiles()) {
+            if (!f.path.startsWith(prefix)) continue;
+            const id = this.app.metadataCache.getFileCache(f)?.frontmatter?.id;
+            if (typeof id === 'string' && !index.has(id)) index.set(id, f);
+        }
+        return index;
+    }
+
+    /**
+     * Create these elements in ONE POST /bulk. keel validates every item's
+     * links against the batch and the world, to a fixpoint, and applies the
+     * survivors in one transaction (elements/bulk.py), so items may link to
+     * each other, in a cycle too: no item is created bare and patched after.
+     * Returns null when every item landed (201, or 200 if the id appeared
+     * meanwhile), else the refused items with keel's reasons.
+     */
+    private async createTogether(
+        client: { bulkCreate(items: { type: string; element: Record<string, unknown> }[]): Promise<Record<string, unknown>> },
+        items: PendingCreate[]
+    ): Promise<string | null> {
+        const body = await client.bulkCreate(items.map((i) => ({ type: i.type, element: { id: i.id, ...i.payload } })));
+        const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
+        const refused: string[] = [];
+        items.forEach((item, i) => {
+            const r = (results[i] ?? null) as { status?: unknown; error?: { message?: unknown } } | null;
+            const status = typeof r?.status === 'number' ? r.status : null;
+            if (status === 201 || status === 200) return;
+            const why = typeof r?.error?.message === 'string'
+                ? r.error.message
+                : status !== null ? `status ${status}` : 'no result from the server';
+            refused.push(`${capitalize(item.type)} "${item.name}": ${why}`);
+        });
+        return refused.length > 0 ? refused.join('; ') : null;
     }
 
     /** Show the reason (the Notice the user always got) and report the failure. */
