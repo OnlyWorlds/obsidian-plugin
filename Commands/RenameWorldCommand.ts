@@ -46,6 +46,7 @@ export class RenameWorldCommand {
             return;
         }
         modal.worlds = writable;
+        modal.readOnlyLeftOut = readOnly.length > 0;
         modal.open();
     }
 

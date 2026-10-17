@@ -16,10 +16,10 @@ export class FakeEl {
 
 	constructor(public tag = "div") {}
 
-	createEl(tag: string, o?: { text?: string; cls?: string; type?: string; placeholder?: string; value?: string }): FakeEl {
+	createEl(tag: string, o?: { text?: string; cls?: string | string[]; type?: string; placeholder?: string; value?: string }): FakeEl {
 		const el = new FakeEl(tag);
 		if (o?.text) el.text = o.text;
-		if (o?.cls) el.classes.push(...o.cls.split(" "));
+		if (o?.cls) el.classes.push(...(Array.isArray(o.cls) ? o.cls : o.cls.split(" ")));
 		if (o?.type) el.attrs.type = o.type;
 		if (o?.value) el.value = o.value;
 		this.children.push(el);
@@ -47,6 +47,7 @@ export class FakeEl {
 	addEventListener(ev: string, fn: () => void): void {
 		(this.listeners[ev] ??= []).push(fn);
 	}
+	focus(): void {}
 	click(): void {
 		for (const fn of this.listeners.click ?? []) fn();
 	}

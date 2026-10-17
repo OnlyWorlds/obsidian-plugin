@@ -101,6 +101,28 @@ export class Setting {
 	addToggle(): this { return this; }
 }
 export const Platform = { isMobile: false, isDesktop: true };
+/** A dropdown that records its options; its select is a child of the container when the container can make one. */
+export class DropdownComponent {
+	selectEl: { addClass(c: string): void; style: Record<string, string> };
+	options: string[] = [];
+	private value = "";
+	constructor(containerEl: { createEl?: (tag: string) => unknown }) {
+		const made = containerEl?.createEl?.("select") as DropdownComponent["selectEl"] | undefined;
+		this.selectEl = made && typeof made.addClass === "function" ? made : { addClass(): void {}, style: {} };
+	}
+	addOption(value: string): this {
+		this.options.push(value);
+		if (!this.value) this.value = value;
+		return this;
+	}
+	setValue(value: string): this {
+		this.value = value;
+		return this;
+	}
+	getValue(): string {
+		return this.value;
+	}
+}
 
 export interface MockRequest {
 	url: string;

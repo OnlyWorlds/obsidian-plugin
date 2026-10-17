@@ -1,10 +1,13 @@
 import { App, Modal, DropdownComponent, normalizePath, TFolder, TFile } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
+import { READ_ONLY_WORLDS_NOT_LISTED } from '../vault/world-key';
 
 export class WorldRenameModal extends Modal {
     onRename: (oldWorldName: string, newWorldName: string) => void;
     /** The worlds to offer; when unset, every world folder in the vault. */
     worlds?: string[];
+    /** True when read-only worlds were left out of `worlds`: the dialog says so. */
+    readOnlyLeftOut = false;
 
     constructor(app: App, onRename: (oldWorldName: string, newWorldName: string) => void) {
         super(app);
@@ -23,6 +26,9 @@ export class WorldRenameModal extends Modal {
         worldFolders.forEach(folder => {
             dropdown.addOption(folder, folder);
         });
+        if (this.readOnlyLeftOut) {
+            contentEl.createEl('p', { text: READ_ONLY_WORLDS_NOT_LISTED, cls: 'setting-item-description' });
+        }
 
         const input = contentEl.createEl('input', {
             type: 'text',

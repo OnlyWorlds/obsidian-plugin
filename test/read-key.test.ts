@@ -10,6 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { App, TFile } from "obsidian";
 import { makeApp, setRequestUrl, __modals, __notices, __requests } from "./support/obsidian-mock";
+import { FakeEl } from "./support/fake-dom";
 import { PinCache } from "../auth/pin-cache";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { ExportWorldCommand } from "../Commands/ExportWorldCommand";
@@ -190,4 +191,45 @@ test("Upload in a vault whose every world is read-only refuses up front: the rea
 	assert.equal(asked.pin, false, "the PIN was asked");
 	assert.deepEqual(__requests, [], "a request was sent");
 	assert.ok(__notices.some((n) => READ_ONLY_LINE.test(n)), __notices.join(" / "));
+});
+
+// --- Both pickers say when read-only worlds were left out (Kael's cold read, h37 #6484) ---
+
+const NOT_LISTED = "Read-only worlds are not listed: their key can read but not write.";
+
+/** Render a modal's onOpen into a FakeEl and return its text. */
+async function rendered(modal: unknown): Promise<string> {
+	const el = new FakeEl();
+	(modal as { contentEl: unknown }).contentEl = el;
+	await (modal as { onOpen(): Promise<void> }).onOpen();
+	return el.allText();
+}
+
+async function seedHyperion(h: Awaited<ReturnType<typeof setup>>): Promise<void> {
+	await (h.app as unknown as { vault: { seed(p: string, c: string): Promise<unknown> } }).vault.seed(
+		"OnlyWorlds/Worlds/Hyperion/World.md",
+		"- **API Key:** ow_w_owner_hyperion\n",
+	);
+}
+
+test("Rename World's dialog says read-only worlds are not listed, and only when one was left out", async () => {
+	const mixed = await setup("ow_r_player_strahd");
+	await seedHyperion(mixed);
+	await new RenameWorldCommand(mixed.app, {}, renamePlugin(mixed) as never).execute();
+	assert.ok((await rendered(__modals[0])).includes(NOT_LISTED), "the line is missing");
+
+	const writable = await setup("ow_w_owner_strahd");
+	await new RenameWorldCommand(writable.app, {}, renamePlugin(writable) as never).execute();
+	assert.ok(!(await rendered(__modals[0])).includes(NOT_LISTED), "the line shows with nothing left out");
+});
+
+test("Upload World's picker says read-only worlds are not listed, and only when one was left out", async () => {
+	const mixed = await setup("ow_r_player_strahd");
+	await seedHyperion(mixed);
+	await uploadCommand(mixed, "Hyperion", null).cmd.execute();
+	assert.ok((await rendered(__modals[0])).includes(NOT_LISTED), "the line is missing");
+
+	const writable = await setup("ow_w_owner_strahd");
+	await uploadCommand(writable, "Strahd", null).cmd.execute();
+	assert.ok(!(await rendered(__modals[0])).includes(NOT_LISTED), "the line shows with nothing left out");
 });

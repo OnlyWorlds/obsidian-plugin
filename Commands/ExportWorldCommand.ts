@@ -65,6 +65,7 @@ export class ExportWorldCommand {
             await this.runExport(pin, worldFolder);
         }, activeWorldName);
         picker.worlds = writable;
+        picker.readOnlyLeftOut = readOnly.length > 0;
         picker.open();
     }
 

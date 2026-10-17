@@ -1,11 +1,14 @@
 import { App, DropdownComponent, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
+import { READ_ONLY_WORLDS_NOT_LISTED } from '../vault/world-key';
 
 export class WorldPinSelectionModal extends Modal {
     onChoose: (pin: number, worldFolder: string) => void;
     activeWorldName: string;
     /** The worlds to offer; when unset, every world folder in the vault. */
     worlds?: string[];
+    /** True when read-only worlds were left out of `worlds`: the dialog says so. */
+    readOnlyLeftOut = false;
 
     constructor(app: App, onChoose: (pin: number, worldFolder: string) => void, activeWorldName: string) {
         super(app);
@@ -41,6 +44,9 @@ export class WorldPinSelectionModal extends Modal {
         });
         if (worldFolders.length > 0) {
             dropdown.setValue(this.activeWorldName || worldFolders[0]);
+        }
+        if (this.readOnlyLeftOut) {
+            contentEl.createEl('p', { text: READ_ONLY_WORLDS_NOT_LISTED, cls: 'setting-item-description' });
         }
 
         // PIN Input Section
