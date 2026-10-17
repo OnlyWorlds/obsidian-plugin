@@ -1,11 +1,13 @@
 import { App, Notice, TFile, normalizePath } from "obsidian";
 import { WorldService } from "../Scripts/WorldService";
-import { basesFilePath, writeWorldBasesFile } from "../vault/bases-writer";
+import { basesFilePath, rebuildWorldBasesFile } from "../vault/bases-writer";
 
 /**
  * Write Bases file (OW Infra #188): `<world>.base` beside World.md, a table and
  * a card view per element type in Obsidian's core Bases. The world is the one
  * the active note sits in, else the primary world (as Update Category Counts).
+ * Run by hand, it rebuilds a base the user changed too, keeping their version
+ * beside it (the way out Download's kept-file Notice names).
  */
 export class WriteBasesFileCommand {
 	private worldService: WorldService;
@@ -22,12 +24,11 @@ export class WriteBasesFileCommand {
 		}
 		const path = basesFilePath(folder);
 		try {
-			const result = await writeWorldBasesFile(this.app, folder);
+			const { result, copy } = await rebuildWorldBasesFile(this.app, folder);
 			if (result === "kept") {
-				new Notice(
-					`${path} was changed since the plugin wrote it, so it was left alone. Rename or delete it, then run Write Bases file again.`,
-					10000
-				);
+				new Notice(`${path} is a folder, so no Bases file was written. Rename or move it, then run Write Bases file again.`, 10000);
+			} else if (copy) {
+				new Notice(`${path} was rebuilt. Your own version is kept beside it as ${copy.split("/").pop()}.`, 10000);
 			} else if (result === "unchanged") {
 				new Notice(`${path} is already up to date.`);
 			} else {

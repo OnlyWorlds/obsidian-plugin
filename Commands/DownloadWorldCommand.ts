@@ -173,7 +173,7 @@ export class DownloadWorldCommand {
                     // The world's Bases file (a table and cards per type, OW Infra #188),
                     // behind its setting; never fails the download.
                     if (this.plugin?.settings.writeBasesFile !== false) {
-                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName);
+                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName, this.plugin ?? undefined);
                     }
 
                     // Persist the watermark only after every note landed — a

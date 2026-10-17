@@ -50,6 +50,13 @@ export interface OnlyWorldsPluginSettings {
 	 * #188). A file the user changed is never overwritten.
 	 */
 	writeBasesFile: boolean;
+
+	/**
+	 * World folders whose Bases file Download kept because the user changed it,
+	 * and already said so in a Notice: the Notice shows once per world, not on
+	 * every Download. A world leaves the list when the plugin owns its file again.
+	 */
+	basesKeptNoticed: string[];
 }
 
 export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
@@ -72,4 +79,5 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	accountUsername: "",
 
 	writeBasesFile: true,
+	basesKeptNoticed: [],
 };

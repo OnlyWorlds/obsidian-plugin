@@ -189,3 +189,21 @@ export function mayOverwriteBasesFile(existing: string): boolean {
 	if (!m) return false;
 	return hash(text.slice(nl + 1)) === m[2];
 }
+
+/** True when `existing` opens with the plugin's marker line, changed since or not. */
+export function hasBasesMarker(existing: string): boolean {
+	const text = normalizeEol(existing);
+	const nl = text.indexOf("\n");
+	return MARKER_RE.test(nl < 0 ? text : text.slice(0, nl));
+}
+
+/**
+ * `existing` without the plugin's marker line (unchanged when it has none):
+ * the user's copy of a base, which the plugin must never take for its own.
+ */
+export function stripBasesMarker(existing: string): string {
+	const text = normalizeEol(existing);
+	const nl = text.indexOf("\n");
+	if (!MARKER_RE.test(nl < 0 ? text : text.slice(0, nl))) return existing;
+	return nl < 0 ? "" : text.slice(nl + 1);
+}
