@@ -16,9 +16,16 @@ import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the m
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { App, TFile } from "obsidian";
-import { makeApp, __notices } from "./support/obsidian-mock";
+import { makeApp, __notices, __modals } from "./support/obsidian-mock";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { V2ApiError } from "../client-v2";
+
+/** The create-first dialog, as the test drives it. */
+interface Dialog {
+	items: { type: string; name: string }[];
+	leftOut: { type: string; name: string }[];
+	choose(create: boolean): void;
+}
 
 const W = "OnlyWorlds/Worlds/W";
 const ID = {
@@ -96,9 +103,28 @@ async function harness(notes: Record<string, string>, opts: Opts = {}) {
 	};
 	const cmd = new SaveElementCommand(app as App, plugin as never);
 	__notices.length = 0;
-	/** The manual Save Element (`manual`), or auto-sync's save of the same note. */
-	const save = (file: TFile, manual = true) => cmd.execute(file, { manual });
-	return { app, vault, files, cmd, save, calls, bulks, notices: __notices };
+	/**
+	 * The manual Save Element (`manual`), or auto-sync's save of the same note.
+	 * Every create-first dialog that opens is answered with `answer` and kept
+	 * in `dialogs`.
+	 */
+	const dialogs: Dialog[] = [];
+	const save = async (file: TFile, manual = true, answer = true) => {
+		__modals.length = 0;
+		let done = false;
+		const run = cmd.execute(file, { manual }).finally(() => (done = true));
+		while (!done) {
+			await new Promise((r) => setImmediate(r));
+			for (const m of __modals.splice(0)) {
+				if (m.constructor.name !== "CreateFirstModal") continue;
+				const d = m as unknown as Dialog;
+				dialogs.push(d);
+				d.choose(answer);
+			}
+		}
+		return run;
+	};
+	return { app, vault, files, cmd, save, dialogs, calls, bulks, notices: __notices };
 }
 
 test("★ row 8: a new note linking to a new local note creates the target first, in one /bulk", async () => {
@@ -216,4 +242,51 @@ test("auto-sync on an existing note given a link to a new note: refused, nothing
 	assert.equal(result.ok, false);
 	assert.deepEqual(h.bulks, []);
 	assert.match((result as { reason: string }).reason, /Save Element creates them first/);
+});
+
+// --- Kael's read, blocker (b): a manual Save confirms what it creates first ---
+
+const CHAIN = {
+	"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+	"Location/Vallaki.md": note(ID.vallaki, "Vallaki", 'parent_location: "[[Barovia]]"\n'),
+	"Location/Barovia.md": note(ID.barovia, "Barovia"),
+};
+
+test("★ a manual Save shows what it would create first, type and name each, before anything is sent", async () => {
+	const h = await harness(CHAIN);
+	await h.save(h.files["Character/Ireena.md"]);
+	assert.equal(h.dialogs.length, 1, "no confirm dialog");
+	assert.deepEqual(h.dialogs[0].items, [
+		{ type: "location", name: "Barovia" },
+		{ type: "location", name: "Vallaki" },
+	]);
+	assert.equal(h.bulks.length, 1, "Create sends the batch");
+});
+
+test("★ Cancel in the dialog creates nothing and saves nothing", async () => {
+	const h = await harness(CHAIN);
+	const result = await h.save(h.files["Character/Ireena.md"], true, false);
+	assert.equal(h.dialogs.length, 1);
+	assert.equal(result.ok, false);
+	assert.match((result as { reason: string }).reason, /cancelled/i);
+	assert.deepEqual(h.bulks, []);
+	assert.ok(!h.calls.some((c) => c.startsWith("create ") || c.startsWith("update ")), h.calls.join(" | "));
+});
+
+test("Cancel on an existing note's save: nothing created, no PATCH", async () => {
+	const h = await harness(
+		{ "Character/Ireena.md": CHAIN["Character/Ireena.md"], "Location/Vallaki.md": note(ID.vallaki, "Vallaki") },
+		{ existing: [ID.ireena], current: { [ID.ireena]: { name: "Ireena", birthplace: null } } }
+	);
+	const result = await h.save(h.files["Character/Ireena.md"], true, false);
+	assert.equal(result.ok, false);
+	assert.deepEqual(h.bulks, []);
+	assert.ok(!h.calls.some((c) => c.startsWith("update ")));
+});
+
+test("no dialog when there is nothing to create first", async () => {
+	const h = await harness({ "Character/Ireena.md": note(ID.ireena, "Ireena") });
+	await h.save(h.files["Character/Ireena.md"]);
+	assert.equal(h.dialogs.length, 0);
+	assert.ok(h.calls.includes(`create character ${ID.ireena}`));
 });

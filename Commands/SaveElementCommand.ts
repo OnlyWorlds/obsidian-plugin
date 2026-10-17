@@ -6,6 +6,7 @@ import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
+import { CreateFirstModal } from '../Modals/CreateFirstModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -40,6 +41,9 @@ export function ambiguousLinksMessage(links: string[]): string {
         `${names.length === 1 ? 'That name matches' : 'Those names match'} notes of more than one type — ` +
         `rename one of the notes, then save again.`;
 }
+
+/** What a cancelled create-first dialog leaves the user with. */
+const CANCELLED_MESSAGE = 'Save cancelled: nothing was created or saved.';
 
 /** A local note created before the note that links to it (OW Infra #166 row 8). */
 interface PendingCreate {
@@ -241,6 +245,9 @@ export class SaveElementCommand {
                     // Only the manual Save walks (Kael's read, blocker): auto-sync
                     // leaves keel's refusal and says how to get past it.
                     const firsts = manual ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload) : [];
+                    if (firsts.length > 0 && !(await this.confirmCreateFirst(String(label), firsts))) {
+                        return this.fail(CANCELLED_MESSAGE);
+                    }
                     new Notice(`Creating ${category} "${label}"...`);
                     if (firsts.length > 0) {
                         const refused = await this.createTogether(client, [
@@ -282,6 +289,9 @@ export class SaveElementCommand {
                 )
                 : [];
             let firstNote = '';
+            if (firsts.length > 0 && !(await this.confirmCreateFirst(String(label), firsts))) {
+                return this.fail(CANCELLED_MESSAGE);
+            }
             if (firsts.length > 0) {
                 const refused = await this.createTogether(client, firsts);
                 if (refused) return this.fail(`${category} "${label}" not saved: ${refused}`, 12000);
@@ -372,6 +382,23 @@ export class SaveElementCommand {
             console.error('[OnlyWorlds] Saved, but the note could not be renamed:', error);
             return null;
         }
+    }
+
+    /**
+     * Ask before a manual Save creates link targets on onlyworlds.com: the
+     * dialog lists each by type and name, Create or Cancel (Kael's read,
+     * blocker 1b). Resolves true only on Create.
+     */
+    private confirmCreateFirst(label: string, firsts: PendingCreate[]): Promise<boolean> {
+        return new Promise((resolve) => {
+            new CreateFirstModal(
+                this.app,
+                label,
+                firsts.map((f) => ({ type: f.type, name: f.name })),
+                [],
+                resolve
+            ).open();
+        });
     }
 
     /** This world's element notes by their frontmatter id. */
