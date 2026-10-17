@@ -1,6 +1,7 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { writeElement } from "../vault/element-file";
-import { bodyFieldForCategory, normalizeCategory } from "../vault/element-transform";
+import { bodyFieldForCategory, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
+import { sanitizeFileName } from "../Scripts/WorldService";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
 import { renderWorldMd, worldJsonToKeep } from "../vault/world-json";
@@ -178,6 +179,12 @@ export class ImportFolderCommand {
 		// Existing element ids in the target world (R5 skip-existing).
 		const existingIds = await this.existingElementIds(targetWorld);
 
+		// Plan every note's name before writing any, and render link fields as
+		// `[[Name]]` from that plan, as Download does (OW Infra #166 row 17). The
+		// metadata cache is not consulted: it is cold for notes written moments
+		// ago in this run, so links came in as raw uuids (hop 9: 43%).
+		const idToName = await this.planNoteNames(targetWorld, parsed, existingIds);
+
 		// Pass 2 — translate prose ow:// -> [[wikilink]], mint notes via writeElement.
 		const result = { created: [] as string[], skipped: [] as string[], failed, duplicates };
 		const notePathOwner = new Map<string, string>(); // note path -> element id, this run
@@ -200,8 +207,11 @@ export class ImportFolderCommand {
 						(i) => idIndex.get(i) ?? null
 					);
 				}
+				const planned = idToName.get(id);
 				const file = await writeElement(this.app, targetWorld, el.type, id, payload, {
 					markSelfWrite: this.markSelfWrite,
+					fileName: planned ? `${planned}.md` : undefined,
+					idToName: (target) => idToName.get(target) ?? null,
 				});
 				// "created" must only ever count notes that still exist. writeElement
 				// never hands two elements one path any more, but if it ever did, the
@@ -253,6 +263,59 @@ export class ImportFolderCommand {
 		}
 
 		new ImportReportModal(this.app, targetWorld, result).open();
+	}
+
+	/**
+	 * The id -> note name (basename) map for link rendering, built from the
+	 * folder before any note is written (OW Infra #166 row 17):
+	 *   - an element this import creates: the note name it will get, the way
+	 *     writeElement claims it (`<name>`, or `<name> (N)` from 1 when another
+	 *     note, or an earlier element of this run, holds that path, compared
+	 *     case-insensitively). Each is then written at exactly that name, so
+	 *     the second of two same-named elements is `Twin (1)` and links to it
+	 *     read `[[Twin (1)]]`, as Download writes twins;
+	 *   - an element the import skips because the vault already has it: that
+	 *     note's own basename, read from disk;
+	 *   - anything else (a target outside the folder): absent, so the link
+	 *     stays its uuid.
+	 */
+	private async planNoteNames(
+		world: string,
+		parsed: { type: string; payload: Record<string, unknown> }[],
+		existingIds: Set<string>
+	): Promise<Map<string, string>> {
+		const names = new Map<string, string>();
+		const inFolder = new Set(parsed.map((el) => String(el.payload.id)));
+		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
+		const taken = new Set<string>();
+		for (const f of this.app.vault.getMarkdownFiles()) {
+			if (!f.path.startsWith(prefix)) continue;
+			taken.add(f.path.toLowerCase());
+			let id: string | undefined;
+			try {
+				id = parseRawFrontmatterScalars((await this.app.vault.read(f)).replace(/^\s+/, ""), ["id"]).id;
+			} catch {
+				id = undefined;
+			}
+			if (id && inFolder.has(id) && existingIds.has(id)) names.set(id, f.basename);
+		}
+		for (const el of parsed) {
+			const id = String(el.payload.id);
+			if (existingIds.has(id) || names.has(id)) continue;
+			const cat = normalizeCategory(el.type);
+			const folder = `${prefix}${cat.charAt(0).toUpperCase()}${cat.slice(1)}`;
+			const raw = typeof el.payload.name === "string" && el.payload.name ? el.payload.name : "Untitled";
+			const base = sanitizeFileName(raw);
+			for (let n = 0; n <= 1000; n++) {
+				const leaf = n === 0 ? base : `${base} (${n})`;
+				const path = normalizePath(`${folder}/${leaf}.md`).toLowerCase();
+				if (taken.has(path)) continue;
+				taken.add(path);
+				names.set(id, leaf);
+				break;
+			}
+		}
+		return names;
 	}
 
 	/** All element ids already present in the target world's notes (R5). */
