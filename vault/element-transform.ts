@@ -417,15 +417,32 @@ export function splitNote(content: string): { frontmatter: string; body: string 
 	const lead = /^\s*/.exec(content)?.[0].length ?? 0;
 	const rest = content.slice(lead);
 	if (!rest.startsWith("---")) return { frontmatter: "", body: content };
-	const end = rest.indexOf("\n---", 3);
-	if (end < 0) return { frontmatter: "", body: content };
+	const close = frontmatterClose(rest);
+	if (!close) return { frontmatter: "", body: content };
 	// The block ends at the closing `---`; the body is what follows it, with the
 	// blank line(s) that separate them consumed so callers get the body itself
 	// rather than the gap. joinNote re-inserts exactly one separator.
-	// `end` indexes the "\n" before the closing "---", so the block runs to
-	// end+4 and the body starts after the newline that terminates that line.
-	const body = rest.slice(end + 4).replace(/^\r?\n/, "").replace(/^[ \t]*\r?\n/, "");
-	return { frontmatter: rest.slice(0, end + 4), body };
+	// `close.end` indexes the "\n" before the closing "---", so the block runs
+	// to end+4 (a trailing space on that line is dropped on the rewrite), and
+	// the body starts after the newline that terminates that line.
+	const body = rest.slice(close.after).replace(/^\r?\n/, "").replace(/^[ \t]*\r?\n/, "");
+	return { frontmatter: rest.slice(0, close.end + 4), body };
+}
+
+/**
+ * Where a note's frontmatter block closes, the note starting with its opening
+ * `---`: `end` indexes the "\n" before the closing `---` line, `after` is just
+ * past that line's `---` and the spaces or tabs after it (its line ending not
+ * included); null when there is no closing line. The closing line is `---`
+ * with trailing whitespace allowed and nothing else (the fix round, item 7:
+ * N8, a `--- ` close put a blank line at the head of the description). Every
+ * reader of the block finds its end here.
+ */
+export function frontmatterClose(content: string): { end: number; after: number } | null {
+	const re = /\n---[ \t]*(?=\r?\n|$)/g;
+	re.lastIndex = 3;
+	const m = re.exec(content);
+	return m ? { end: m.index, after: m.index + m[0].length } : null;
 }
 
 /**
@@ -1249,9 +1266,9 @@ export function parseRawFrontmatterScalars(
 ): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!content.startsWith("---")) return out;
-	const end = content.indexOf("\n---", 3);
-	if (end < 0) return out;
-	const block = content.slice(3, end);
+	const close = frontmatterClose(content);
+	if (!close) return out;
+	const block = content.slice(3, close.end);
 	const wanted = new Set(keys);
 	for (const line of block.split(/\r?\n/)) {
 		const m = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);

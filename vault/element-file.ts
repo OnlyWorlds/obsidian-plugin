@@ -11,6 +11,7 @@ import {
 	isUserCustomKey,
 	toolShadowHeadings,
 	splitNote,
+	frontmatterClose,
 	joinNote,
 	serializeFrontmatter,
 	bodyFieldForCategory,
@@ -427,9 +428,9 @@ export async function writeElement(
 /** Parse a raw `---\n...\n---` YAML block (cache-independent read fallback). */
 export function parseRawFrontmatter(content: string): Record<string, unknown> | null {
 	if (!content.startsWith("---")) return null;
-	const end = content.indexOf("\n---", 3);
-	if (end < 0) return null;
-	const yaml = content.slice(3, end + 1);
+	const close = frontmatterClose(content);
+	if (!close) return null;
+	const yaml = content.slice(3, close.end + 1);
 	try {
 		const parsed = parseYaml(yaml);
 		return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
@@ -617,18 +618,17 @@ export function buildWikilinkResolver(
 	};
 }
 
+/** The note past its frontmatter's closing line (trailing spaces after its `---` included: the fix round, item 7). */
 function stripFrontmatter(content: string): string {
 	if (!content.startsWith("---")) return content;
-	const end = content.indexOf("\n---", 3);
-	if (end < 0) return content;
-	return content.slice(end + 4);
+	const close = frontmatterClose(content);
+	return close ? content.slice(close.after) : content;
 }
 
 function extractFrontmatterBlock(content: string): string {
 	if (!content.startsWith("---")) return "";
-	const end = content.indexOf("\n---", 3);
-	if (end < 0) return "";
-	return content.slice(0, end + 4);
+	const close = frontmatterClose(content);
+	return close ? content.slice(0, close.end + 4) : "";
 }
 
 function capitalize(s: string): string {
