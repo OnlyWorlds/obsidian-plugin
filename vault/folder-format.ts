@@ -170,18 +170,21 @@ export interface ElementRef {
 /**
  * EXPORT prose: `[[Name]]` -> `[Name](ow://<type>/<uuid>)` when the name resolves
  * to a known element; an unresolved `[[name]]` is left as a literal (never
- * fabricate a reference). A wikilink of the `[[Name|Alias]]` form keeps Alias as
- * the visible label and resolves on Name.
+ * fabricate a reference), byte for byte. A wikilink of the `[[Name|Alias]]`
+ * form keeps Alias as the visible label, exactly as written (everything after
+ * the first pipe, spaces and an empty alias included), and resolves on Name.
+ * OW Infra #166 row 15: a label is never trimmed or altered.
  */
 export function wikilinksToOwMentions(
 	body: string,
 	resolveName: (name: string) => ElementRef | null
 ): string {
 	return body.replace(WIKILINK_RE, (whole, inner: string) => {
-		const [target, alias] = inner.split("|").map((s) => s.trim());
+		const pipe = inner.indexOf("|");
+		const target = (pipe < 0 ? inner : inner.slice(0, pipe)).trim();
 		const ref = resolveName(target);
 		if (!ref) return whole; // unresolvable — keep literal [[...]]
-		const label = alias || ref.name;
+		const label = pipe < 0 ? ref.name : inner.slice(pipe + 1);
 		return `[${label}](ow://${ref.type}/${ref.id})`;
 	});
 }
@@ -190,7 +193,9 @@ export function wikilinksToOwMentions(
  * IMPORT prose: `[Label](ow://type/uuid)` -> `[[Name]]` when the uuid resolves to
  * a known element; an unresolved mention is KEPT VERBATIM (R3 — never destroy a
  * reference). When the resolved name differs from the label, an alias is kept so
- * the visible text is preserved: `[[Name|Label]]`.
+ * the visible text is preserved: `[[Name|Label]]`. The label is never trimmed
+ * or altered (OW Infra #166 row 15): `[ Name ]` keeps its spaces as
+ * `[[Name| Name ]]`, and an empty label stays empty as `[[Name|]]`.
  */
 export function owMentionsToWikilinks(
 	body: string,
@@ -199,10 +204,7 @@ export function owMentionsToWikilinks(
 	return body.replace(OW_MENTION_RE, (whole, label: string, _type: string, id: string) => {
 		const ref = resolveId(id);
 		if (!ref) return whole; // unresolvable — keep the ow:// form verbatim
-		const trimmedLabel = label.trim();
-		return trimmedLabel && trimmedLabel !== ref.name
-			? `[[${ref.name}|${trimmedLabel}]]`
-			: `[[${ref.name}]]`;
+		return label !== ref.name ? `[[${ref.name}|${label}]]` : `[[${ref.name}]]`;
 	});
 }
 

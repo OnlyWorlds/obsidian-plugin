@@ -158,6 +158,33 @@ test("R3: mention whose label already equals the name reduces to a bare wikilink
 	assert.equal(back, "[[Strahd]]");
 });
 
+// --- Row 15 (OW Infra #166, hop 9 #10): prose is never rewritten at the boundary
+// beyond the documented link mechanism. A mention's label is kept exactly; an
+// unresolved [[X]] stays byte for byte.
+const STRAHD = "018f2a3b-4c5d-7e6f-8a9b-0c1d2e3f4a01";
+
+test("row 15: a mention label with spaces round-trips exactly: [ Strahd ] stays [ Strahd ]", () => {
+	const src = `The [ Strahd ](ow://character/${STRAHD}) rides.`;
+	const note = owMentionsToWikilinks(src, resolveId);
+	assert.equal(note, "The [[Strahd| Strahd ]] rides.", "the label was altered on import");
+	assert.equal(wikilinksToOwMentions(note, resolveName), src, "the label was altered on export");
+});
+
+test("row 15: an empty mention label round-trips as empty, never filled with the name", () => {
+	const src = `Unnamed [](ow://character/${STRAHD}).`;
+	assert.equal(wikilinksToOwMentions(owMentionsToWikilinks(src, resolveId), resolveName), src);
+});
+
+test("row 15: a label holding a pipe keeps everything after the first pipe", () => {
+	const note = "[[Strahd|the devil | the lord]]";
+	assert.equal(wikilinksToOwMentions(note, resolveName), `[the devil | the lord](ow://character/${STRAHD})`);
+});
+
+test("row 15: an unresolved [[X]] stays byte for byte, whitespace and alias included", () => {
+	const body = "A [[ Nobody Here ]], a [[Ghost| the ghost ]], a [[Nobody|]] and [[a|b|c]].";
+	assert.equal(wikilinksToOwMentions(body, resolveName), body);
+});
+
 test("isUuid gates world.json identity", () => {
 	assert.ok(isUuid(WID));
 	assert.ok(!isUuid("not-a-uuid"));

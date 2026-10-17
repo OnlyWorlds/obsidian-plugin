@@ -548,4 +548,18 @@ test("import serves the elements/ copy of an id found in both layouts, and lists
 	]);
 });
 
+// --- Row 15: prose crosses import and export unaltered ----------------------
+
+test("row 15: a description's mention label and an unresolved [[X]] survive import then export byte for byte", async () => {
+	const { app, vault } = makeApp();
+	const prose = `Ireena loves [ the count ](ow://character/${CHAR_ID}) but not [[Nobody Here]] or [[ Ghost | old ]].`;
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/ireena--000000c1.json": { ...CHAR_FILE, description: prose },
+	});
+	await importDir(app, "in/barovia");
+	const out = await exportWorld(app, vault, "Barovia");
+	const rel = Object.keys(out).find((p) => p.startsWith("elements/character/"))!;
+	assert.equal(JSON.parse(out[rel]).description, prose);
+});
+
 void __modals;
