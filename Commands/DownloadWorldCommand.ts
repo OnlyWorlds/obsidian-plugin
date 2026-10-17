@@ -181,9 +181,13 @@ export class DownloadWorldCommand {
                             if (change.op === 'delete') deleted.add(change.id);
                             else deleted.delete(change.id);
                         }
+                        // Only ids that still have a note here: the list guards
+                        // kept notes, and a full walk sees every delete the world
+                        // ever had (Kael's third read, 4).
+                        const local = await this.localElementIds(uniqueWorldName);
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
-                            [worldId]: [...deleted],
+                            [worldId]: [...deleted].filter(id => local.has(id)),
                         };
                         await this.plugin.saveSettings();
                     }
@@ -581,6 +585,20 @@ export class DownloadWorldCommand {
         });
 
         return noteContent;
+    }
+
+    /** The element ids this world's notes carry, read from disk (the cache is cold mid-download). */
+    private async localElementIds(worldName: string): Promise<Set<string>> {
+        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+        const ids = new Set<string>();
+        for (const file of this.app.vault.getMarkdownFiles()) {
+            if (!file.path.startsWith(prefix)) continue;
+            try {
+                const id = parseRawFrontmatterScalars(await this.app.vault.read(file), ['id']).id;
+                if (id) ids.add(id);
+            } catch { /* unreadable note — skip */ }
+        }
+        return ids;
     }
 
     /** Does the vault hold ANY element note for this world? Used to sanity-check

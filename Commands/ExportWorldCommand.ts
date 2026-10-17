@@ -184,7 +184,7 @@ export class ExportWorldCommand {
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
             // without the user's word (Kael's second read, N4).
-            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate);
+            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, localIds);
             for (const id of leftOut.ids) {
                 const at = toCreate.findIndex(i => String(i.element.id) === id);
                 if (at >= 0) toCreate.splice(at, 1);
@@ -393,7 +393,8 @@ export class ExportWorldCommand {
         client: V2Client,
         latestOp: Map<string, string>,
         serverIds: Set<string>,
-        toCreate: { type: string; element: Record<string, unknown> }[]
+        toCreate: { type: string; element: Record<string, unknown> }[],
+        localIds: Set<string>
     ): Promise<{ ids: string[]; names: string[]; recreate: Set<string>; worldId: string }> {
         const none = { ids: [], names: [], recreate: new Set<string>(), worldId: '' };
         let worldId = '';
@@ -411,7 +412,11 @@ export class ExportWorldCommand {
             else deleted.delete(id);
         }
         if (worldId && this.plugin) {
-            this.plugin.settings.deletedOnServer = { ...(this.plugin.settings.deletedOnServer ?? {}), [worldId]: [...deleted] };
+            // Kept: only ids with a note in this vault, the ones the list guards (Kael's third read, 4).
+            this.plugin.settings.deletedOnServer = {
+                ...(this.plugin.settings.deletedOnServer ?? {}),
+                [worldId]: [...deleted].filter(id => localIds.has(id)),
+            };
             try { await this.plugin.saveSettings(); } catch { /* the list is right for this sweep */ }
         }
         const again = toCreate.filter(i => deleted.has(String(i.element.id)));

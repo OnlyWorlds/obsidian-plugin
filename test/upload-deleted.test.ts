@@ -115,6 +115,12 @@ test("Create again sends it with the new ones and takes it off the deleted list"
 	assert.deepEqual(r.settings.deletedOnServer[WID], []);
 });
 
+test("★ the list Upload World keeps holds only ids with a local note (Kael's third read, 4)", async () => {
+	const NOTELESS = "019a0000-0000-7000-8000-0000000000f9";
+	const r = await upload({ answer: false, deleted: [NOTELESS] });
+	assert.deepEqual(r.settings.deletedOnServer[WID], [IDS.Gela]);
+});
+
 // --- Kael's third read, 1: Leave out never sinks the notes that link it -----
 
 test("★ Leave out takes the left-out id out of every note's links, new and existing alike, and the summary says so", async () => {

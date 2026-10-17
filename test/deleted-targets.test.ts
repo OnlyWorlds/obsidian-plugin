@@ -38,13 +38,22 @@ const upsert = (id: string, name: string, seq: number) => ({
 });
 const del = (id: string, seq: number) => ({ op: "delete", type: "location", id, change_seq: seq, updated_at: "x" });
 
-test("★ Download keeps the ids the change feed reported deleted, per world; a later upsert of the id clears it", async () => {
+test("★ Download keeps the ids the change feed reported deleted whose notes it kept, per world; a later upsert clears one", async () => {
 	const { app } = makeApp();
 	const plugin = { settings: { syncCursors: {} } as Settings, saveSettings: async () => {} };
-	await download(app, plugin, [upsert(VALLAKI, "Vallaki", 1), upsert(KREZK, "Krezk", 2), del(VALLAKI, 3)], 3);
+	await download(app, plugin, [upsert(VALLAKI, "Vallaki", 1), upsert(KREZK, "Krezk", 2)], 2);
+	await download(app, plugin, [del(VALLAKI, 3)], 3);
 	assert.deepEqual(plugin.settings.deletedOnServer?.[WID], [VALLAKI]);
 	await download(app, plugin, [upsert(VALLAKI, "Vallaki", 4), del(KREZK, 5)], 5);
 	assert.deepEqual(plugin.settings.deletedOnServer?.[WID], [KREZK]);
+});
+
+test("★ the list holds only ids with a local note: a delete of an element this vault never had is not kept (Kael's third read, 4)", async () => {
+	const { app } = makeApp();
+	const plugin = { settings: { syncCursors: {} } as Settings, saveSettings: async () => {} };
+	// A full first Download sees every delete the world ever had.
+	await download(app, plugin, [upsert(KREZK, "Krezk", 1), upsert(VALLAKI, "Vallaki", 2), del(VALLAKI, 3)], 3);
+	assert.deepEqual(plugin.settings.deletedOnServer?.[WID], [], "an id with no note was kept");
 });
 
 const note = (id: string, name: string, links = "") =>
