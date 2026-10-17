@@ -713,10 +713,12 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	// server). Prose before a first heading is the description too (round C,
 	// 2): its bytes are kept, but for the one blank line (or line ending)
 	// before that heading, the layout's; a preamble of whitespace alone is
-	// layout, not a value.
-	const preamble = !sawHeading
-		? body.replace(/\r?\n$/, "")
-		: preambleValue(body.slice(0, preambleEnd), firstHeadingEol);
+	// layout, not a value. Either is a value read from the note, so its
+	// escaped lines lose one backslash, as a section's do (the fix round,
+	// item 3: a `\###` line read two ways).
+	const preamble = unescapeSectionValue(
+		!sawHeading ? body.replace(/\r?\n$/, "") : preambleValue(body.slice(0, preambleEnd), firstHeadingEol)
+	);
 	return fence && fenceAt && swallows !== null
 		? { fields, unknown, preamble, unclosedFence: { ...fenceAt, swallows } }
 		: { fields, unknown, preamble };

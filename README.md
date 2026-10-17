@@ -57,6 +57,8 @@ The body holds one `###` section per text field, in schema order. **Manage Field
 
 Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included, so whitespace you type is a change too: a trailing space or an added blank line goes out with the next save. A line of a value that starts with `### ` is written as `\### ` (Markdown's escape, so the note shows it as typed) and read back without the backslash, so it never starts a new field. A code fence line (```` ``` ```` or `~~~`) that never closes in a value is written as `\~~~` the same way, so a scene break of three tildes comes back as typed. A fence you type open in a note that swallows a later `###` heading is not saved, uploaded or exported, and the notice names the field, the line and that heading; an open fence in the last field swallows nothing and saves.
 
+In a note, a line `\### ` means the text `### `: wherever a line starts with backslashes and then `### ` (or a fence), the plugin reads one backslash off it, so to keep a backslash in the value, type two (`\\### `).
+
 Fields are read from Properties and `###` sections only. A list you type in the body, as `- height: 172` or `- **Height:** 172`, is description text; the one body list read as fields is the old `<span>` format, which **Migrate world notes to frontmatter** converts.
 
 The note's identity is the `id` in its Properties, so renaming a note does not break anything.
