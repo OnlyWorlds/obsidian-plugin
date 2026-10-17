@@ -23,6 +23,7 @@ import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
 import { parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
+import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 
 export class DownloadWorldCommand {
     app: App;
@@ -168,6 +169,12 @@ export class DownloadWorldCommand {
 
                     // Update all category folder names with counts
                     await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
+
+                    // The world's Bases file (a table and cards per type, OW Infra #188),
+                    // behind its setting; never fails the download.
+                    if (this.plugin?.settings.writeBasesFile !== false) {
+                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName);
+                    }
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time.
