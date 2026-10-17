@@ -16,6 +16,7 @@ import { ExportFolderCommand } from './Commands/ExportFolderCommand';
 import { ImportFolderCommand } from './Commands/ImportFolderCommand';
 import { ValidateWorldCommand } from 'Commands/ValidateWorldCommand';
 import { WriteBasesFileCommand } from './Commands/WriteBasesFileCommand';
+import { DrawRelationshipsCommand } from './Commands/DrawRelationshipsCommand';
 import { Category } from 'enums';
 import Handlebars from 'handlebars';
 import { NameChanger } from 'Listeners/NameChanger';
@@ -148,6 +149,7 @@ export default class OnlyWorldsPlugin extends Plugin {
             () => this.settings.writeBasesFile !== false
         );
         const writeBasesFileCommand = new WriteBasesFileCommand(this.app);
+        const drawRelationshipsCommand = new DrawRelationshipsCommand(this.app, () => this.settings.canvasIncomingLinks !== false);
         const joinWorldCommand = new JoinWorldCommand(this.app, this, downloadWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
@@ -211,6 +213,12 @@ export default class OnlyWorldsPlugin extends Plugin {
         id: 'write-bases-file',
         name: 'Write Bases file',
         callback: () => writeBasesFileCommand.execute(),
+    });
+      // The active element's links on an Obsidian canvas, labelled by field (OW Infra #188)
+      this.addCommand({
+        id: 'draw-relationships-canvas',
+        name: 'Draw relationships on a canvas',
+        callback: () => drawRelationshipsCommand.execute(),
     });
     this.addCommand({
       id: 'paste-world',

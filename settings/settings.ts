@@ -63,6 +63,12 @@ export interface OnlyWorldsPluginSettings {
 	 * (the first time it wrote one into a world folder that had none).
 	 */
 	basesIntroShown: boolean;
+
+	/**
+	 * Draw relationships on a canvas also draws the elements that link TO the
+	 * element (found by reading the world's notes once), not only those it links to.
+	 */
+	canvasIncomingLinks: boolean;
 }
 
 export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
@@ -87,4 +93,5 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	writeBasesFile: true,
 	basesKeptNoticed: [],
 	basesIntroShown: false,
+	canvasIncomingLinks: true,
 };

@@ -141,6 +141,19 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 				})
 			);
 
+		new Setting(containerEl)
+			.setName("Relationship canvas: links to the element")
+			.setDesc(
+				"Draw relationships on a canvas draws what the active element links to and, with this on, " +
+					"the elements that link to it (it reads the world's notes once)."
+			)
+			.addToggle((tog) =>
+				tog.setValue(this.plugin.settings.canvasIncomingLinks).onChange(async (value) => {
+					this.plugin.settings.canvasIncomingLinks = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
 		new Setting(containerEl).setName("Auto-sync").setHeading();
 
 		new Setting(containerEl)
