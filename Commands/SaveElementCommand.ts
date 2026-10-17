@@ -34,6 +34,25 @@ export type SaveResult =
     | { ok: true; outcome: 'created' | 'updated' | 'unchanged' }
     | { ok: false; reason: string };
 
+/**
+ * The Notice for [[links]] a save left out because no element id answers
+ * them: a name no note of this world carries, or a note this field cannot
+ * link (no id yet, or another type than the field takes). `noteNames` holds
+ * the world's note file names in lower case. Round C, 10: it named "Export
+ * World", which resolves links the same way and so never helps.
+ */
+export function unresolvedLinksMessage(links: string[], noteNames: Set<string>): string {
+    const leaf = (l: string) => l.slice(l.lastIndexOf('/') + 1).replace(/\.md$/i, '').toLowerCase();
+    const list = (xs: string[]) => xs.slice(0, 3).join(', ') + (xs.length > 3 ? ` +${xs.length - 3} more` : '');
+    const missing = links.filter((l) => !noteNames.has(leaf(l)));
+    const noted = links.filter((l) => noteNames.has(leaf(l)));
+    const parts = [`Not saved to those links: ${list(links)}.`];
+    if (missing.length) parts.push(`No note in this world is named ${list(missing)}: create it or correct the link.`);
+    if (noted.length) parts.push(`${list(noted)} ${noted.length === 1 ? 'has a note' : 'have notes'} with no element id yet, or of another type than the field takes.`);
+    parts.push('Then save again.');
+    return parts.join(' ');
+}
+
 /** The Notice for links left out because their name matches several types. */
 export function ambiguousLinksMessage(links: string[]): string {
     const names = [...new Set(links)];
@@ -247,21 +266,13 @@ export class SaveElementCommand {
                 return true;
             });
             if (slips.length > 0) new Notice(likelyMisnamedMessage(v2.category, slips), 12000);
-            // A [[Name]] pointing at an element that exists only in the vault
-            // resolves to nothing, so its whole field is omitted to avoid
-            // stripping the server's copy. That is the right call — but saying
-            // nothing means the user sees "saved" while the link they just made
-            // did not travel. Name the elements and the fix.
+            // A [[Name]] no element id answers is left out, its whole field
+            // omitted so the server's copy is not stripped. Saying nothing
+            // means "saved" while the link did not travel: name the links and
+            // the fix. Upload World resolves links the same way, so it never
+            // helps here and is not named (round C, 10).
             if (v2.unresolvedLinks.length > 0) {
-                const names = [...new Set(v2.unresolvedLinks)];
-                const shown = names.slice(0, 3).join(', ');
-                const more = names.length > 3 ? ` +${names.length - 3} more` : '';
-                new Notice(
-                    `Not saved to those links: ${shown}${more}. ` +
-                    `${names.length === 1 ? 'That element is' : 'Those elements are'} not on the server yet — ` +
-                    `run "Export World" first, then save this note again.`,
-                    12000
-                );
+                new Notice(unresolvedLinksMessage([...new Set(v2.unresolvedLinks)], this.worldNoteNames(worldName)), 12000);
             }
             // A generic link field (a Pin's element) whose name matches notes of
             // more than one type is never guessed: left out, and named here
@@ -653,6 +664,16 @@ export class SaveElementCommand {
             return { type: cat ?? 'element', name: file?.basename ?? id };
         });
         return { firsts: [], leftOut, leftOutIds: hit };
+    }
+
+    /** The file names (lower case) of this world's element notes, for the unresolved-link notice. */
+    private worldNoteNames(worldName: string): Set<string> {
+        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
+        const names = new Set<string>();
+        for (const f of this.app.vault.getMarkdownFiles()) {
+            if (f.path.startsWith(prefix)) names.add(f.basename.toLowerCase());
+        }
+        return names;
     }
 
     /** This world's element notes by their frontmatter id. */
