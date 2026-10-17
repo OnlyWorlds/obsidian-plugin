@@ -483,6 +483,10 @@ export interface ParsedBody {
  * byte: its own edge whitespace, CRLF and lone CR included (OW Infra #166 row
  * 16; it used to be trimmed and CRLF folded to LF).
  *
+ * ⚑ Two limits, not escaped (Kael's cold read, 5): a line of the value that
+ * starts with `### ` starts a new field there, and a code fence (``` or ~~~)
+ * in a value must close, or every later heading is read as its prose.
+ *
  * EOL is the heading line's own ending, so a note saved with CRLF throughout
  * by another editor strips CRLF layout the same way. An empty section is
  * nothing, one EOL or two.

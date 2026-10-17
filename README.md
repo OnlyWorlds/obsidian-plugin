@@ -55,6 +55,8 @@ Weathered, quick hands, a limp she never explains.
 
 The body holds one `###` section per text field, in schema order. **Manage Fields** adds or removes fields on a note; **Add Custom Field** adds one of your own (type `Looks`, get a `### Looks` section, synced as `x_looks`). Empty fields are not uploaded.
 
+A text field keeps its value as typed, spaces and line endings included, with two limits: a line that starts with `### ` starts a new field, and a code fence (```` ``` ````) inside a value must be closed, or the sections after it are read as part of it.
+
 The note's identity is the `id` in its Properties, so renaming a note does not break anything.
 
 ## Sync

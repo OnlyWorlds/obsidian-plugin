@@ -7,6 +7,10 @@
  * The body layout is unchanged: `### Heading`, a blank line, the value, a
  * blank line. What changed is the read: it now strips exactly that layout and
  * nothing of the value.
+ *
+ * Two limits (Kael's cold read, 5; not escaped): a line starting with `### `
+ * inside a value starts a new field, and a code fence inside a value must
+ * close. These tests hold values without either.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
