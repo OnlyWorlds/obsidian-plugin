@@ -94,18 +94,30 @@ interface FoundBase {
 	file: TFile | null;
 	/** A folder sits at the base's path. */
 	blocked: boolean;
+	/** The file's name differs from the base's only in case, on a disk that ignores case. */
+	caseTwin?: boolean;
 }
 
 /**
- * The world's base: the file at `<folder>/<folder>.base`; else a `.base` under
- * the world folder named `alsoNamed` (Rename World: the old name), else the
- * first, by path, that carries the plugin's marker (a folder renamed by hand,
- * the file renamed). So there is never a second base beside the plugin's own.
+ * The world's base: the file at `<folder>/<folder>.base`; else, on a disk that
+ * ignores case (Windows, macOS), the file the disk holds at that path under
+ * another case (the vault's lookup is exact, the disk's is not: `exists`
+ * without and with `sensitive`, the adapter's own test, as note names use);
+ * else a `.base` under the world folder named `alsoNamed` (Rename World: the
+ * old name), else the first, by path, that carries the plugin's marker (a
+ * folder renamed by hand, the file renamed). So there is never a second base
+ * beside the plugin's own, and never a create that the disk refuses.
  */
 async function findWorldBase(app: App, worldFolder: string, alsoNamed?: string): Promise<FoundBase> {
-	const at = app.vault.getAbstractFileByPath(basesFilePath(worldFolder));
+	const path = basesFilePath(worldFolder);
+	const at = app.vault.getAbstractFileByPath(path);
 	if (at instanceof TFile) return { file: at, blocked: false };
 	if (at) return { file: null, blocked: true };
+	if ((await app.vault.adapter.exists(path)) && !(await app.vault.adapter.exists(path, true))) {
+		const low = path.toLowerCase();
+		const twin = app.vault.getFiles().find((f) => f.path.toLowerCase() === low);
+		return twin ? { file: twin, blocked: false, caseTwin: true } : { file: null, blocked: true };
+	}
 	const root = normalizePath(`OnlyWorlds/Worlds/${worldFolder}`) + "/";
 	const under = app.vault
 		.getFiles()
@@ -119,9 +131,14 @@ async function findWorldBase(app: App, worldFolder: string, alsoNamed?: string):
 	return { file: null, blocked: false };
 }
 
-/** Give a base found elsewhere the world's own name, when that name is free. Returns where it is. */
-async function placeAt(app: App, file: TFile, path: string): Promise<string> {
-	if (file.path === path || app.vault.getAbstractFileByPath(path)) return file.path;
+/**
+ * Give a base found elsewhere the world's own name, when that name is free.
+ * Returns where it is. A name differing only in case stays (a case-only
+ * rename is the disk's business, not the plugin's).
+ */
+async function placeAt(app: App, found: FoundBase & { file: TFile }, path: string): Promise<string> {
+	const file = found.file;
+	if (found.caseTwin || file.path === path || app.vault.getAbstractFileByPath(path)) return file.path;
 	await app.fileManager.renameFile(file, path);
 	return path;
 }
@@ -151,11 +168,12 @@ export async function writeWorldBasesFileOutcome(
 	if (found.blocked) return { result: "kept", path, worldName };
 	const file = found.file;
 	if (file) {
+		const place = () => placeAt(app, { ...found, file }, path);
 		const current = await app.vault.read(file);
-		if (sameText(current, text)) return { result: "unchanged", path: await placeAt(app, file, path), worldName };
+		if (sameText(current, text)) return { result: "unchanged", path: await place(), worldName };
 		if (!mayOverwriteBasesFile(current)) return { result: "kept", path: file.path, worldName };
 		await app.vault.modify(file, text);
-		return { result: "rewritten", path: await placeAt(app, file, path), worldName };
+		return { result: "rewritten", path: await place(), worldName };
 	}
 	if (opts.create === false) return { result: "absent", path, worldName };
 	await app.vault.create(path, text);
@@ -181,15 +199,16 @@ export async function rebuildWorldBasesFile(app: App, worldFolder: string): Prom
 	if (found.blocked) return { result: "kept", path, worldName };
 	const file = found.file;
 	if (file) {
+		const place = () => placeAt(app, { ...found, file }, path);
 		const current = await app.vault.read(file);
-		if (sameText(current, text)) return { result: "unchanged", path: await placeAt(app, file, path), worldName };
+		if (sameText(current, text)) return { result: "unchanged", path: await place(), worldName };
 		let copy: string | undefined;
 		if (!mayOverwriteBasesFile(current)) {
 			copy = await freeCopyPath(app, worldFolder);
 			await app.vault.create(copy, stripBasesMarker(current));
 		}
 		await app.vault.modify(file, text);
-		return { result: "rewritten", path: await placeAt(app, file, path), worldName, copy };
+		return { result: "rewritten", path: await place(), worldName, copy };
 	}
 	await app.vault.create(path, text);
 	return { result: "created", path, worldName };

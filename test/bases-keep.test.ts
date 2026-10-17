@@ -243,3 +243,57 @@ test("a Download that only refreshes the plugin's base says nothing new and leav
 	assert.equal(__notices.includes(INTRO_NOTICE), false, __notices.join(" / "));
 	assert.equal(plugin.settings.basesIntroShown, false);
 });
+
+// ── Item 4: a file differing only in case ──
+
+const LOWER = "OnlyWorlds/Worlds/Hyperion/hyperion.base";
+const USERS_OWN = "views:\n  - type: table\n    name: My own\n";
+
+test("on a case-insensitive disk, a user's hyperion.base is the world's base: Download keeps it, writes no twin, says so", async () => {
+	const { app, vault } = makeApp();
+	const plugin = makePlugin();
+	await download(app, plugin);
+	vault.files.delete(BASE);
+	vault.caseInsensitive = true;
+	await vault.seed(LOWER, USERS_OWN);
+	assert.equal(await writeWorldBasesFile(app, "Hyperion"), "kept");
+	__notices.length = 0;
+	await download(app, plugin);
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Hyperion"), [LOWER]);
+	assert.equal(vault.contentAt(LOWER), USERS_OWN);
+	assert.ok(__notices.includes(KEPT_NOTICE), __notices.join(" / "));
+});
+
+test("on a case-insensitive disk, the plugin's own file under another case is refreshed in place, not renamed", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **Name:** Hyperion\n");
+	vault.caseInsensitive = true;
+	(app as unknown as { realRenames: boolean }).realRenames = true;
+	const older = buildBasesFile({ worldName: "Hyperion", worldFolderPath: "OnlyWorlds/Worlds/Hyperion", schema: { Character: { name: { type: "text" } } } });
+	await vault.seed(LOWER, older);
+	assert.equal(await writeWorldBasesFile(app, "Hyperion"), "rewritten");
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Hyperion"), [LOWER]);
+	assert.equal(vault.contentAt(LOWER), buildBasesFile({ worldName: "Hyperion", worldFolderPath: "OnlyWorlds/Worlds/Hyperion", schema: pluginBasesSchema() }));
+	assert.deepEqual((app as unknown as { renames: string[] }).renames, []);
+});
+
+test("Write Bases file on a case-insensitive disk rebuilds hyperion.base and keeps the user's copy", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **Name:** Hyperion\n");
+	vault.caseInsensitive = true;
+	await vault.seed(LOWER, USERS_OWN);
+	(app.workspace as unknown as { getActiveFile: () => unknown }).getActiveFile = () =>
+		vault.files.get("OnlyWorlds/Worlds/Hyperion/World.md")!.file;
+	await new WriteBasesFileCommand(app).execute();
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Hyperion"), ["OnlyWorlds/Worlds/Hyperion/Hyperion (your copy).base", LOWER]);
+	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Hyperion/Hyperion (your copy).base"), USERS_OWN);
+	assert.ok(vault.contentAt(LOWER)!.startsWith("# OnlyWorlds Builder wrote this file."));
+});
+
+test("on a case-sensitive disk (Linux), hyperion.base is another file: Hyperion.base is written beside it", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **Name:** Hyperion\n");
+	await vault.seed(LOWER, USERS_OWN);
+	assert.equal(await writeWorldBasesFile(app, "Hyperion"), "created");
+	assert.deepEqual(basesUnder(vault, "OnlyWorlds/Worlds/Hyperion"), [BASE, LOWER].sort());
+});
