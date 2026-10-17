@@ -11,7 +11,7 @@ import {
 	splitNote,
 	joinNote,
 } from '../vault/element-transform';
-import { parseElementPath } from '../vault/element-file';
+import { noteFence, parseElementPath, unclosedFenceMessage } from '../vault/element-file';
 import { UpdateWorldFormatModal, WorldFormatPlan, NotePlan } from '../Modals/UpdateWorldFormatModal';
 
 const BASE_KEYS = new Set(['name', 'id', 'supertype', 'subtype', 'image_url']);
@@ -98,6 +98,13 @@ export class UpdateWorldFormatCommand {
 					new RegExp(`^##\\s+${fieldToHeading(k)}\\s*$`, 'im').test(body)
 				);
 
+			// A code fence typed open that swallows a `###` heading: rebuilding
+			// would escape that heading into the field above and add it again
+			// empty, and the next Save would clear it on onlyworlds.com (Kael's
+			// fixes read, should-fix 1). Skipped and named, never rebuilt.
+			const fenceRefusal = parsed.unclosedFence
+				? unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not updated')
+				: undefined;
 			if (movingFromFm.length || missingSections.length || missingProps.length) {
 				notes.push({
 					path: file.path,
@@ -106,7 +113,8 @@ export class UpdateWorldFormatCommand {
 					movingFromFm,
 					missingSections,
 					missingProps,
-					needsReview: legacyBodyHasFieldHeading || ambiguousHeadings.length > 0,
+					needsReview: legacyBodyHasFieldHeading || ambiguousHeadings.length > 0 || !!fenceRefusal,
+					...(fenceRefusal ? { refused: fenceRefusal } : {}),
 				});
 			}
 		}
@@ -118,10 +126,12 @@ export class UpdateWorldFormatCommand {
 	private async apply(plan: WorldFormatPlan): Promise<void> {
 		let changed = 0;
 		let skipped = 0;
+		const refusals: string[] = [];
 
 		for (const note of plan.notes) {
 			if (note.needsReview) {
 				skipped++;
+				if (note.refused) refusals.push(note.refused);
 				continue; // never touch a note whose body is ambiguous — reported instead
 			}
 			const file = this.app.vault.getAbstractFileByPath(note.path);
@@ -135,6 +145,12 @@ export class UpdateWorldFormatCommand {
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
 			const body = stripFrontmatterBlock(content);
 			const parsed = parseElementBody(body, category);
+			if (parsed.unclosedFence) {
+				// Typed open since the plan was made: skipped the same way.
+				skipped++;
+				refusals.push(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not updated'));
+				continue;
+			}
 			const bodyField = bodyFieldForCategory(category);
 
 			// Values for the new body: existing sections win, then frontmatter text
@@ -191,6 +207,8 @@ export class UpdateWorldFormatCommand {
 		const parts = [`Updated ${changed} note${changed === 1 ? '' : 's'}`];
 		if (skipped > 0) parts.push(`${skipped} skipped for review (see console)`);
 		new Notice(parts.join(' · '), 10000);
+		// A note skipped for its open fence is named as Save names it.
+		for (const r of refusals) new Notice(r, 15000);
 		if (skipped > 0) {
 			console.warn(
 				'[OnlyWorlds] Notes skipped — their body already contains headings that match field names, ' +

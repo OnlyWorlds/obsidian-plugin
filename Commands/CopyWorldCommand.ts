@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { readElement } from '../vault/element-file';
+import { readElement, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat } from '../vault/element-transform';
 import { parseWorldUnits } from '../vault/world-units';
 
@@ -132,6 +132,11 @@ export class CopyWorldCommand {
             return {}; // Stop further processing if the World file cannot be read
         }
     
+        // Notes left out because a code fence typed open swallows a heading:
+        // copied, the swallowed field would come back empty from Paste World
+        // (Kael's fixes read, should-fix 1). Named once the walk is done.
+        const refused: string[] = [];
+
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
@@ -147,6 +152,10 @@ export class CopyWorldCommand {
                     let parsedElement: Record<string, any>;
                     if (!isSpanFormat(fileContent) && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
+                        if (parsed?.unclosedFence) {
+                            refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
+                            return {};
+                        }
                         // id rides OUTSIDE parsed.fields — without it the copied
                         // JSON loses element identity and paste-dedupe breaks
                         // (gate finding, 2026-07-16).
@@ -165,6 +174,7 @@ export class CopyWorldCommand {
         }
         
       //  console.log(`Final world data: ${JSON.stringify(worldData)}`);
+        for (const r of refused) new Notice(r, 15000);
         return worldData;
     }
     

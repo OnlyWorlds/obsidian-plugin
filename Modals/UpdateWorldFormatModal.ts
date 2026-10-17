@@ -13,6 +13,8 @@ export interface NotePlan {
 	missingProps: string[];
 	/** body already contains a heading matching a field name — needs human eyes */
 	needsReview: boolean;
+	/** why it is skipped, when a code fence typed open swallows a heading (Kael's fixes read, should-fix 1) */
+	refused?: string;
 }
 
 export interface WorldFormatPlan {
@@ -69,7 +71,8 @@ export class UpdateWorldFormatModal extends Modal {
 				cls: 'setting-item-description',
 			});
 			const rl = warn.createEl('ul');
-			for (const n of review.slice(0, 10)) rl.createEl('li', { text: n.path });
+			// A note skipped for an open code fence says why, as Save does.
+			for (const n of review.slice(0, 10)) rl.createEl('li', { text: n.refused ?? n.path });
 			if (review.length > 10) rl.createEl('li', { text: `…and ${review.length - 10} more (see console)` });
 		}
 

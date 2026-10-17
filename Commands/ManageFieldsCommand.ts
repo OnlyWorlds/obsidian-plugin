@@ -21,7 +21,7 @@ import {
  * and supertype/subtype/image_url are the block a reader scans first.
  */
 const BASE_KEYS = new Set(['name', 'id', 'supertype', 'subtype', 'image_url']);
-import { parseElementPath } from '../vault/element-file';
+import { noteFence, parseElementPath, unclosedFenceMessage } from '../vault/element-file';
 import { ManageFieldsModal, FieldChoice } from '../Modals/ManageFieldsModal';
 import { TextPromptModal } from '../Modals/TextPromptModal';
 
@@ -62,6 +62,7 @@ export class ManageFieldsCommand {
 		const content = await this.app.vault.read(file);
 		const body = stripFrontmatterBlock(content);
 		const parsed = parseElementBody(body, category);
+		if (refusedForFence(file, category, content, body, parsed)) return;
 
 		// Schema text fields (body sections), plus custom sections already present.
 		const choices: FieldChoice[] = bodyTextFields(category).map((key) => ({
@@ -125,7 +126,10 @@ export class ManageFieldsCommand {
 	): Promise<void> {
 		const content = await this.app.vault.read(file);
 		const fmBlock = extractFrontmatterBlock(content);
-		const parsed = parseElementBody(stripFrontmatterBlock(content), category);
+		const body = stripFrontmatterBlock(content);
+		const parsed = parseElementBody(body, category);
+		// A dialog opened before the fence was typed open: still refused.
+		if (refusedForFence(file, category, content, body, parsed)) return;
 
 		// Re-check content here, not just in the UI: a field holding text is kept
 		// regardless of what the modal returned (stale-modal safety).
@@ -264,6 +268,25 @@ function extractFrontmatterBlock(content: string): string {
 
 function stripFrontmatterBlock(content: string): string {
 	return splitNote(content).body;
+}
+
+/**
+ * A note whose code fence is typed open and swallows a `###` heading is not
+ * rebuilt: the rebuild would escape the swallowed heading into the field
+ * above, add an empty section for it, and the next Save would clear that
+ * field on onlyworlds.com (Kael's fixes read, should-fix 1). Says so as Save
+ * does, naming the field and the heading; true when refused.
+ */
+function refusedForFence(
+	file: TFile,
+	category: string,
+	content: string,
+	body: string,
+	parsed: ReturnType<typeof parseElementBody>
+): boolean {
+	if (!parsed.unclosedFence) return false;
+	new Notice(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not changed'), 15000);
+	return true;
 }
 
 

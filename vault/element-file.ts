@@ -99,11 +99,37 @@ function misnamed(category: string, adopted: Array<{ from: string; to: string }>
 	return slips.length ? { likelyMisnamed: slips } : {};
 }
 
-/** Why a note with an unclosed code fence is not sent: the field, the line, and the heading it swallows. */
-export function unclosedFenceMessage(name: string, fence: { field: string; line: number; heading: string }): string {
-	return `${name} not sent: the code fence on line ${fence.line} (in ${fence.field}) never closes, ` +
+/**
+ * Why a note with an unclosed code fence is not sent (or changed, updated,
+ * copied: `verb`): the field, the line, and the heading it swallows.
+ */
+export function unclosedFenceMessage(
+	name: string,
+	fence: { field: string; line: number; heading: string },
+	verb = "not sent"
+): string {
+	return `${name} ${verb}: the code fence on line ${fence.line} (in ${fence.field}) never closes, ` +
 		`so the heading "${fence.heading}" after it would be read as its text. ` +
 		"Close the fence with a line of the same backticks or tildes, then try again.";
+}
+
+/**
+ * A body's unclosed fence (parseElementBody) as the notice names it: the
+ * field it opened in, its line in the whole note, and the heading it
+ * swallows. `body` is the end of `content`. Save, Upload World, the folder
+ * export, Manage Fields, Update World Format and Copy World all name it so.
+ */
+export function noteFence(
+	content: string,
+	body: string,
+	category: string,
+	fence: { heading: string | null; line: number; swallows: string }
+): { field: string; line: number; heading: string } {
+	return {
+		field: fence.heading?.trim() || (bodyFieldForCategory(category) === "story" ? "Story" : "Description"),
+		line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
+		heading: fence.swallows.trim(),
+	};
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
@@ -181,13 +207,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// The body is the end of the note, so its line 1 is the note's line
 		// after everything before it.
 		const fence = parsedBody?.unclosedFence;
-		const unclosedFence = fence
-			? {
-				field: fence.heading?.trim() || (bodyFieldForCategory(category) === "story" ? "Story" : "Description"),
-				line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
-				heading: fence.swallows.trim(),
-			}
-			: undefined;
+		const unclosedFence = fence ? noteFence(content, body, category, fence) : undefined;
 		const fields = frontmatterToPayloadFields(fm, category, {
 			resolveNameToId: buildWikilinkResolver(app, file.path),
 			unresolved,
