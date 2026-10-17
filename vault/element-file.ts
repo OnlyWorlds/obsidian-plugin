@@ -21,6 +21,7 @@ import {
 	spanFieldsToFrontmatter,
 	parseRawFrontmatterScalars,
 	AMBIGUOUS_LINK,
+	likelyLinkField,
 } from "./element-transform";
 
 /**
@@ -69,6 +70,30 @@ export interface ParsedElement {
 	 * note (unclosedFenceMessage), never sends it cut short.
 	 */
 	unclosedFence?: { field: string; line: number };
+	/**
+	 * Frontmatter keys that are no field of the type, sent as `x_<key>`, that
+	 * look like a slip for one of its link fields (round C, 4): the key and
+	 * the field it likely meant. The CALLER names them; nothing is corrected.
+	 */
+	likelyMisnamed?: Array<{ key: string; field: string }>;
+}
+
+/** "allies is not a field of Character; did you mean friends? Sent as x_allies." */
+export function likelyMisnamedMessage(category: string, slips: Array<{ key: string; field: string }>): string {
+	const type = category.charAt(0).toUpperCase() + category.slice(1);
+	return slips
+		.map((s) => `${s.key} is not a field of ${type}; did you mean ${s.field}? Sent as x_${s.key}.`)
+		.join(" ");
+}
+
+/** The adopted keys that look like a slip for a link field of `category`, as ParsedElement carries them. */
+function misnamed(category: string, adopted: Array<{ from: string; to: string }>): { likelyMisnamed?: Array<{ key: string; field: string }> } {
+	const slips: Array<{ key: string; field: string }> = [];
+	for (const a of adopted) {
+		const field = likelyLinkField(category, a.from);
+		if (field) slips.push({ key: a.from, field });
+	}
+	return slips.length ? { likelyMisnamed: slips } : {};
 }
 
 /** Why a note with an unclosed code fence is not sent: the field and the line. */
@@ -144,6 +169,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// A bare-id link value passes through untouched (dangling/unmigrated).
 		const unresolved: string[] = [];
 		const ambiguous: string[] = [];
+		const adopted: Array<{ from: string; to: string }> = [];
 		// A Pin's `element_type` (a text field, so a body section) narrows its
 		// generic `element_id` to that type's notes (OW Infra #166 row 2).
 		const parsedBody = body ? parseElementBody(body, category) : null;
@@ -161,6 +187,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			resolveNameToId: buildWikilinkResolver(app, file.path),
 			unresolved,
 			ambiguous,
+			adopted,
 			genericTargetType: elementType || undefined,
 			// Upload safety: a field with any unresolvable [[Name]] is OMITTED, not
 			// shortened — a full-field bulk PATCH built from a reduced id list would
@@ -222,6 +249,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			unresolvedLinks: unresolved,
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
+			...misnamed(category, adopted),
 		};
 	}
 

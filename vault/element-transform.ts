@@ -728,6 +728,45 @@ export function getCategorySchema(category: string): CategorySchema | null {
 	return schema;
 }
 
+/** True when `a` and `b` are one edit apart: an insertion, deletion, substitution or swap of two neighbours. */
+function oneEditApart(a: string, b: string): boolean {
+	if (a === b || Math.abs(a.length - b.length) > 1) return false;
+	if (a.length === b.length) {
+		const diff: number[] = [];
+		for (let i = 0; i < a.length && diff.length <= 2; i++) if (a[i] !== b[i]) diff.push(i);
+		if (diff.length === 1) return true;
+		return diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]];
+	}
+	const [s, l] = a.length < b.length ? [a, b] : [b, a];
+	let i = 0;
+	while (i < s.length && s[i] === l[i]) i++;
+	return s.slice(i) === l.slice(i + 1);
+}
+
+/** True when one is the other's plural: `+s`, `+es`, or `y` to `ies`. */
+function pluralSlip(a: string, b: string): boolean {
+	const one = (x: string, y: string) => y === `${x}s` || y === `${x}es` || (x.endsWith("y") && y === `${x.slice(0, -1)}ies`);
+	return one(a, b) || one(b, a);
+}
+
+/**
+ * The link field of `category` a frontmatter key most likely meant, or null:
+ * the same name in another case, one edit away, or a plural/singular slip
+ * (`friend`, `freinds`, `Rivals` for `friends`, `rivals`). Such a key is not a
+ * field, so it is sent as an `x_` field; the caller names the likely field and
+ * corrects nothing (round C, 4). The first match in schema order.
+ */
+export function likelyLinkField(category: string, key: string): string | null {
+	const schema = getCategorySchema(category);
+	if (!schema) return null;
+	const k = key.toLowerCase();
+	for (const [field, def] of Object.entries(schema)) {
+		if (def.type !== "single_link" && def.type !== "multi_link") continue;
+		if (k === field || oneEditApart(k, field) || pluralSlip(k, field)) return field;
+	}
+	return null;
+}
+
 /** True when the API refuses this key for the category (see API_DROPPED_FIELDS). */
 export function isApiDroppedField(category: string, key: string): boolean {
 	return (API_DROPPED_FIELDS[normalizeCategory(category)] ?? []).includes(key);

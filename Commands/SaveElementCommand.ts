@@ -1,6 +1,6 @@
 import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { readElement, unclosedFenceMessage } from '../vault/element-file';
+import { likelyMisnamedMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
@@ -63,6 +63,9 @@ interface CreateFirstPlan {
 }
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
+
+/** Note path and key of each likely-misnamed key auto-sync has named this session (round C, 4). */
+const misnamedShown = new Set<string>();
 
 /** Why a save stopped before its creates: a target refused, past the cap, or the dialog cancelled. */
 function stopMessage(plan: CreateFirstPlan): string {
@@ -233,6 +236,17 @@ export class SaveElementCommand {
             // note is refused, never sent cut short (round C, 1).
             if (v2.unclosedFence) return this.fail(unclosedFenceMessage(v2.name, v2.unclosedFence), 15000);
             elementData = { id: v2.id, ...v2.fields };
+            // A key one slip from a link field went out as x_<key>: say which
+            // field it likely meant, correct nothing (round C, 4). Auto-sync
+            // says it once a session per note and key, not at every pause.
+            const slips = (v2.likelyMisnamed ?? []).filter((s) => {
+                if (manual) return true;
+                const seen = `${activeFile.path}|${s.key}`;
+                if (misnamedShown.has(seen)) return false;
+                misnamedShown.add(seen);
+                return true;
+            });
+            if (slips.length > 0) new Notice(likelyMisnamedMessage(v2.category, slips), 12000);
             // A [[Name]] pointing at an element that exists only in the vault
             // resolves to nothing, so its whole field is omitted to avoid
             // stripping the server's copy. That is the right call — but saying
