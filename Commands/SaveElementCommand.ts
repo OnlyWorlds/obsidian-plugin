@@ -53,7 +53,7 @@ interface CreateFirstPlan {
     leftOut: CreateFirstItem[];
     /** More than MAX_CREATE_FIRST targets: none is created. */
     overflow?: boolean;
-    /** This device cannot tell a never-uploaded note from a deleted one (no stored cursor). */
+    /** This device cannot tell a never-uploaded note from a deleted one (the feed read failed, the server was restored, or keel asks for a re-read). */
     cannotTell?: boolean;
     cannotTellReason?: CannotTellReason;
     /** The ids of `leftOut`: stripped from this save's link fields (Kael's second read, N5). */
@@ -310,9 +310,10 @@ export class SaveElementCommand {
             if (this.isNotFound(error)) {
                 try {
                     // A 404 is "never uploaded" or "deleted on the server". The
-                    // deleted list (the feed read once from the stored cursor)
-                    // tells them apart: a deleted element is never recreated by
-                    // auto-sync, and only on the user's word by Save Element
+                    // deleted list, with the feed read on from the session's
+                    // cursor (or Download's, or the start), tells them apart:
+                    // a deleted element is never recreated by auto-sync, and
+                    // only on the user's word by Save Element
                     // (Kael's second read, N1).
                     const view = await readDeletedOnServer(this.plugin, client);
                     let recreated = false;
@@ -331,10 +332,11 @@ export class SaveElementCommand {
                     } else if (!view.known) {
                         // This device cannot tell "never uploaded" from "deleted"
                         // (Kael's third read, 2). A failed feed read: auto-sync
-                        // waits for its next tick. No stored cursor: auto-sync
-                        // creates, as a kept note of a deleted element only comes
-                        // from a Download, which leaves a cursor. The manual Save
-                        // asks either way, saying why.
+                        // waits for its next tick. A restored server or keel's
+                        // resync_required: auto-sync points to Download World.
+                        // The manual Save asks, saying why. (A device with no
+                        // stored cursor reads the feed from the start, 3b68635,
+                        // so it can tell.)
                         if (!manual && view.reason === 'failed') {
                             return this.fail(
                                 `Could not check onlyworlds.com for a delete of ${label}; not created this time. Auto-sync tries again on the next edit.`,
@@ -504,8 +506,9 @@ export class SaveElementCommand {
                 }
                 // A 404 is "never pushed" or "deleted": an id the change feed
                 // reported deleted is never recreated (Kael's read, blocker 1c).
-                // The first 404 reads the feed once from the stored cursor, so a
-                // delete no Download has seen yet counts too (second read, N3).
+                // The first 404 reads the feed on from the session's cursor (or
+                // Download's, or the start), so a delete no Download has seen
+                // yet counts too (second read, N3; delta read, low 1).
                 view = view ?? (await readDeletedOnServer(this.plugin, client));
                 if (view.ids.has(id)) {
                     leftOut.push({ type: parsed.category, name: parsed.name });
@@ -587,7 +590,7 @@ export class SaveElementCommand {
                 plan.leftOut,
                 resolve,
                 plan.cannotTell === true,
-                plan.cannotTellReason ?? 'no-cursor'
+                plan.cannotTellReason ?? 'failed'
             ).open();
         });
     }

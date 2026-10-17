@@ -24,10 +24,10 @@ export class CreateFirstModal extends Modal {
         readonly items: CreateFirstItem[],
         readonly leftOut: CreateFirstItem[],
         private onChoice: (create: boolean) => void,
-        /** No stored change-feed cursor: a 404 cannot be told from a delete here (Kael's second read, N3). */
+        /** The plugin cannot tell a 404 from a delete here: the feed read failed, the server was restored, or keel asks for a re-read. */
         readonly cannotTell = false,
-        /** Why it cannot tell: never downloaded here, or the feed read failed (Kael's third read, 9). */
-        readonly cannotTellReason: CannotTellReason = 'no-cursor'
+        /** Why it cannot tell (Kael's third read, 9). */
+        readonly cannotTellReason: CannotTellReason = 'failed'
     ) {
         super(app);
     }
@@ -64,11 +64,6 @@ export class CreateFirstModal extends Modal {
     }
 }
 
-/** What the dialog says when this device never downloaded the world (Kael's second read, N3). */
-export const CANNOT_TELL_LINE =
-    'This device has not downloaded this world, so the plugin cannot tell a note never uploaded ' +
-    'from one deleted on onlyworlds.com. Download World first if any of these may have been deleted.';
-
 /** What the plugin says when the change feed could not be read just now. */
 export const FEED_FAILED_LINE =
     "The plugin could not read onlyworlds.com's change feed just now, so it cannot tell a note never uploaded " +
@@ -84,15 +79,18 @@ export const RESYNC_LINE =
     'onlyworlds.com asks this device to read the world again, so the plugin cannot tell a note never uploaded ' +
     'from one deleted there: Download World to catch up.';
 
-/** Why the plugin cannot tell: never downloaded here, a failed feed read, or a restored server. */
-export type CannotTellReason = 'no-cursor' | 'failed' | 'rewound' | 'resync';
+/**
+ * Why the plugin cannot tell: a failed feed read, a restored server, or keel's
+ * resync_required. A device with no stored cursor reads the feed from the start
+ * (3b68635), so "never downloaded here" is no longer a reason.
+ */
+export type CannotTellReason = 'failed' | 'rewound' | 'resync';
 
 /** The cannot-tell line for its reason. */
 export function cannotTellLine(reason: CannotTellReason | undefined): string {
-    if (reason === 'failed') return FEED_FAILED_LINE;
     if (reason === 'rewound') return REWOUND_LINE;
     if (reason === 'resync') return RESYNC_LINE;
-    return CANNOT_TELL_LINE;
+    return FEED_FAILED_LINE;
 }
 
 /** `Location "Vallaki"`. */
