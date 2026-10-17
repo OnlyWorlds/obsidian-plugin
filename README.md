@@ -77,6 +77,14 @@ On both Save Element and Upload World, a link field holding a `[[Name]]` that ma
 
 The ribbon icon and the desktop status bar show the sync state: idle, dirty, syncing, synced or error.
 
+## Bases
+
+Download World and Create World write `<World name>.base` beside `World.md`: a table and a card view for each element type in Obsidian's core Bases plugin (Obsidian 1.9 or later). Turn it off with the **Write a Bases file per world** setting.
+
+The plugin rewrites only its own file, unchanged since it wrote it. Once you change the base (a view, a sort, a column), Download leaves it as is and says so once; delete it, or run **Write Bases file**, which rebuilds it and keeps your version beside it as `<World name> (your copy).base`. Rename World moves the plugin's file to the new name.
+
+With Obsidian Sync or another sync tool, a base is rebuilt from your world on Download, so a stale copy from another device is replaced unless it carries your own edits.
+
 ## Commands
 
 | Command | What it does |
@@ -91,6 +99,7 @@ The ribbon icon and the desktop status bar show the sync state: idle, dirty, syn
 | Manage Fields | Tick which fields the note carries. A field with content can't be removed here: clear it first. |
 | Add Custom Field | Add your own text field (stored as `x_<name>`). |
 | Rename World | Rename the world folder, and the world on onlyworlds.com if it has a key. |
+| Write Bases file | Write the active world's `.base` file (see Bases); rebuilds one you changed, keeping your version beside it. |
 | Export as OnlyWorlds folder | Write the world as an OnlyWorlds folder (`world.json` plus one JSON file per element). Into the vault, or on desktop into any folder, such as your [Atlas](https://atlas.onlyworlds.com) folder. Never overwrites an existing folder. |
 | Import OnlyWorlds folder | Read an OnlyWorlds folder placed in the vault into notes. Skips elements that already have a note; refuses to merge into a different world of the same name. |
 | Copy World to Clipboard / Paste World from Clipboard | The world as JSON, out and back in. |
@@ -113,6 +122,7 @@ Updating the plugin does not change your notes, and it reads every format it has
 | Auto-sync to OnlyWorlds | off | Push edits automatically. |
 | Auto-sync debounce (ms) | 3000 | Wait after the last edit before pushing (250 to 30000). |
 | Show status bar indicator | on | Sync state in the desktop status bar. |
+| Write a Bases file per world | on | Download World and Create World write the world's `.base` file (see Bases). |
 
 ## Files
 
@@ -122,6 +132,7 @@ OnlyWorlds/
 ├── Settings.md
 └── Worlds/<World name>/
     ├── World.md
+    ├── <World name>.base
     └── Elements/<Type> (<count>)/<Element name>.md
 ```
 
