@@ -363,30 +363,17 @@ export function unescapeSectionValue(value: string): string {
 	});
 }
 
-/** A `###` or fence line led by any run of backslashes (none included): the lines the escape adds one to. */
-const ESCAPABLE_FENCE_LINE = /^ {0,3}\\*(`{3,}|~{3,})/;
-
 /**
- * True when `read` is `server` with one backslash taken off some of its
- * `###` or fence lines and nothing else changed: a line a note from before
- * the escape holds as typed (`\### x` on disk and on the server alike), which
- * the reversible read now takes one backslash off (the keeper's amendment to
- * items 1 and 3, Kael's second read).
+ * True when `read` is exactly what the read makes of `server`'s value, and
+ * differs from it: a line a note from before the escape holds as typed
+ * (`\### x` on disk and on the server alike), which the reversible read now
+ * takes one backslash off (the keeper's amendment to items 1 and 3, Kael's
+ * second read). The read's own rule, fence-aware by construction: inside a
+ * closed code block it removes nothing, so a backslash gone there is the
+ * user's own edit and is sent (Kael's fixes read, should-fix 2).
  */
 export function onlyEscapesRemoved(read: string, server: string): boolean {
-	const a = read.split("\n");
-	const b = server.split("\n");
-	if (a.length !== b.length) return false;
-	let removed = false;
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] === b[i]) continue;
-		const one =
-			(HEADING_LIKE_LINE.test(a[i]) && b[i] === `\\${a[i]}`) ||
-			(ESCAPABLE_FENCE_LINE.test(a[i]) && b[i] === addFenceBackslash(a[i]));
-		if (!one) return false;
-		removed = true;
-	}
-	return removed;
+	return read !== server && unescapeSectionValue(server) === read;
 }
 
 /**

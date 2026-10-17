@@ -38,6 +38,20 @@ test("★ the same for a fence line, under auto-sync too, while another field's 
 	assert.equal(r.sent[0].background, "New.");
 });
 
+test("★ a backslash the user removed inside a closed code block is a real edit, and is sent (Kael's fixes read, should-fix 2)", async () => {
+	for (const [server, typed] of [
+		["```\n\\### x\n```", "```\n### x\n```"],
+		["~~~\n\\```\n~~~", "~~~\n```\n~~~"],
+	]) {
+		const r = await harnessSave({
+			notes: { "Character/Ireena.md": note(typed) },
+			save: "Character/Ireena.md",
+			server: { [ID]: { name: "Ireena", description: server, background: "Old." } },
+		});
+		assert.equal(r.sent[0]?.description, typed, `${JSON.stringify(server)}: sent ${JSON.stringify(r.sent)}`);
+	}
+});
+
 test("an edit beside the escaped line is sent, as read", async () => {
 	const r = await harnessSave({
 		notes: { "Character/Ireena.md": note("Intro, edited.\n\\### typed") },
