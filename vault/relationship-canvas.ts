@@ -10,11 +10,15 @@
  * optional sides, ends, `color` and `label`. The spec names no place for a
  * tool's own data, so the plugin's mark is a text node: its `id` is
  * `owb-relationships-<element id>-<hash>`, its text a caption that says the
- * command redraws the canvas. The hash covers what the plugin drew (every
- * other node's and edge's own JSON Canvas keys, in id order), so a card moved,
- * added or removed, or a label changed, makes the canvas the user's; a key the
- * plugin never writes (a viewer's own) and the spec's default arrow ends do
- * not count. The command redraws its own unchanged canvas in place, and saves
+ * command redraws the canvas. The hash covers what the plugin drew: every
+ * other node's and edge's own JSON Canvas keys, in id order, but never a file
+ * node's path. A file node's id is its element's (`el-<element id>`), so the
+ * hash names the elements and the field names; a rename of a note or its
+ * folders (Rename World, a type folder's count, rename-on-save) changes no
+ * hash, whether or not Obsidian rewrites the canvas's paths (Kael's seam read
+ * of rc-350, low 2). A card moved, added or removed, or a label changed, makes
+ * the canvas the user's; a key the plugin never writes (a viewer's own) and
+ * the spec's default arrow ends do not count. The command redraws its own unchanged canvas in place, and saves
  * a changed one as `(your copy)` first (Kael's read of round 2, should-fix 2).
  *
  * The drawing: the element at the centre; the elements it links to on the
@@ -24,12 +28,13 @@
  * with no note is a text node, so nothing is hidden.
  */
 
-export type CanvasRef = { kind: "file"; path: string } | { kind: "text"; text: string };
+/** A file node's `id`: its element's id, so the drawing is named by elements, not paths. */
+export type CanvasRef = { kind: "file"; path: string; id?: string } | { kind: "text"; text: string };
 
 export interface RelationshipGraph {
 	elementId: string;
 	elementName: string;
-	/** Vault path of the element's note. */
+	/** Vault path of the element's note (its id is `elementId`). */
 	centre: string;
 	/** The element's own links: field name -> what it names. */
 	outgoing: Array<{ field: string; to: CanvasRef }>;
@@ -90,13 +95,17 @@ function hash(s: string): string {
 type Loose = Record<string, unknown>;
 const v = (o: Loose, k: string, dflt: unknown = null): unknown => (o[k] === undefined ? dflt : o[k]);
 
-/** The hash of a drawing: every node but the marker, and every edge, by their own JSON Canvas keys, in id order. */
+/**
+ * The hash of a drawing: every node but the marker, and every edge, by their
+ * own JSON Canvas keys, in id order; a file node's path is left out (its id
+ * names its element).
+ */
 function drawingHash(nodes: Loose[], edges: Loose[], markerPrefix: string): string {
 	const byId = (a: Loose, b: Loose) => String(a.id).localeCompare(String(b.id));
 	const ns = nodes
 		.filter((n) => !String(n.id).startsWith(markerPrefix))
 		.sort(byId)
-		.map((n) => ["id", "type", "x", "y", "width", "height", "color", "file", "subpath", "text", "url", "label"].map((k) => v(n, k)));
+		.map((n) => ["id", "type", "x", "y", "width", "height", "color", "subpath", "text", "url", "label"].map((k) => v(n, k)));
 	const es = [...edges]
 		.sort(byId)
 		.map((e) => [
@@ -171,9 +180,14 @@ export function buildRelationshipCanvas(g: RelationshipGraph): CanvasData {
 	const right: string[] = [];
 	const left: string[] = [];
 	const placed = new Set<string>([centreKey]);
+	refs.set(centreKey, { kind: "file", path: g.centre, id: g.elementId });
+	const remember = (k: string, ref: CanvasRef) => {
+		const had = refs.get(k);
+		if (!had || (had.kind === "file" && !had.id)) refs.set(k, ref);
+	};
 	const place = (ref: CanvasRef, half: string[]) => {
 		const k = refKey(ref);
-		refs.set(k, ref);
+		remember(k, ref);
 		if (placed.has(k)) return;
 		placed.add(k);
 		half.push(k);
@@ -183,7 +197,7 @@ export function buildRelationshipCanvas(g: RelationshipGraph): CanvasData {
 	const outer: Array<{ key: string; parent: string }> = [];
 	for (const l of g.through) {
 		const k = refKey(l.to);
-		refs.set(k, l.to);
+		remember(k, l.to);
 		if (placed.has(k)) continue;
 		placed.add(k);
 		outer.push({ key: k, parent: refKey({ kind: "file", path: l.relation }) });
@@ -223,17 +237,21 @@ export function buildRelationshipCanvas(g: RelationshipGraph): CanvasData {
 	}
 
 	const ids = new Map<string, string>();
+	const used = new Set<string>();
 	const nodes: CanvasNode[] = [];
 	const addNode = (k: string, ref: CanvasRef) => {
 		const p = at.get(k)!;
 		const w = k === centreKey ? CENTRE_W : NODE_W;
 		const h = k === centreKey ? CENTRE_H : NODE_H;
-		const id = k === centreKey ? "centre" : `n${nodes.length}`;
+		// A file node is named by its element; a text node (or two notes sharing an id) by its place.
+		const own = ref.kind === "file" && ref.id ? `el-${ref.id}` : null;
+		const id = own && !used.has(own) ? own : `n${nodes.length}`;
+		used.add(id);
 		ids.set(k, id);
 		const box = { id, x: Math.round(p.cx - w / 2), y: Math.round(p.cy - h / 2), width: w, height: h };
 		nodes.push(ref.kind === "file" ? { ...box, type: "file", file: ref.path } : { ...box, type: "text", text: ref.text });
 	};
-	addNode(centreKey, { kind: "file", path: g.centre });
+	addNode(centreKey, refs.get(centreKey)!);
 	for (const k of [...right, ...left, ...outer.map((o) => o.key)]) addNode(k, refs.get(k)!);
 
 	const edges: CanvasEdge[] = [];
