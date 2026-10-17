@@ -79,6 +79,8 @@ interface CreateFirstPlan {
     leftOutIds?: string[];
     /** A target that cannot be sent whole (an unclosed code fence): nothing is created or saved, and this says why. */
     refused?: string;
+    /** Targets created first whose own [[links]] no element id answers, each with those links (round C, 14: Kael's low 10). */
+    targetLinks?: string[];
 }
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
@@ -116,6 +118,22 @@ export function createdFirstMessage(firsts: { type: string; name: string }[]): s
     const shown = firsts.slice(0, 3).map((f) => `${capitalize(f.type)} "${f.name}"`).join(', ');
     const more = firsts.length > 3 ? ` +${firsts.length - 3} more` : '';
     return `Created ${shown}${more} first.`;
+}
+
+/** What a save adds to its notice about the create-first batch: replaced ids and targets' links left out (round C, 14). */
+function createFirstNotes(replaced: string[], plan: CreateFirstPlan): string {
+    const parts: string[] = [];
+    if (replaced.length > 0) {
+        const one = replaced.length === 1;
+        parts.push(
+            `${replaced.join(', ')} ${one ? 'was' : 'were'} already on onlyworlds.com (made meanwhile, perhaps on another device) ` +
+            `and ${one ? 'was' : 'were'} replaced by ${one ? 'its note' : 'their notes'} here.`
+        );
+    }
+    if (plan.targetLinks?.length) {
+        parts.push(`Links not sent, as no element id answers them: ${plan.targetLinks.join('; ')}. Fix them and save those notes.`);
+    }
+    return parts.length ? ` ${parts.join(' ')}` : '';
 }
 
 /**
@@ -418,13 +436,14 @@ export class SaveElementCommand {
                     leftOutNotice(plan);
                     new Notice(`Creating ${category} "${label}"...`);
                     if (firsts.length > 0) {
-                        const refused = await this.createTogether(client, [
+                        const together = await this.createTogether(client, [
                             ...strippedFirsts(plan),
                             { type, id: elementUuid, name: String(label), payload: sendPayload },
                         ]);
-                        if (refused) return this.fail(`Failed to create ${category}: ${refused}`, 12000);
+                        if (together.refused) return this.fail(`Failed to create ${category}: ${together.refused}`, 12000);
                         if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
-                        new Notice(`${createdFirstMessage(firsts)} ${category} created.`, 8000);
+                        const extra = createFirstNotes(together.replaced, plan);
+                        new Notice(`${createdFirstMessage(firsts)} ${category} created.${extra}`, extra ? 15000 : 8000);
                         return { ok: true, outcome: 'created' };
                     }
                     await client.create(type, { id: elementUuid, ...sendPayload });
@@ -460,6 +479,7 @@ export class SaveElementCommand {
                 ? await this.unsyncedTargets(client, worldName, elementUuid, type, changed, addedLink)
                 : await this.storedLeftOut(client, worldName, type, changed, addedLink);
             let firstNote = '';
+            let firstExtra = '';
             if (!(await this.approveCreateFirst(String(label), plan))) {
                 return this.fail(stopMessage(plan), plan.refused ? 15000 : plan.overflow ? 12000 : undefined);
             }
@@ -477,9 +497,10 @@ export class SaveElementCommand {
                 return { ok: true, outcome: 'unchanged' };
             }
             if (firsts.length > 0) {
-                const refused = await this.createTogether(client, strippedFirsts(plan));
-                if (refused) return this.fail(`${category} "${label}" not saved: ${refused}`, 12000);
-                firstNote = `${createdFirstMessage(firsts)} `;
+                const together = await this.createTogether(client, strippedFirsts(plan));
+                if (together.refused) return this.fail(`${category} "${label}" not saved: ${together.refused}`, 12000);
+                firstExtra = createFirstNotes(together.replaced, plan);
+                firstNote = `${createdFirstMessage(firsts)}${firstExtra} `;
             }
             await client.update(type, elementUuid, toSend);
             // Only the manual Save renames: auto-sync fires at every pause while
@@ -489,7 +510,7 @@ export class SaveElementCommand {
                 ? await this.renameToName(activeFile, changed.name, elementUuid)
                 : null;
             const renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
-            new Notice(`${firstNote}${category} saved.${renameNote}`, firstNote || renamed ? 8000 : undefined);
+            new Notice(`${firstNote}${category} saved.${renameNote}`, firstExtra ? 15000 : firstNote || renamed ? 8000 : undefined);
             return { ok: true, outcome: 'updated' };
         } catch (error) {
             console.error('Error during v2 update call:', error);
@@ -524,6 +545,7 @@ export class SaveElementCommand {
         let view: DeletedView | null = known ?? null;
         let overflow = false;
         let refused: string | undefined;
+        const targetLinks: string[] = [];
         let found = 0;
         const visit = async (type: string, payload: Record<string, unknown>, filter?: typeof keep): Promise<void> => {
             for (const id of linkIdsOf(type, payload, filter)) {
@@ -572,11 +594,13 @@ export class SaveElementCommand {
                 await visit(parsed.category, targetPayload);
                 if (overflow) return;
                 out.push({ type: parsed.category, id, name: parsed.name, payload: targetPayload });
+                const dropped = [...new Set([...parsed.unresolvedLinks, ...parsed.ambiguousLinks])];
+                if (dropped.length > 0) targetLinks.push(`${capitalize(parsed.category)} "${parsed.name}" (${dropped.join(', ')})`);
             }
         };
         await visit(rootType, rootPayload, keep);
         if (refused) return { firsts: [], leftOut, leftOutIds, refused };
-        return { firsts: out, leftOut, leftOutIds, overflow, cannotTell: view ? !view.known : false, cannotTellReason: view?.reason };
+        return { firsts: out, leftOut, leftOutIds, overflow, targetLinks, cannotTell: view ? !view.known : false, cannotTellReason: view?.reason };
     }
 
     /**
@@ -693,26 +717,40 @@ export class SaveElementCommand {
      * links against the batch and the world, to a fixpoint, and applies the
      * survivors in one transaction (elements/bulk.py), so items may link to
      * each other, in a cycle too: no item is created bare and patched after.
-     * Returns null when every item landed (201, or 200 if the id appeared
-     * meanwhile), else the refused items with keel's reasons.
+     * Sent atomic (round C, 14: Kael's low 8): one refused item writes none,
+     * so a failed save leaves no half of its batch behind. `refused` is null
+     * when every item landed, else the refused items with keel's reasons.
+     * `replaced` names the items that answered 200: the id appeared on the
+     * server meanwhile, and /bulk with an id replaces it whole (Kael's low 9).
      */
     private async createTogether(
-        client: { bulkCreate(items: { type: string; element: Record<string, unknown> }[]): Promise<Record<string, unknown>> },
+        client: { bulkCreate(items: { type: string; element: Record<string, unknown> }[], opts?: { atomic?: boolean }): Promise<Record<string, unknown>> },
         items: PendingCreate[]
-    ): Promise<string | null> {
-        const body = await client.bulkCreate(items.map((i) => ({ type: i.type, element: { id: i.id, ...i.payload } })));
+    ): Promise<{ refused: string | null; replaced: string[] }> {
+        const body = await client.bulkCreate(
+            items.map((i) => ({ type: i.type, element: { id: i.id, ...i.payload } })),
+            { atomic: true }
+        );
         const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
         const refused: string[] = [];
+        const replaced: string[] = [];
         items.forEach((item, i) => {
             const r = (results[i] ?? null) as { status?: unknown; error?: { message?: unknown } } | null;
             const status = typeof r?.status === 'number' ? r.status : null;
-            if (status === 201 || status === 200) return;
+            if (status === 201) return;
+            if (status === 200) {
+                replaced.push(`${capitalize(item.type)} "${item.name}"`);
+                return;
+            }
             const why = typeof r?.error?.message === 'string'
                 ? r.error.message
                 : status !== null ? `status ${status}` : 'no result from the server';
             refused.push(`${capitalize(item.type)} "${item.name}": ${why}`);
         });
-        return refused.length > 0 ? refused.join('; ') : null;
+        // An atomic batch reports each slot as it would have gone: `errors`
+        // is the word that nothing was written.
+        if (refused.length === 0 && body?.errors === true) refused.push('the batch was refused as a whole, nothing was written');
+        return { refused: refused.length > 0 ? refused.join('; ') : null, replaced };
     }
 
     /** Show the reason (the Notice the user always got) and report the failure. */

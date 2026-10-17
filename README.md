@@ -55,7 +55,7 @@ Weathered, quick hands, a limp she never explains.
 
 The body holds one `###` section per text field, in schema order. **Manage Fields** adds or removes fields on a note; **Add Custom Field** adds one of your own (type `Looks`, get a `### Looks` section, synced as `x_looks`). Empty fields are not uploaded.
 
-Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included. A line of a value that starts with `### ` is written as `\### ` (Markdown's escape, so the note shows it as typed) and read back without the backslash, so it never starts a new field. A code fence (```` ``` ````) inside a value must close: a note with one that never closes is not saved, uploaded or exported, and the notice names the field and the line.
+Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included, so whitespace you type is a change too: a trailing space or an added blank line goes out with the next save. A line of a value that starts with `### ` is written as `\### ` (Markdown's escape, so the note shows it as typed) and read back without the backslash, so it never starts a new field. A code fence (```` ``` ````) inside a value must close: a note with one that never closes is not saved, uploaded or exported, and the notice names the field and the line.
 
 Fields are read from Properties and `###` sections only. A list you type in the body, as `- height: 172` or `- **Height:** 172`, is description text; the one body list read as fields is the old `<span>` format, which **Migrate world notes to frontmatter** converts.
 

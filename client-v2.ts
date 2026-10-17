@@ -162,10 +162,15 @@ export class V2Client {
      * (wire-verified 2026-07-13 — flat element bodies 422 with
      * "item.element must be an object"). Server resolves FK order (including
      * cycles) — the right tool for first pushes of locally-built worlds with
-     * cross-links. Client-supplied ids are preserved.
+     * cross-links. Client-supplied ids are preserved. `atomic: true`: if any
+     * item fails, nothing is written, and the response still lists each item
+     * as it would have gone (`errors: true` says nothing landed).
      */
-    async bulkCreate(items: { type: string; element: Record<string, unknown> }[]): Promise<Record<string, unknown>> {
-        return this.request("POST", "/bulk", undefined, { items });
+    async bulkCreate(
+        items: { type: string; element: Record<string, unknown> }[],
+        opts?: { atomic?: boolean }
+    ): Promise<Record<string, unknown>> {
+        return this.request("POST", "/bulk", undefined, opts?.atomic ? { items, atomic: true } : { items });
     }
 
     /** One page of the world's change feed. Pass the previous page's cursor as `since`. */

@@ -17,6 +17,8 @@ export interface HarnessOpts {
 	/** Elements on the server: id -> its body. */
 	server?: Record<string, Record<string, unknown>>;
 	manual?: boolean;
+	/** The status keel answers for each /bulk item (default 201). */
+	bulkStatus?: (id: string) => number;
 }
 
 export async function harnessSave(o: HarnessOpts) {
@@ -29,6 +31,7 @@ export async function harnessSave(o: HarnessOpts) {
 	const server = new Map(Object.entries(o.server ?? {}));
 	const calls: string[] = [];
 	const sent: Record<string, unknown>[] = [];
+	const bulkOpts: unknown[] = [];
 	const client = {
 		getWorld: async () => ({ id: HARNESS_WID, name: "W" }),
 		changesWalk: async (since?: string) => {
@@ -52,10 +55,15 @@ export async function harnessSave(o: HarnessOpts) {
 			sent.push(b);
 			return {};
 		},
-		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[]) => {
+		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[], opts?: unknown) => {
 			calls.push("bulk");
+			bulkOpts.push(opts);
 			for (const i of items) sent.push(i.element);
-			return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
+			const statuses = items.map((i) => o.bulkStatus?.(String(i.element.id)) ?? 201);
+			return {
+				errors: statuses.some((s) => s !== 201 && s !== 200),
+				items: items.map((i, n) => ({ status: statuses[n], id: i.element.id })),
+			};
 		},
 	};
 	const settings = { apiKey: "", deletedOnServer: {}, syncCursors: {} };
@@ -73,5 +81,5 @@ export async function harnessSave(o: HarnessOpts) {
 			if (typeof d.choose === "function") d.choose(true);
 		}
 	}
-	return { result: await run, calls, sent, notices: [...__notices], vault, app, files };
+	return { result: await run, calls, sent, bulkOpts, notices: [...__notices], vault, app, files };
 }
