@@ -141,6 +141,16 @@ export function withoutLinks(type: string, fields: Record<string, unknown>, ids:
     return out;
 }
 
+/**
+ * The walk's targets with every left-out id taken out of their own links, at
+ * the last moment before the /bulk: an id is left out wherever the walk met
+ * it, and a later sibling can add one after a target was found (Kael's third
+ * read, 3: Barovia went with deleted Vallaki's id and sank Ireena's save).
+ */
+function strippedFirsts(plan: CreateFirstPlan): PendingCreate[] {
+    return plan.firsts.map((f) => ({ ...f, payload: withoutLinks(f.type, f.payload, plan.leftOutIds) }));
+}
+
 /** The notice for links a save left out because their targets were deleted (N5). */
 function leftOutNotice(plan: CreateFirstPlan): void {
     if (plan.leftOut.length === 0) return;
@@ -359,7 +369,7 @@ export class SaveElementCommand {
                     new Notice(`Creating ${category} "${label}"...`);
                     if (firsts.length > 0) {
                         const refused = await this.createTogether(client, [
-                            ...firsts,
+                            ...strippedFirsts(plan),
                             { type, id: elementUuid, name: String(label), payload: sendPayload },
                         ]);
                         if (refused) return this.fail(`Failed to create ${category}: ${refused}`, 12000);
@@ -416,7 +426,7 @@ export class SaveElementCommand {
                 return { ok: true, outcome: 'unchanged' };
             }
             if (firsts.length > 0) {
-                const refused = await this.createTogether(client, firsts);
+                const refused = await this.createTogether(client, strippedFirsts(plan));
                 if (refused) return this.fail(`${category} "${label}" not saved: ${refused}`, 12000);
                 firstNote = `${createdFirstMessage(firsts)} `;
             }

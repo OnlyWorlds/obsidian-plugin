@@ -121,8 +121,23 @@ async function saveNote(o: SaveOpts) {
 		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[]) => {
 			calls.push("bulk");
 			bulks.push(items.map((i) => String(i.element.id)));
-			for (const i of items) server.set(String(i.element.id), i.element);
-			return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
+			// keel: an item's links must exist in the world or among the batch (one pass is enough here).
+			const batch = new Set(items.map((i) => String(i.element.id)));
+			const results = items.map((i) => {
+				for (const [k, v] of Object.entries(i.element)) {
+					if (k === "id") continue;
+					for (const x of Array.isArray(v) ? v : [v]) {
+						if (typeof x === "string" && UUID.test(x) && !server.has(x) && !batch.has(x)) {
+							return { status: 400, id: i.element.id, error: { message: `${k} references Location '${x}' which does not exist.` } };
+						}
+					}
+				}
+				return { status: 201, id: i.element.id };
+			});
+			items.forEach((i, n) => {
+				if (results[n].status === 201) server.set(String(i.element.id), i.element);
+			});
+			return { errors: results.some((r) => r.status !== 201), items: results };
 		},
 	};
 	const settings = {
@@ -240,6 +255,35 @@ test("★ a new note linking a deleted element is created without that link", as
 	});
 	assert.deepEqual(r.result, { ok: true, outcome: "created" }, JSON.stringify(r.result));
 	assert.equal("birthplace" in r.sent.at(-1)!, false);
+});
+
+// --- Kael's third read, 3: the strip reaches the walk's own targets ---------
+
+const BAROVIA = "019e0000-0000-7000-8000-0000000000a3";
+const DEEP = {
+	"Character/Ireena.md": note(IREENA, "Ireena", 'birthplace: "[[Barovia]]"\n').replace("About Ireena.", "Edited."),
+	"Location/Barovia.md": note(BAROVIA, "Barovia", 'parent_location: "[[Vallaki]]"\n'),
+	"Location/Vallaki.md": note(VALLAKI, "Vallaki"),
+};
+
+test("★ Ireena -> new Barovia -> deleted Vallaki: Barovia goes without the Vallaki link, and Ireena's edit lands", async () => {
+	const r = await saveNote({
+		notes: DEEP,
+		deleted: [VALLAKI],
+		server: { [IREENA]: { name: "Ireena", description: "About Ireena.", birthplace: null } },
+	});
+	assert.deepEqual(r.result, { ok: true, outcome: "updated" }, JSON.stringify(r.result));
+	assert.deepEqual(r.createFirst[0]?.leftOut, [{ type: "location", name: "Vallaki" }]);
+	assert.deepEqual(r.bulks, [[BAROVIA]]);
+	const patch = r.sent.at(-1)!;
+	assert.equal(patch.description, "Edited.");
+	assert.equal(patch.birthplace, BAROVIA);
+});
+
+test("the same with Ireena new too: one /bulk, both created, no Vallaki link", async () => {
+	const r = await saveNote({ notes: DEEP, deleted: [VALLAKI] });
+	assert.deepEqual(r.result, { ok: true, outcome: "created" }, JSON.stringify(r.result));
+	assert.deepEqual(r.bulks, [[BAROVIA, IREENA]]);
 });
 
 // --- Kael's second read, N1: the deleted element's OWN note -----------------
