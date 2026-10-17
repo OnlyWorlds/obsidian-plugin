@@ -64,12 +64,14 @@ export interface ParsedElement {
 	 */
 	ambiguousLinks: string[];
 	/**
-	 * A code fence in the body that never closes, so every section after it
-	 * was read as its text (round C, 1): the field it opened in, as its
-	 * heading reads, and its line in the note. The CALLER refuses to send the
-	 * note (unclosedFenceMessage), never sends it cut short.
+	 * A code fence in the body that never closes and swallows a `###`
+	 * heading, read as its text (round C, 1): the field it opened in, as its
+	 * heading reads, its line in the note, and the first heading it swallows.
+	 * The CALLER refuses to send the note (unclosedFenceMessage), never sends
+	 * it cut short. An open fence that swallows no heading is not one (the fix
+	 * round, item 1).
 	 */
-	unclosedFence?: { field: string; line: number };
+	unclosedFence?: { field: string; line: number; heading: string };
 	/**
 	 * Frontmatter keys that are no field of the type, sent as `x_<key>`, that
 	 * look like a slip for one of its link fields (round C, 4): the key and
@@ -96,10 +98,11 @@ function misnamed(category: string, adopted: Array<{ from: string; to: string }>
 	return slips.length ? { likelyMisnamed: slips } : {};
 }
 
-/** Why a note with an unclosed code fence is not sent: the field and the line. */
-export function unclosedFenceMessage(name: string, fence: { field: string; line: number }): string {
+/** Why a note with an unclosed code fence is not sent: the field, the line, and the heading it swallows. */
+export function unclosedFenceMessage(name: string, fence: { field: string; line: number; heading: string }): string {
 	return `${name} not sent: the code fence on line ${fence.line} (in ${fence.field}) never closes, ` +
-		"so every section after it would be read as its text. Close it with a line of three backticks, then try again.";
+		`so the heading "${fence.heading}" after it would be read as its text. ` +
+		"Close the fence with a line of the same backticks or tildes, then try again.";
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
@@ -181,6 +184,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			? {
 				field: fence.heading?.trim() || (bodyFieldForCategory(category) === "story" ? "Story" : "Description"),
 				line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
+				heading: fence.swallows.trim(),
 			}
 			: undefined;
 		const fields = frontmatterToPayloadFields(fm, category, {

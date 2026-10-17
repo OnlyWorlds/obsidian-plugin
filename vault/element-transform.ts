@@ -253,52 +253,114 @@ export function buildElementBody(
 	return parts.join("\n");
 }
 
-/** A code fence line, opening or closing (the parser's own test). */
-const FENCE_LINE = /^\s*(```|~~~)/;
+/** An open code fence: its character (a backtick or a tilde) and the length of its opening run. */
+interface OpenFence {
+	char: string;
+	len: number;
+}
+
+/**
+ * A line that opens a code fence, by Markdown's rule (CommonMark 4.5): at most
+ * three spaces of indent, then three or more backticks or tildes; a backtick
+ * fence's info string holds no backtick. Four spaces or a tab is indented
+ * code, not a fence. The line's own CR, if any, is not part of it.
+ */
+function fenceOpens(line: string): OpenFence | null {
+	const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.endsWith("\r") ? line.slice(0, -1) : line);
+	if (!m || (m[1][0] === "`" && m[2].includes("`"))) return null;
+	return { char: m[1][0], len: m[1].length };
+}
+
+/** A line that closes `open`: the same indent rule, a run of its character at least as long, nothing after it but spaces. */
+function fenceCloses(line: string, open: OpenFence): boolean {
+	const m = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line.endsWith("\r") ? line.slice(0, -1) : line);
+	return !!m && m[1][0] === open.char && m[1].length >= open.len;
+}
+
+/** A `###` field heading line, its CR stripped: the parser's one boundary. */
+const SECTION_HEADING_LINE = /^###[ \t]+(.+?)\s*$/;
 /** A value line that would read as a `###` field heading, or one already escaped. */
 const HEADING_LIKE_LINE = /^\\*###[ \t]/;
 /** A value line escaped by escapeSectionValue. */
 const ESCAPED_HEADING_LINE = /^\\+###[ \t]/;
+/** A fence line with one or more backslashes before its run, after at most three spaces: an escaped fence, or one typed so. */
+const ESCAPED_FENCE_LINE = /^( {0,3})\\+(`{3,}|~{3,})/;
 
 /**
- * `value` with `f` applied to each line outside a code fence; a fence line and
- * the lines inside a fence are kept as they are (the parser never reads a
- * heading inside a fence, so they need no escape). Line endings are kept.
+ * Each line of a value as a fence reads it: a fence line of a block that
+ * closes, a line inside one, an opening line that never closes ("unmatched"),
+ * or a line outside every block. An unmatched opener is read as a plain line
+ * and the walk goes on from the line after it, which is how the value reads
+ * once that line is escaped, so escape and unescape agree.
  */
-function mapValueLines(value: string, f: (line: string) => string): string {
-	let out = "";
-	let inFence = false;
-	let pos = 0;
-	for (;;) {
-		const nl = value.indexOf("\n", pos);
-		const line = value.slice(pos, nl < 0 ? value.length : nl);
-		if (FENCE_LINE.test(line)) {
-			inFence = !inFence;
-			out += line;
-		} else {
-			out += inFence ? line : f(line);
+function fenceKinds(lines: string[]): Array<"outside" | "fence" | "inside" | "unmatched"> {
+	const kinds: Array<"outside" | "fence" | "inside" | "unmatched"> = lines.map(() => "outside");
+	let i = 0;
+	while (i < lines.length) {
+		const open = fenceOpens(lines[i]);
+		if (!open) {
+			i++;
+			continue;
 		}
-		if (nl < 0) return out;
-		out += "\n";
-		pos = nl + 1;
+		let j = i + 1;
+		while (j < lines.length && !fenceCloses(lines[j], open)) j++;
+		if (j >= lines.length) {
+			kinds[i] = "unmatched";
+			i++;
+			continue;
+		}
+		kinds[i] = kinds[j] = "fence";
+		for (let k = i + 1; k < j; k++) kinds[k] = "inside";
+		i = j + 1;
 	}
+	return kinds;
+}
+
+/** `value` with `f` applied to each line by its fence kind; line endings kept (split on LF, a CR stays on its line). */
+function mapValueLines(value: string, f: (line: string, kind: "outside" | "fence" | "inside" | "unmatched") => string): string {
+	const lines = value.split("\n");
+	const kinds = fenceKinds(lines);
+	return lines.map((line, i) => f(line, kinds[i])).join("\n");
+}
+
+/** `line` with one more backslash after its indent (an escaped fence line). */
+function addFenceBackslash(line: string): string {
+	const indent = /^ {0,3}/.exec(line)?.[0].length ?? 0;
+	return `${line.slice(0, indent)}\\${line.slice(indent)}`;
 }
 
 /**
- * A text value as its section writes it: a line that starts with `### ` (or
- * with backslashes and then `### `) gets one more leading backslash, so it is
- * never read as a field heading. `\### ` is also Markdown's own escape, so the
- * note shows the line as typed (round C, 1; Kael's cold read, 5).
+ * A text value as its section writes it, so the note reads back exactly
+ * this value (round C, 1; the fix round, item 1):
+ * - a line outside a code block that starts with `### ` (or with
+ *   backslashes and then `### `) gets one more leading backslash, so it is
+ *   never read as a field heading;
+ * - a fence line that never closes in the value (an odd `~~~` scene break)
+ *   gets a backslash before its run, so it opens no block that would swallow
+ *   the next field; a fence line already led by backslashes gets one more.
+ * Both are Markdown's own escapes, so the note shows each line as typed.
+ * Lines inside a block that closes are kept as they are.
  */
 export function escapeSectionValue(value: string): string {
-	if (!value.includes("###")) return value;
-	return mapValueLines(value, (line) => (HEADING_LIKE_LINE.test(line) ? `\\${line}` : line));
+	if (!value.includes("###") && !value.includes("```") && !value.includes("~~~")) return value;
+	return mapValueLines(value, (line, kind) => {
+		if (kind === "unmatched") return addFenceBackslash(line);
+		if (kind !== "outside") return line;
+		if (HEADING_LIKE_LINE.test(line)) return `\\${line}`;
+		if (ESCAPED_FENCE_LINE.test(line)) return addFenceBackslash(line);
+		return line;
+	});
 }
 
-/** The inverse of escapeSectionValue: one leading backslash off each escaped line, so a value reads back byte for byte. */
+/** The inverse of escapeSectionValue: one backslash off each escaped line outside a block, so a value reads back byte for byte. */
 export function unescapeSectionValue(value: string): string {
-	if (!value.includes("###")) return value;
-	return mapValueLines(value, (line) => (ESCAPED_HEADING_LINE.test(line) ? line.slice(1) : line));
+	if (!value.includes("###") && !value.includes("```") && !value.includes("~~~")) return value;
+	return mapValueLines(value, (line, kind) => {
+		if (kind !== "outside") return line;
+		if (ESCAPED_HEADING_LINE.test(line)) return line.slice(1);
+		const m = ESCAPED_FENCE_LINE.exec(line);
+		return m ? `${m[1]}${line.slice(m[1].length + 1)}` : line;
+	});
 }
 
 /**
@@ -309,18 +371,18 @@ export function unescapeSectionValue(value: string): string {
  */
 function lastSectionEol(body: string): string {
 	let eol = "\n";
-	let inFence = false;
-	let pos = 0;
-	for (;;) {
-		const nl = body.indexOf("\n", pos);
-		let line = body.slice(pos, nl < 0 ? body.length : nl);
-		const cr = line.endsWith("\r");
-		if (cr) line = line.slice(0, -1);
-		if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-		if (!inFence && /^###[ \t]+(.+?)\s*$/.test(line)) eol = cr ? "\r\n" : "\n";
-		if (nl < 0) return eol;
-		pos = nl + 1;
+	let fence: OpenFence | null = null;
+	for (const raw of body.split("\n")) {
+		const cr = raw.endsWith("\r");
+		const line = cr ? raw.slice(0, -1) : raw;
+		if (fence) {
+			if (fenceCloses(line, fence)) fence = null;
+			continue;
+		}
+		fence = fenceOpens(line);
+		if (!fence && SECTION_HEADING_LINE.test(line)) eol = cr ? "\r\n" : "\n";
 	}
+	return eol;
 }
 
 /**
@@ -522,12 +584,15 @@ export interface ParsedBody {
 	/** Content appearing BEFORE the first `##` heading. Also never discarded. */
 	preamble: string;
 	/**
-	 * A code fence that never closes: every heading after it was read as its
-	 * text. The section it opened in (null: before the first heading) and its
-	 * line, 1-based in the body. A caller that sends values refuses the note
-	 * (round C, 1): the values after it would be cut short.
+	 * A code fence that never closes and swallows a `###` heading, which was
+	 * read as its text: the section it opened in (null: before the first
+	 * heading), its line, 1-based in the body, and the first heading it
+	 * swallows. A caller that sends values refuses the note (round C, 1): the
+	 * values after it would be cut short. An open fence that swallows no
+	 * heading is only its own section's text, and is not reported (the fix
+	 * round, item 1).
 	 */
-	unclosedFence?: { heading: string | null; line: number };
+	unclosedFence?: { heading: string | null; line: number; swallows: string };
 }
 
 /**
@@ -539,12 +604,12 @@ export interface ParsedBody {
  * byte: its own edge whitespace, CRLF and lone CR included (OW Infra #166 row
  * 16; it used to be trimmed and CRLF folded to LF).
  *
- * A value line that starts with `### ` is written escaped (`\### `,
- * escapeSectionValue) and unescaped here, so it never starts a field (round
- * C, 1; Kael's cold read, 5). A code fence (``` or ~~~) in a value must
- * close, or every later heading is read as its prose: parseElementBody
- * reports such a fence, and Save, Upload World and the folder export refuse
- * the note rather than send it cut short.
+ * A value line that starts with `### `, and a fence line that never closes in
+ * its value, are written escaped (`\### `, `\~~~`: escapeSectionValue) and
+ * unescaped here, so neither starts a field or swallows one (round C, 1; the
+ * fix round, item 1). A fence typed open in a note that swallows a later
+ * heading is reported by parseElementBody, and Save, Upload World and the
+ * folder export refuse the note rather than send it cut short.
  *
  * EOL is the heading line's own ending, so a note saved with CRLF throughout
  * by another editor strips CRLF layout the same way. An empty section is
@@ -589,8 +654,11 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	let current: { heading: string; start: number; eol: string } | null = null;
 	let preambleEnd = body.length;
 	let sawHeading = false;
-	let inFence = false;
-	let fenceOpen: { heading: string | null; line: number } | null = null;
+	// The open fence (Markdown's rule: fenceOpens, fenceCloses), where it
+	// opened, and the first heading it swallowed.
+	let fence: OpenFence | null = null;
+	let fenceAt: { heading: string | null; line: number } | null = null;
+	let swallows: string | null = null;
 	let lineNo = 0;
 	let firstHeadingEol = "\n";
 
@@ -614,13 +682,17 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 		const cr = line.endsWith("\r");
 		if (cr) line = line.slice(0, -1);
 		lineNo++;
-		if (FENCE_LINE.test(line)) {
-			inFence = !inFence;
-			fenceOpen = inFence ? { heading: current ? (current as { heading: string }).heading : null, line: lineNo } : null;
+		let m: RegExpExecArray | null = null;
+		if (fence) {
+			if (fenceCloses(line, fence)) fence = fenceAt = swallows = null;
+			else if (swallows === null) swallows = SECTION_HEADING_LINE.exec(line)?.[1] ?? null;
+		} else {
+			fence = fenceOpens(line);
+			if (fence) fenceAt = { heading: current ? (current as { heading: string }).heading : null, line: lineNo };
+			// Only `###` is a section boundary (row 1): `#`, `##` and `####`+
+			// are prose and stay inside the section they sit in.
+			else m = SECTION_HEADING_LINE.exec(line);
 		}
-		// Only `###` is a section boundary (row 1): `#`, `##` and `####`+ are
-		// prose and stay inside the section they sit in.
-		const m = !inFence ? /^###[ \t]+(.+?)\s*$/.exec(line) : null;
 		if (m) {
 			sawHeading = true;
 			if (current) flush(pos);
@@ -645,7 +717,9 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	const preamble = !sawHeading
 		? body.replace(/\r?\n$/, "")
 		: preambleValue(body.slice(0, preambleEnd), firstHeadingEol);
-	return inFence && fenceOpen ? { fields, unknown, preamble, unclosedFence: fenceOpen } : { fields, unknown, preamble };
+	return fence && fenceAt && swallows !== null
+		? { fields, unknown, preamble, unclosedFence: { ...fenceAt, swallows } }
+		: { fields, unknown, preamble };
 }
 
 /**

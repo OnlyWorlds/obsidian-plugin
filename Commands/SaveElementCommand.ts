@@ -88,6 +88,9 @@ const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
 /** Note path and key of each likely-misnamed key auto-sync has named this session (round C, 4). */
 const misnamedShown = new Set<string>();
 
+/** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
+const fenceShown = new Set<string>();
+
 /** Why a save stopped before its creates: a target refused, past the cap, or the dialog cancelled. */
 function stopMessage(plan: CreateFirstPlan): string {
     if (plan.refused) return `${plan.refused} Nothing was created or saved.`;
@@ -271,7 +274,14 @@ export class SaveElementCommand {
         if (v2 && v2.id) {
             // A fence that never closes swallowed the sections after it: the
             // note is refused, never sent cut short (round C, 1).
-            if (v2.unclosedFence) return this.fail(unclosedFenceMessage(v2.name, v2.unclosedFence), 15000);
+            // Auto-sync says it once a session per note, not at every pause;
+            // the status bar still shows the error (the fix round, item 1).
+            if (v2.unclosedFence) {
+                const reason = unclosedFenceMessage(v2.name, v2.unclosedFence);
+                if (!manual && fenceShown.has(activeFile.path)) return { ok: false, reason };
+                if (!manual) fenceShown.add(activeFile.path);
+                return this.fail(reason, 15000);
+            }
             elementData = { id: v2.id, ...v2.fields };
             // A key one slip from a link field went out as x_<key>: say which
             // field it likely meant, correct nothing (round C, 4). Auto-sync
