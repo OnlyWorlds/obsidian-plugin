@@ -32,7 +32,7 @@
  * `[[name]]`. On import the reverse; an ow:// whose uuid does not resolve is
  * KEPT VERBATIM (never destroy a reference).
  */
-import { getCategorySchema, isExtensionKey } from "./element-transform";
+import { getCategorySchema, isExtensionKey, type SchemaField } from "./element-transform";
 
 /**
  * The four types the legacy `spatial/<type>/` layout held. Export no longer
@@ -211,6 +211,18 @@ export function owMentionsToWikilinks(
 // --- element body <-> folder JSON --------------------------------------------
 
 /**
+ * What the server serves for an unset field (keel elements/serialize.py
+ * `serialize`): `""` for text, `[]` for a multi-link, `null` for a single
+ * link and for a number. Reading folds absent, `null` and `""` as one value
+ * (spec §5); writing uses the server's own form (OW Infra #166 row 18).
+ */
+export function serverEmptyValue(def: SchemaField): unknown {
+	if (def.type === "multi_link") return [];
+	if (def.type === "text") return "";
+	return null;
+}
+
+/**
  * Build an element's folder-dialect JSON body from its API-shaped payload.
  *
  * `payload` is API-shaped (snake_case fields, links as ids, extension keys
@@ -223,6 +235,11 @@ export function owMentionsToWikilinks(
  * No timestamp is minted (spec §4.1: a writer MUST NOT synthesize
  * `local_updated_at`/`created_at` it does not have; §5: new files carry
  * neither sync stamp). OW Infra #166 row 6.
+ *
+ * Every field of the type is written, as the server serves it (spec §5,
+ * ruled 2026-10-12; OW Infra #166 row 18): a field the note left out because
+ * it was empty (frontmatter omits empties) goes out as the server's empty,
+ * from serverEmptyValue. The note may omit; the folder drops nothing.
  */
 export function buildFolderElementBody(
 	type: string,
@@ -232,6 +249,9 @@ export function buildFolderElementBody(
 ): Record<string, unknown> {
 	const { type: _stray, ...rest } = payload;
 	const body: Record<string, unknown> = { type, ...rest };
+	for (const [k, def] of Object.entries(getCategorySchema(type) ?? {})) {
+		if (!(k in body)) body[k] = serverEmptyValue(def);
+	}
 	for (const [k, v] of Object.entries(carried)) {
 		if (k === "type" || k in body) continue; // the note's own value wins
 		body[k] = v;

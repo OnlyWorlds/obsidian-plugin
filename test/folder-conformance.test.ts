@@ -13,7 +13,7 @@ import { makeApp, __modals, __notices, type MockVault } from "./support/obsidian
 import { ImportFolderCommand } from "../Commands/ImportFolderCommand";
 import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
 import { readElement, writeElement } from "../vault/element-file";
-import { bodyTextFields } from "../vault/element-transform";
+import { getCategorySchema } from "../vault/element-transform";
 
 const WID = "0199b000-0000-7000-8000-0000000000aa";
 
@@ -403,16 +403,17 @@ const ROUND_TRIP_FOLDER: Record<string, unknown> = {
 };
 
 /**
- * The fixture as a complete source file: `type` and every text field present
- * (a note's body scaffold brings an absent text field back as "", row 18), in
- * a key order unlike the plugin's own (`id` first, `type` last), so that a byte
- * match proves key order as received (spec §5, Kael's review).
+ * The fixture as a complete source file, the server's shape: `type` and every
+ * field of the type present, unset ones as the server serves them (the export
+ * writes that shape, row 18), in a key order unlike the plugin's own (`id`
+ * first, `type` last), so that a byte match proves key order as received
+ * (spec §5, Kael's review).
  */
 function completeSource(rel: string, src: Record<string, unknown>): Record<string, unknown> {
 	const type = rel.split("/")[1];
 	const out: Record<string, unknown> = { id: src.id };
 	for (const [k, v] of Object.entries(src)) if (k !== "id") out[k] = v;
-	for (const f of bodyTextFields(type)) if (!(f in out)) out[f] = "";
+	for (const [k, v] of Object.entries(serverEmpty(type))) if (!(k in out)) out[k] = v;
 	out.type = type;
 	return out;
 }
@@ -546,6 +547,49 @@ test("import serves the elements/ copy of an id found in both layouts, and lists
 	assert.deepEqual(report.result.duplicates, [
 		{ id: PIN_ID, read: "elements/pin/ireena--000000d2.json", ignored: "spatial/pin/ireena--000000d2.json" },
 	]);
+});
+
+// --- Row 18: the export writes a field as the server serves it --------------
+
+/** keel's serialize for an unset field: "" text, [] multi-link, null single link and number. */
+function serverEmpty(type: string): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [k, def] of Object.entries(getCategorySchema(type) ?? {})) {
+		out[k] = def.type === "multi_link" ? [] : def.type === "text" ? "" : null;
+	}
+	return out;
+}
+
+test("row 18: an imported element's empty values come back as the server serves them, none dropped", async () => {
+	const { app, vault } = makeApp();
+	await seedFolder(vault, "in/barovia", { id: WID, name: "Barovia" }, {
+		"elements/character/ireena--000000c1.json": {
+			...CHAR_FILE, supertype: "", subtype: "", image_url: "", species: [], traits: [], birthplace: null, height: null, x_notes: null,
+		},
+	});
+	await importDir(app, "in/barovia");
+	const out = await exportWorld(app, vault, "Barovia");
+	const body = JSON.parse(out[Object.keys(out).find((p) => p.startsWith("elements/character/"))!]);
+	for (const [k, v] of Object.entries(serverEmpty("character"))) {
+		if (k === "name" || k === "description") continue;
+		assert.ok(k in body, `${k} dropped`);
+		assert.deepEqual(body[k], v, k);
+	}
+	assert.equal(body.x_notes, null, "an extension key read as null stays null");
+});
+
+test("row 18: an element made in the vault exports every field of its type, unset ones empty", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Native/World.md", "- **Name:** Native\n");
+	await vault.seed("OnlyWorlds/Worlds/Native/Elements/Pin/Here.md", `---\nname: Here\nid: ${PIN_ID}\nx: 3\n---\n\n### Description\n\nA pin.\n`);
+	const out = await exportWorld(app, vault, "Native");
+	const body = JSON.parse(out[Object.keys(out).find((p) => p.startsWith("elements/pin/"))!]);
+	assert.deepEqual(body, { ...serverEmpty("pin"), ...body }, "a value changed");
+	assert.deepEqual(Object.keys(serverEmpty("pin")).filter((k) => !(k in body)), [], "fields missing");
+	assert.equal(body.x, 3);
+	assert.equal(body.y, null);
+	assert.equal(body.element_id, null);
+	assert.equal(body.element_type, "");
 });
 
 // --- Row 15: prose crosses import and export unaltered ----------------------

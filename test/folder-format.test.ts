@@ -22,8 +22,10 @@ import {
 	buildFolderElementBody,
 	parseFolderElementBody,
 	isUuid,
+	serverEmptyValue,
 	type ElementRef,
 } from "../vault/folder-format";
+import { getCategorySchema } from "../vault/element-transform";
 
 const WID = "018f2a3b-4c5d-7e6f-8a9b-0c1d2e3f4a5b";
 
@@ -72,7 +74,20 @@ test("R1c: carried server fields are written back as received, after the payload
 	);
 	assert.equal(body.created_at, "2020-01-01T00:00:00.000Z");
 	assert.equal(body.change_seq, 9);
-	assert.deepEqual(Object.keys(body), ["type", "id", "name", "created_at", "change_seq"]);
+	const keys = Object.keys(body);
+	assert.deepEqual(keys.slice(0, 3), ["type", "id", "name"]);
+	// Between them, every other field of the type as the server's empty (row 18).
+	assert.deepEqual(keys.slice(-2), ["created_at", "change_seq"]);
+});
+
+test("row 18: the folder body carries every field of the type, unset ones as the server serves them", () => {
+	const body = buildFolderElementBody("character", { id: WID, name: "A", height: 3 });
+	assert.equal(body.height, 3);
+	assert.equal(body.weight, null, "number");
+	assert.equal(body.birthplace, null, "single link");
+	assert.deepEqual(body.traits, [], "multi link");
+	assert.equal(body.supertype, "", "text");
+	assert.equal(body.background, "", "text");
 });
 
 test("R1c: parse splits what a note has no home for from the payload", () => {
@@ -283,10 +298,14 @@ test("RT: world survives export serializers -> import serializers (object equali
 		return { type, payload };
 	});
 
-	// Assert object equality against the source world.
+	// Assert object equality against the source world: every source value, and
+	// every other field of the type as the server's empty (row 18).
 	for (const src of world) {
 		const got = imported.find((x) => (x.payload as any).id === src.payload.id)!;
 		assert.equal(got.type, src.type, `type for ${src.payload.name}`);
-		assert.deepEqual(got.payload, src.payload, `payload for ${src.payload.name}`);
+		const empties = Object.fromEntries(
+			Object.entries(getCategorySchema(src.type) ?? {}).map(([k, d]) => [k, serverEmptyValue(d)])
+		);
+		assert.deepEqual(got.payload, { ...empties, ...src.payload }, `payload for ${src.payload.name}`);
 	}
 });
