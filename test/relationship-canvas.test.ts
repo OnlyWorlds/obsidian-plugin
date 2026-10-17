@@ -12,6 +12,7 @@ import { DrawRelationshipsCommand } from "../Commands/DrawRelationshipsCommand";
 import {
 	buildRelationshipCanvas,
 	canvasMarkerId,
+	canvasStatus,
 	isPluginCanvasFor,
 	type CanvasData,
 	type RelationshipGraph,
@@ -144,7 +145,7 @@ test("Draw relationships: the element, what it links to, what links to it, a Rel
 	const files = c.nodes.filter((n) => n.type === "file").map((n) => n.file).sort();
 	assert.deepEqual(files, [BLADE, FARCASTER, KASSAD, MONETA, KEATS, RELATION].sort(), "one file node per element, Lamia not drawn");
 	assert.ok(c.nodes.some((n) => n.type === "text" && n.text.includes(DANGLING)), "the dangling uuid is a text node");
-	assert.ok(c.nodes.some((n) => n.id === canvasMarkerId(KASSAD_ID) && n.type === "text"), "the plugin's marker node");
+	assert.ok(c.nodes.some((n) => n.id.startsWith(canvasMarkerId(KASSAD_ID) + "-") && n.type === "text"), "the plugin's marker node, with its hash");
 
 	// Outgoing on the right of the centre, incoming on the left.
 	const centreX = (p: string) => {
@@ -224,4 +225,53 @@ test("the layout keeps 24 links out, 24 in and a Relation's far side apart: no t
 	assert.equal(c.edges.length, 24 + 24 + 10);
 	assert.deepEqual(overlaps(c), []);
 	for (const e of c.edges) assert.match(e.label!, /^(out_\d|friends|characters)$/);
+});
+
+// ── Round 3, item 2: a canvas the user changed is theirs ──
+
+const COPY = `${W}/Character/Kassad — relationships (your copy).canvas`;
+
+test("a redraw of a canvas the user changed saves theirs first as (your copy), then draws fresh, and says both", async () => {
+	const { app, vault } = makeApp();
+	await seedWorld(vault);
+	focus(app, vault, KASSAD);
+	await draw(app);
+	const fresh = vault.contentAt(CANVAS)!;
+	assert.equal(canvasStatus(fresh, KASSAD_ID), "unchanged");
+
+	// The user moves a card and adds one of their own; the caption stays.
+	const mine = JSON.parse(fresh) as CanvasData;
+	mine.nodes[1].x += 100;
+	mine.nodes.push({ id: "mine", type: "text", text: "my note", x: 5000, y: 5000, width: 200, height: 60 });
+	const edited = JSON.stringify(mine, null, "	");
+	await vault.modify(vault.files.get(CANVAS)!.file, edited);
+	assert.equal(canvasStatus(edited, KASSAD_ID), "changed");
+
+	__notices.length = 0;
+	await draw(app);
+	assert.equal(vault.contentAt(CANVAS), fresh, "redrawn fresh");
+	const copy = JSON.parse(vault.contentAt(COPY)!) as CanvasData;
+	assert.ok(copy.nodes.some((n) => n.id === "mine"), "the user's card is in the copy");
+	assert.equal(copy.nodes[1].x, mine.nodes[1].x, "and their layout");
+	assert.equal(canvasStatus(vault.contentAt(COPY)!, KASSAD_ID), "none", "the copy carries no marker: never the plugin's");
+	assert.ok(
+		__notices.some((n) => n.includes("Kassad — relationships (your copy).canvas") && n.includes("Kassad — relationships.canvas")),
+		__notices.join(" / ")
+	);
+
+	await draw(app); // unchanged now: overwritten, no second copy
+	assert.deepEqual([...vault.files.keys()].filter((p) => p.endsWith(".canvas")).sort(), [COPY, CANVAS].sort());
+});
+
+test("keys a viewer adds that the plugin never writes (and default arrow ends) do not count as a change", async () => {
+	const { app, vault } = makeApp();
+	await seedWorld(vault);
+	focus(app, vault, KASSAD);
+	await draw(app);
+	const c = JSON.parse(vault.contentAt(CANVAS)!) as unknown as { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> };
+	c.nodes[0].styleAttributes = {};
+	c.edges[0].toEnd = "arrow";
+	assert.equal(canvasStatus(JSON.stringify(c), KASSAD_ID), "unchanged");
+	c.edges[0].label = "home";
+	assert.equal(canvasStatus(JSON.stringify(c), KASSAD_ID), "changed");
 });
