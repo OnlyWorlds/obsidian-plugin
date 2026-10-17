@@ -6,7 +6,7 @@ import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
-import { CreateFirstModal, leftOutLines, type CreateFirstItem } from '../Modals/CreateFirstModal';
+import { CreateFirstModal, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { confirm } from '../Modals/ConfirmModal';
 
@@ -55,6 +55,8 @@ interface CreateFirstPlan {
     overflow?: boolean;
     /** This device cannot tell a never-uploaded note from a deleted one (no stored cursor). */
     cannotTell?: boolean;
+    /** The ids of `leftOut`: stripped from this save's link fields (Kael's second read, N5). */
+    leftOutIds?: string[];
 }
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
@@ -116,6 +118,37 @@ function linkIdsOf(
         }
     }
     return ids;
+}
+
+/**
+ * `fields` with the given element ids taken out of its link fields: a single
+ * link holding one is dropped from the payload (the server keeps its value), a
+ * multi-link loses it from its list. Other fields are untouched.
+ */
+function withoutLinks(type: string, fields: Record<string, unknown>, ids: string[] | undefined): Record<string, unknown> {
+    if (!ids || ids.length === 0) return fields;
+    const drop = new Set(ids);
+    const schema = getCategorySchema(type);
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(fields)) {
+        const def = schema?.[key];
+        if (def?.type === 'single_link' && typeof value === 'string' && drop.has(value)) continue;
+        out[key] = def?.type === 'multi_link' && Array.isArray(value)
+            ? value.filter((v) => !(typeof v === 'string' && drop.has(v)))
+            : value;
+    }
+    return out;
+}
+
+/** The notice for links a save left out because their targets were deleted (N5). */
+function leftOutNotice(plan: CreateFirstPlan): void {
+    if (plan.leftOut.length === 0) return;
+    const lines = plan.leftOut.map((i) => `${capitalize(i.type)} "${i.name}"`).join(', ');
+    new Notice(
+        `${lines} ${plan.leftOut.length === 1 ? 'was' : 'were'} deleted on onlyworlds.com: ` +
+            'the link is left out of this save, and the note keeps it.',
+        12000
+    );
 }
 
 /** True when a server link value (an id, a list of ids, or stubs) already holds `id`. */
@@ -296,18 +329,22 @@ export class SaveElementCommand {
                         return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
                     }
                     const firsts = plan.firsts;
+                    // A link to a deleted element is left out of what is sent;
+                    // the note keeps it (Kael's second read, N5).
+                    const sendPayload = withoutLinks(type, payload, plan.leftOutIds);
+                    leftOutNotice(plan);
                     new Notice(`Creating ${category} "${label}"...`);
                     if (firsts.length > 0) {
                         const refused = await this.createTogether(client, [
                             ...firsts,
-                            { type, id: elementUuid, name: String(label), payload },
+                            { type, id: elementUuid, name: String(label), payload: sendPayload },
                         ]);
                         if (refused) return this.fail(`Failed to create ${category}: ${refused}`, 12000);
                         if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
                         new Notice(`${createdFirstMessage(firsts)} ${category} created.`, 8000);
                         return { ok: true, outcome: 'created' };
                     }
-                    await client.create(type, { id: elementUuid, ...payload });
+                    await client.create(type, { id: elementUuid, ...sendPayload });
                     if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
@@ -343,12 +380,24 @@ export class SaveElementCommand {
                 return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
             }
             const firsts = plan.firsts;
+            // A link to a deleted element is left out of the PATCH, so keel
+            // does not refuse the note's other edits; the note keeps the link
+            // (Kael's second read, N5). What then equals the server's copy is
+            // not sent at all.
+            const toSend = plan.leftOutIds?.length
+                ? diffPayload(withoutLinks(type, changed, plan.leftOutIds), current ?? {})
+                : changed;
+            leftOutNotice(plan);
+            if (Object.keys(toSend).length === 0) {
+                new Notice(`${category} "${label}" already up to date.`);
+                return { ok: true, outcome: 'unchanged' };
+            }
             if (firsts.length > 0) {
                 const refused = await this.createTogether(client, firsts);
                 if (refused) return this.fail(`${category} "${label}" not saved: ${refused}`, 12000);
                 firstNote = `${createdFirstMessage(firsts)} `;
             }
-            await client.update(type, elementUuid, changed);
+            await client.update(type, elementUuid, toSend);
             // Only the manual Save renames: auto-sync fires at every pause while
             // a name is typed, and each rename can rewrite every linking note
             // (Kael's read, 7).
@@ -385,6 +434,7 @@ export class SaveElementCommand {
     ): Promise<CreateFirstPlan> {
         const out: PendingCreate[] = [];
         const leftOut: CreateFirstItem[] = [];
+        const leftOutIds: string[] = [];
         const visited = new Set<string>([rootId]);
         let index: Map<string, TFile> | null = null;
         let view: DeletedView | null = known ?? null;
@@ -413,6 +463,7 @@ export class SaveElementCommand {
                 view = view ?? (await readDeletedOnServer(this.plugin, client));
                 if (view.ids.has(id)) {
                     leftOut.push({ type: parsed.category, name: parsed.name });
+                    leftOutIds.push(id);
                     continue;
                 }
                 // A cap, not a sweep: past it the whole group is Upload World's
@@ -431,7 +482,7 @@ export class SaveElementCommand {
             }
         };
         await visit(rootType, rootPayload, keep);
-        return { firsts: out, leftOut, overflow, cannotTell: view ? !view.known : false };
+        return { firsts: out, leftOut, leftOutIds, overflow, cannotTell: view ? !view.known : false };
     }
 
     /**
@@ -442,7 +493,6 @@ export class SaveElementCommand {
     private async approveCreateFirst(label: string, plan: CreateFirstPlan): Promise<boolean> {
         if (plan.overflow) return false;
         if (plan.firsts.length > 0) return this.confirmCreateFirst(label, plan);
-        if (plan.leftOut.length > 0) new Notice(leftOutLines(plan.leftOut).join(' '), 12000);
         return true;
     }
 

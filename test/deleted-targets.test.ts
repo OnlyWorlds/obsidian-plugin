@@ -171,7 +171,7 @@ test("★ the only target deleted: no dialog, nothing recreated, the notice name
 	assert.equal(r.dialogs.length, 0);
 	assert.deepEqual(r.bulks, []);
 	assert.ok(
-		r.notices.some((n) => n.includes('Location "Vallaki" was deleted on onlyworlds.com and is left out.')),
+		r.notices.some((n) => n.includes('Location "Vallaki" was deleted on onlyworlds.com: the link is left out of this save, and the note keeps it.')),
 		r.notices.join(" | ")
 	);
 });
@@ -200,6 +200,41 @@ test("★ no stored cursor: the dialog says this device cannot tell a never-uplo
 	assert.equal(r.dialogs.length, 1);
 	assert.equal(r.dialogs[0].cannotTell, true);
 	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), [], "no cursor, no feed read");
+});
+
+// --- Kael's second read, N5: a left-out link does not sink the save ---------
+
+const GONE = "019e0000-0000-7000-8000-0000000000b9";
+const BRAVE = "019e0000-0000-7000-8000-0000000000b1";
+
+test("★ a link to a deleted element is left out of that save's PATCH, so the note's other edits land; the note keeps the link", async () => {
+	const content = note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\ntraits:\n  - "[[Brave]]"\n  - "[[Gone]]"\n').replace("About Ireena.", "A new line.");
+	const r = await saveNote({
+		notes: {
+			"Character/Ireena.md": content,
+			"Location/Vallaki.md": note(VALLAKI, "Vallaki"),
+			"Trait/Brave.md": note(BRAVE, "Brave"),
+			"Trait/Gone.md": note(GONE, "Gone"),
+		},
+		deleted: [VALLAKI, GONE],
+		server: { [IREENA]: { name: "Ireena", description: "About Ireena.", birthplace: null, traits: [BRAVE] }, [BRAVE]: { name: "Brave" } },
+	});
+	assert.deepEqual(r.result, { ok: true, outcome: "updated" }, JSON.stringify(r.result));
+	const patch = r.sent.at(-1)!;
+	assert.equal(patch.description, "A new line.");
+	assert.equal("birthplace" in patch, false, "the deleted single link was sent");
+	assert.equal("traits" in patch, false, "traits equal the server's once Gone is out: nothing to send");
+	assert.equal(r.vault.contentAt(r.file.path), content, "the note lost its links");
+	assert.ok(r.notices.some((n) => /left out of this save/.test(n) && /Vallaki/.test(n)), r.notices.join(" | "));
+});
+
+test("★ a new note linking a deleted element is created without that link", async () => {
+	const r = await saveNote({
+		notes: { "Character/Ireena.md": note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\n'), "Location/Vallaki.md": note(VALLAKI, "Vallaki") },
+		deleted: [VALLAKI],
+	});
+	assert.deepEqual(r.result, { ok: true, outcome: "created" }, JSON.stringify(r.result));
+	assert.equal("birthplace" in r.sent.at(-1)!, false);
 });
 
 // --- Kael's second read, N1: the deleted element's OWN note -----------------
