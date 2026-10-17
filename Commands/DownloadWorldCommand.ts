@@ -190,8 +190,9 @@ export class DownloadWorldCommand {
                         }
                         // Only ids that still have a note here: the list guards
                         // kept notes, and a full walk sees every delete the world
-                        // ever had (Kael's third read, 4).
-                        const local = await this.localElementIds(uniqueWorldName);
+                        // ever had (Kael's third read, 4). An empty list needs no
+                        // read of every note (round C, 8).
+                        const local = deleted.size > 0 ? await this.localElementIds(uniqueWorldName) : new Set<string>();
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
                             [worldId]: [...deleted].filter(id => local.has(id)),
