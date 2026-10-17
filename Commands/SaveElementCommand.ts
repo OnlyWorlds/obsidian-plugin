@@ -7,7 +7,8 @@ import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
 import { CreateFirstModal, leftOutLines, type CreateFirstItem } from '../Modals/CreateFirstModal';
-import { readDeletedOnServer, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
+import { forgetDeleted, readDeletedOnServer, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
+import { confirm } from '../Modals/ConfirmModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -264,11 +265,33 @@ export class SaveElementCommand {
         } catch (error) {
             if (this.isNotFound(error)) {
                 try {
+                    // A 404 is "never uploaded" or "deleted on the server". The
+                    // deleted list (the feed read once from the stored cursor)
+                    // tells them apart: a deleted element is never recreated by
+                    // auto-sync, and only on the user's word by Save Element
+                    // (Kael's second read, N1).
+                    const view = await readDeletedOnServer(this.plugin, client);
+                    let recreated = false;
+                    if (view.ids.has(elementUuid)) {
+                        if (!manual) {
+                            return this.fail(`${label} was deleted on onlyworlds.com; Save Element can create it again.`, 10000);
+                        }
+                        const again = await confirm(
+                            this.app,
+                            `${capitalize(type)} "${label}" was deleted on onlyworlds.com: create it again?`,
+                            ['Creating it again brings it back for everyone in the world.'],
+                            'Create again'
+                        );
+                        if (!again) return this.fail(CANCELLED_MESSAGE);
+                        recreated = true;
+                    }
                     // Link targets that are notes in this vault but not on the
                     // server go first, or keel refuses the note (row 8).
                     // Only the manual Save walks (Kael's read, blocker): auto-sync
                     // leaves keel's refusal and says how to get past it.
-                    const plan = manual ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload) : NO_PLAN;
+                    const plan = manual
+                        ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view)
+                        : NO_PLAN;
                     if (!(await this.approveCreateFirst(String(label), plan))) {
                         return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
                     }
@@ -280,10 +303,12 @@ export class SaveElementCommand {
                             { type, id: elementUuid, name: String(label), payload },
                         ]);
                         if (refused) return this.fail(`Failed to create ${category}: ${refused}`, 12000);
+                        if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
                         new Notice(`${createdFirstMessage(firsts)} ${category} created.`, 8000);
                         return { ok: true, outcome: 'created' };
                     }
                     await client.create(type, { id: elementUuid, ...payload });
+                    if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
                 } catch (createError) {

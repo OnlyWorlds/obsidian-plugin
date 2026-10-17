@@ -130,7 +130,7 @@ async function saveNote(o: SaveOpts) {
 	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => client };
 	__notices.length = 0;
 	__modals.length = 0;
-	const dialogs: { items?: unknown[]; leftOut?: unknown[]; cannotTell?: boolean; lines?: string[]; choose(b: boolean): void }[] = [];
+	const dialogs: { items?: unknown[]; leftOut?: unknown[]; cannotTell?: boolean; title?: string; lines?: string[]; choose(b: boolean): void }[] = [];
 	let done = false;
 	const file = files[o.save ?? "Character/Ireena.md"];
 	const run = new SaveElementCommand(app, plugin as never).execute(file, { manual: o.manual ?? true }).finally(() => (done = true));
@@ -200,6 +200,44 @@ test("★ no stored cursor: the dialog says this device cannot tell a never-uplo
 	assert.equal(r.dialogs.length, 1);
 	assert.equal(r.dialogs[0].cannotTell, true);
 	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), [], "no cursor, no feed read");
+});
+
+// --- Kael's second read, N1: the deleted element's OWN note -----------------
+
+const VALLAKI_NOTE = { "Location/Vallaki.md": note(VALLAKI, "Vallaki") };
+
+test("★ auto-sync on a deleted element's own note refuses: nothing created, the notice says Save Element can create it again", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", deleted: [VALLAKI], manual: false });
+	assert.equal(r.result.ok, false);
+	assert.match((r.result as { reason: string }).reason, /Vallaki was deleted on onlyworlds\.com; Save Element can create it again/);
+	assert.ok(!r.calls.some((c) => c.startsWith("create") || c === "bulk"), r.calls.join(" | "));
+});
+
+test("★ auto-sync also refuses when the delete is only in the change feed (no Download since)", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", cursor: "c5", feed: [del(VALLAKI, 6)], manual: false });
+	assert.equal(r.result.ok, false);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")));
+});
+
+test("★ the manual Save asks 'deleted on onlyworlds.com: create it again?'; Cancel creates nothing", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", deleted: [VALLAKI], answer: false });
+	assert.equal(r.dialogs.length, 1);
+	assert.match(String(r.dialogs[0].title), /deleted on onlyworlds\.com: create it again\?/i);
+	assert.equal(r.result.ok, false);
+	assert.ok(!r.calls.some((c) => c.startsWith("create")));
+});
+
+test("Create again recreates it and takes it off the deleted list", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", deleted: [VALLAKI] });
+	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+	assert.ok(r.calls.includes(`create location ${VALLAKI}`));
+	assert.deepEqual(r.settings.deletedOnServer[WID], []);
+});
+
+test("a never-uploaded note, not in the list, still creates as before with no dialog", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", manual: false });
+	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+	assert.equal(r.dialogs.length, 0);
 });
 
 test("with a stored cursor and no delete in the feed, the dialog makes no such caveat", async () => {
