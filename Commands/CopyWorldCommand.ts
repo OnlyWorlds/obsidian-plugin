@@ -137,7 +137,7 @@ export class CopyWorldCommand {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
                 const categoryDirectory = normalizePath(`${worldFolder}/Elements/${category}`);
-                const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
+                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     const fileContent = await fs.read(file.path);
@@ -287,7 +287,7 @@ export class CopyWorldCommand {
     
     private async findElementIdByNameInCategory(elementName: string, elementType: string, worldName: string): Promise<string | null> {
         const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${elementType}`);
-        const files = this.app.vault.getFiles().filter(file => file.path.startsWith(categoryDirectory));
+        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
         
         for (const file of files) {
             try {
