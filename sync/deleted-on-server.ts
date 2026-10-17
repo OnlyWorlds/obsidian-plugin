@@ -74,6 +74,20 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	return { worldId, ids, known: true };
 }
 
+/**
+ * The stored list alone, no feed read: what auto-sync consults, so a save it
+ * makes at every pause costs one `getWorld` and nothing more (Kael's third
+ * read, 4). Empty when the world's id cannot be read.
+ */
+export async function storedDeleted(host: DeletedListHost, client: { getWorld(): Promise<Record<string, unknown>> }): Promise<Set<string>> {
+	try {
+		const worldId = String((await client.getWorld()).id ?? "");
+		return new Set(host.settings.deletedOnServer?.[worldId] ?? []);
+	} catch {
+		return new Set();
+	}
+}
+
 /** Take ids out of the list once they exist on the server again (created again by the user's choice). */
 export async function forgetDeleted(host: DeletedListHost, worldId: string, created: string[]): Promise<void> {
 	const list = host.settings.deletedOnServer?.[worldId];

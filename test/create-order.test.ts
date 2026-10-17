@@ -234,7 +234,7 @@ test("★ auto-sync never runs the create-first walk: keel's refusal stands, and
 	assert.equal(result.ok, false);
 	assert.deepEqual(h.bulks, [], "auto-sync created something");
 	assert.ok(!h.calls.includes(`get location ${ID.vallaki}`), "auto-sync walked the links");
-	assert.match((result as { reason: string }).reason, /Save Element creates them first/);
+	assert.match((result as { reason: string }).reason, /Save Element creates it first if it is new, or leaves it out if it was deleted there/);
 });
 
 test("auto-sync on an existing note given a link to a new note: refused, nothing created", async () => {
@@ -248,7 +248,7 @@ test("auto-sync on an existing note given a link to a new note: refused, nothing
 	const result = await h.save(h.files["Character/Ireena.md"], false);
 	assert.equal(result.ok, false);
 	assert.deepEqual(h.bulks, []);
-	assert.match((result as { reason: string }).reason, /Save Element creates them first/);
+	assert.match((result as { reason: string }).reason, /Save Element creates it first if it is new, or leaves it out if it was deleted there/);
 });
 
 // --- Kael's read, blocker (b): a manual Save confirms what it creates first ---

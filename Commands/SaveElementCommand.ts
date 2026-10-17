@@ -7,7 +7,7 @@ import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CreateFirstItem } from '../Modals/CreateFirstModal';
-import { forgetDeleted, readDeletedOnServer, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
+import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { confirm } from '../Modals/ConfirmModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
@@ -95,7 +95,7 @@ export function createdFirstMessage(firsts: { type: string; name: string }[]): s
  */
 function missingLinkHint(error: unknown, manual: boolean): string {
     if (manual || !(error instanceof V2ApiError) || error.code !== 'invalid_link') return '';
-    return ' A link names a note not on onlyworlds.com yet: Save Element creates them first.';
+    return ' A link names an element onlyworlds.com does not have: Save Element creates it first if it is new, or leaves it out if it was deleted there.';
 }
 
 function capitalize(s: string): string {
@@ -403,11 +403,12 @@ export class SaveElementCommand {
             // A link this save adds may name a note not on the server yet:
             // create those first (row 8). Only ids the server's copy lacks are
             // looked up, so an unchanged link costs nothing.
+            // Auto-sync walks nothing, but leaves out a link to an element the
+            // stored deleted list names, without a feed read (third read, 4).
+            const addedLink = (key: string, id: string) => !linkHolds(current?.[key], id);
             const plan = manual
-                ? await this.unsyncedTargets(
-                    client, worldName, elementUuid, type, changed, (key, id) => !linkHolds(current?.[key], id)
-                )
-                : NO_PLAN;
+                ? await this.unsyncedTargets(client, worldName, elementUuid, type, changed, addedLink)
+                : await this.storedLeftOut(client, worldName, type, changed, addedLink);
             let firstNote = '';
             if (!(await this.approveCreateFirst(String(label), plan))) {
                 return this.fail(plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE, plan.overflow ? 12000 : undefined);
@@ -577,6 +578,32 @@ export class SaveElementCommand {
                 plan.cannotTellReason ?? 'no-cursor'
             ).open();
         });
+    }
+
+    /**
+     * Auto-sync's plan: no targets to create, only the links this save adds
+     * to elements the stored deleted list names (no feed read), left out of
+     * the PATCH and named by their notes (Kael's third read, 4).
+     */
+    private async storedLeftOut(
+        client: { getWorld(): Promise<Record<string, unknown>> },
+        worldName: string,
+        type: string,
+        fields: Record<string, unknown>,
+        keep: (key: string, id: string) => boolean
+    ): Promise<CreateFirstPlan> {
+        const ids = [...new Set(linkIdsOf(type, fields, keep))];
+        if (ids.length === 0) return NO_PLAN;
+        const stored = await storedDeleted(this.plugin, client);
+        const hit = ids.filter((id) => stored.has(id));
+        if (hit.length === 0) return NO_PLAN;
+        const index = this.worldNoteIndex(worldName);
+        const leftOut = hit.map((id) => {
+            const file = index.get(id);
+            const cat = file ? this.extractPathInfo(file.path)?.category.toLowerCase() : undefined;
+            return { type: cat ?? 'element', name: file?.basename ?? id };
+        });
+        return { firsts: [], leftOut, leftOutIds: hit };
     }
 
     /** This world's element notes by their frontmatter id. */

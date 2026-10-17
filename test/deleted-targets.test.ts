@@ -286,6 +286,26 @@ test("the same with Ireena new too: one /bulk, both created, no Vallaki link", a
 	assert.deepEqual(r.bulks, [[BAROVIA, IREENA]]);
 });
 
+// --- Kael's third read, 4a: auto-sync and the stored list --------------------
+
+test("★ auto-sync leaves a link to an element in the stored deleted list out of its PATCH, no feed read, and the edit lands", async () => {
+	const content = note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\n').replace("About Ireena.", "Edited.");
+	const r = await saveNote({
+		notes: { "Character/Ireena.md": content, "Location/Vallaki.md": note(VALLAKI, "Vallaki") },
+		deleted: [VALLAKI],
+		cursor: "c5",
+		server: { [IREENA]: { name: "Ireena", description: "About Ireena.", birthplace: null } },
+		manual: false,
+	});
+	assert.deepEqual(r.result, { ok: true, outcome: "updated" }, JSON.stringify(r.result));
+	const patch = r.sent.at(-1)!;
+	assert.equal(patch.description, "Edited.");
+	assert.equal("birthplace" in patch, false);
+	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), [], "auto-sync read the feed");
+	assert.equal(r.vault.contentAt(r.file.path), content, "the note lost its link");
+	assert.ok(r.notices.some((n) => /Vallaki/.test(n) && /left out of this save/.test(n)), r.notices.join(" | "));
+});
+
 // --- Kael's second read, N1: the deleted element's OWN note -----------------
 
 const VALLAKI_NOTE = { "Location/Vallaki.md": note(VALLAKI, "Vallaki") };
