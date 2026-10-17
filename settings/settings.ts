@@ -31,6 +31,13 @@ export interface OnlyWorldsPluginSettings {
 	 */
 	accountToken: string;
 	accountUsername: string;
+
+	/**
+	 * Download World and Create World write `<world>.base` beside World.md: a
+	 * table and a card view per element type in Obsidian's core Bases (OW Infra
+	 * #188). A file the user changed is never overwritten.
+	 */
+	writeBasesFile: boolean;
 }
 
 export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
@@ -49,4 +56,6 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 
 	accountToken: "",
 	accountUsername: "",
+
+	writeBasesFile: true,
 };

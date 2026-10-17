@@ -15,6 +15,7 @@ import { MigrateWorldCommand } from './Commands/MigrateWorldCommand';
 import { ExportFolderCommand } from './Commands/ExportFolderCommand';
 import { ImportFolderCommand } from './Commands/ImportFolderCommand';
 import { ValidateWorldCommand } from 'Commands/ValidateWorldCommand';
+import { WriteBasesFileCommand } from './Commands/WriteBasesFileCommand';
 import { Category } from 'enums';
 import Handlebars from 'handlebars';
 import { NameChanger } from 'Listeners/NameChanger';
@@ -143,8 +144,10 @@ export default class OnlyWorldsPlugin extends Plugin {
         const createWorldCommand = new CreateWorldCommand(this.app, this.manifest, sendWorldCommand, () =>
             this.settings.accountToken
                 ? { token: this.settings.accountToken, username: this.settings.accountUsername }
-                : null
+                : null,
+            () => this.settings.writeBasesFile !== false
         );
+        const writeBasesFileCommand = new WriteBasesFileCommand(this.app);
         const joinWorldCommand = new JoinWorldCommand(this.app, this, downloadWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
         const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
@@ -202,6 +205,12 @@ export default class OnlyWorldsPlugin extends Plugin {
         id: 'validate-world',
         name: 'Validate World',
         callback: () => validateWorldCommand.execute(),
+    });
+      // A table and cards per element type in Obsidian's core Bases (OW Infra #188)
+      this.addCommand({
+        id: 'write-bases-file',
+        name: 'Write Bases file',
+        callback: () => writeBasesFileCommand.execute(),
     });
     this.addCommand({
       id: 'paste-world',

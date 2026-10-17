@@ -9,6 +9,7 @@ import { Category } from '../enums';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey, worldFileApiKey, writeWorldFileApiKey } from '../vault/world-key';
 import { safeWorldFolderName } from '../vault/world-name';
 import { writeWorldIdMarker } from '../vault/world-id-marker';
+import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import type { ExportWorldCommand } from './ExportWorldCommand';
 import { createAccountWorld, isFullWriteKey, listAccountWorlds, mintVaultKey, revokeCreateKeys, type CreatedWorld } from '../account/account-api';
@@ -26,16 +27,21 @@ export class CreateWorldCommand {
     /** The signed-in account, or null: signed in, Create World online goes through the account (OW Infra #358). */
     private account: () => { token: string; username: string } | null;
 
+    /** Whether a new world gets its Bases file (the setting; on by default, OW Infra #188). */
+    private writeBases: () => boolean;
+
     constructor(
         app: App,
         manifest: PluginManifest,
         exportCommand?: ExportWorldCommand,
-        account?: () => { token: string; username: string } | null
+        account?: () => { token: string; username: string } | null,
+        writeBases?: () => boolean
     ) {
         this.app = app;
         this.manifest = manifest;
         this.exportCommand = exportCommand ?? null;
         this.account = account ?? (() => null);
+        this.writeBases = writeBases ?? (() => true);
     }
 
     async execute() { 
@@ -506,6 +512,11 @@ export class CreateWorldCommand {
         // Core files: the Readme and Settings notes.
         const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
         await createCoreFilesCommand.execute();
+
+        // The world's Bases file (OW Infra #188), behind its setting.
+        if (this.writeBases()) {
+            await writeWorldBasesFileQuietly(this.app, safeWorldFolderName(worldName));
+        }
     }
 
     async createFolderIfNeeded(folderPath: string) {

@@ -126,6 +126,20 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 				})
 			);
 
+		new Setting(containerEl)
+			.setName("Write a Bases file per world")
+			.setDesc(
+				"Download World and Create World write <world>.base beside World.md: a table and a card view " +
+					"for each element type, in Obsidian's Bases (Obsidian 1.9 or later). A file you have changed " +
+					"is never overwritten. The Write Bases file command writes one any time."
+			)
+			.addToggle((tog) =>
+				tog.setValue(this.plugin.settings.writeBasesFile).onChange(async (value) => {
+					this.plugin.settings.writeBasesFile = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
 		new Setting(containerEl).setName("Auto-sync").setHeading();
 
 		new Setting(containerEl)
