@@ -76,6 +76,8 @@ interface SaveOpts {
 	feed?: unknown[];
 	/** The change feed read fails (a 503). */
 	feedFails?: boolean;
+	/** The world read (getWorld) fails, so a recreate cannot learn the world's id. */
+	worldReadFails?: boolean;
 	/** The feed answers keel's 409 resync_required (a guest's cursor after a delete it could see). */
 	feedResync?: boolean;
 	/** The head the feed reports (default 99; the stored head is 5). */
@@ -109,7 +111,11 @@ async function saveNote(o: SaveOpts) {
 		}
 	};
 	const client = {
-		getWorld: async () => ({ id: WID, name: "W" }),
+		getWorld: async () => {
+			calls.push("world");
+			if (o.worldReadFails) throw new V2ApiError(503, "unavailable", "Service Unavailable", null);
+			return { id: WID, name: "W" };
+		},
 		changesWalk: async (since?: string) => {
 			calls.push(`changes ${since ?? "epoch"}`);
 			if (o.feedFails) throw new V2ApiError(503, "unavailable", "Service Unavailable", null);
@@ -388,6 +394,13 @@ test("410, manual Save, Cancel creates nothing; Create again takes it off the st
 	const yes = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", gone: [VALLAKI], deleted: [VALLAKI] });
 	assert.deepEqual(yes.result, { ok: true, outcome: "created" });
 	assert.deepEqual(yes.settings.deletedOnServer[WID], []);
+});
+
+test("★ 410, Create again, and the world read fails: the id still leaves the stored deleted list (Kael's delta read, low)", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", gone: [VALLAKI], deleted: [VALLAKI], worldReadFails: true });
+	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+	assert.ok(r.calls.includes("world"), "the world was never read");
+	assert.deepEqual(r.settings.deletedOnServer[WID], [], "a recreated id stayed on the deleted list");
 });
 
 test("★ 410 on a linked target: left out as a feed-reported delete is, with no feed read; the PATCH goes without the link", async () => {

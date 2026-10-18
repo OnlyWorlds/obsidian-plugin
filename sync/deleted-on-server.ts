@@ -189,14 +189,28 @@ export async function storedDeleted(host: DeletedListHost, client: { getWorld():
 	}
 }
 
-/** Take ids out of the list once they exist on the server again (created again by the user's choice). */
+/**
+ * Take ids out of the list once they exist on the server again (created again
+ * by the user's choice). With no world id (the world could not be read after
+ * a 410's recreate), every world's list is swept: an element id belongs to one
+ * world, so the id is taken off wherever it sits (Kael's delta read, 10-18).
+ */
 export async function forgetDeleted(host: DeletedListHost, worldId: string, created: string[]): Promise<void> {
-	const seen = sessionState.get(host)?.get(worldId)?.seen;
-	for (const id of created) seen?.delete(id);
-	const list = host.settings.deletedOnServer?.[worldId];
-	if (!list || created.length === 0) return;
+	if (created.length === 0) return;
 	const gone = new Set(created);
-	host.settings.deletedOnServer = { ...host.settings.deletedOnServer, [worldId]: list.filter((id) => !gone.has(id)) };
+	const worlds = worldId ? [worldId] : Object.keys(host.settings.deletedOnServer ?? {});
+	const sessions = worldId ? [sessionState.get(host)?.get(worldId)] : [...(sessionState.get(host)?.values() ?? [])];
+	for (const s of sessions) for (const id of created) s?.seen?.delete(id);
+	let changed = false;
+	const next = { ...(host.settings.deletedOnServer ?? {}) };
+	for (const w of worlds) {
+		const list = next[w];
+		if (!list || !list.some((id) => gone.has(id))) continue;
+		next[w] = list.filter((id) => !gone.has(id));
+		changed = true;
+	}
+	if (!changed) return;
+	host.settings.deletedOnServer = next;
 	try {
 		await host.saveSettings?.();
 	} catch {
