@@ -84,6 +84,8 @@ interface SaveOpts {
 	answer?: boolean;
 	/** The manual Save Element (default), or auto-sync's save. */
 	manual?: boolean;
+	/** Ids keel answers 410 gone for on a GET (this world deleted them; OW Infra #403). */
+	gone?: string[];
 }
 
 async function saveNote(o: SaveOpts) {
@@ -118,6 +120,7 @@ async function saveNote(o: SaveOpts) {
 			calls.push(`get ${type} ${id}`);
 			const el = server.get(id);
 			if (el) return { id, ...el };
+			if (o.gone?.includes(id)) throw new V2ApiError(410, "gone", "This element was deleted.", null);
 			throw new V2ApiError(404, "not_found", "API Error 404", null);
 		},
 		create: async (type: string, b: Record<string, unknown>) => {
@@ -353,6 +356,71 @@ test("Create again recreates it and takes it off the deleted list", async () => 
 	assert.deepEqual(r.result, { ok: true, outcome: "created" });
 	assert.ok(r.calls.includes(`create location ${VALLAKI}`));
 	assert.deepEqual(r.settings.deletedOnServer[WID], []);
+});
+
+// --- OW Infra #403: keel answers 410 for an id this world deleted ----------
+
+const feedReads = (calls: string[]) => calls.filter((c) => c.startsWith("changes"));
+
+test("★ 410 on the save's GET, auto-sync: refused with the deleted message, no feed read, nothing created", async () => {
+	// The feed says nothing was deleted: only the 410 can tell.
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", cursor: "c5", feed: [], gone: [VALLAKI], manual: false });
+	assert.equal(r.result.ok, false);
+	assert.match((r.result as { reason: string }).reason, /Vallaki was deleted on onlyworlds\.com; Save Element can create it again/);
+	assert.deepEqual(feedReads(r.calls), [], "a 410 read the feed");
+	assert.ok(!r.calls.some((c) => c.startsWith("create") || c === "bulk"), r.calls.join(" | "));
+});
+
+test("★ 410 on the save's GET, manual Save: asks 'create it again?', creates on yes, no feed read", async () => {
+	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", cursor: "c5", feed: [], gone: [VALLAKI] });
+	assert.equal(r.dialogs.length, 1);
+	assert.match(String(r.dialogs[0].title), /deleted on onlyworlds\.com: create it again\?/i);
+	assert.deepEqual(r.result, { ok: true, outcome: "created" });
+	assert.ok(r.calls.includes(`create location ${VALLAKI}`), r.calls.join(" | "));
+	assert.deepEqual(feedReads(r.calls), [], "a 410 read the feed");
+});
+
+test("410, manual Save, Cancel creates nothing; Create again takes it off the stored deleted list", async () => {
+	const no = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", gone: [VALLAKI], answer: false });
+	assert.equal(no.dialogs.length, 1);
+	assert.equal(no.result.ok, false);
+	assert.ok(!no.calls.some((c) => c.startsWith("create")));
+	const yes = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", gone: [VALLAKI], deleted: [VALLAKI] });
+	assert.deepEqual(yes.result, { ok: true, outcome: "created" });
+	assert.deepEqual(yes.settings.deletedOnServer[WID], []);
+});
+
+test("★ 410 on a linked target: left out as a feed-reported delete is, with no feed read; the PATCH goes without the link", async () => {
+	const r = await saveNote({
+		notes: {
+			"Character/Ireena.md": note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
+			"Location/Vallaki.md": note(VALLAKI, "Vallaki"),
+		},
+		server: { [IREENA]: { name: "Ireena", description: "Old." } },
+		cursor: "c5",
+		feed: [],
+		gone: [VALLAKI],
+	});
+	assert.deepEqual(feedReads(r.calls), [], "a 410 read the feed");
+	assert.equal(r.createFirst.length, 0);
+	assert.deepEqual(r.bulks, []);
+	assert.ok(!r.calls.includes(`create location ${VALLAKI}`), "a deleted element was recreated");
+	assert.ok(r.calls.includes(`update character ${IREENA}`), r.calls.join(" | "));
+	assert.equal(r.sent.length, 1);
+	assert.equal(r.sent[0].description, "About Ireena.", "the note's other edit did not land");
+	assert.equal("birthplace" in r.sent[0], false, "the PATCH carried the deleted link");
+	assert.ok(
+		r.notices.some((n) => n.includes('Location "Vallaki" was deleted on onlyworlds.com: the link is left out of this save, and the note keeps it.')),
+		r.notices.join(" | ")
+	);
+});
+
+test("410 on one target, 404 on another: the dialog offers the new one and lists the 410 as left out", async () => {
+	const r = await saveNote({ notes: IREENA_TO_VALLAKI, cursor: "c5", feed: [], gone: [VALLAKI] });
+	assert.equal(r.createFirst.length, 1);
+	assert.deepEqual(r.createFirst[0].items, [{ type: "location", name: "Krezk" }]);
+	assert.deepEqual(r.createFirst[0].leftOut, [{ type: "location", name: "Vallaki" }]);
+	for (const b of r.bulks) assert.ok(!b.includes(VALLAKI), "a deleted element was recreated");
 });
 
 test("a never-uploaded note, not in the list, still creates as before with no dialog", async () => {

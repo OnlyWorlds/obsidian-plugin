@@ -85,6 +85,16 @@ interface CreateFirstPlan {
 
 const NO_PLAN: CreateFirstPlan = { firsts: [], leftOut: [] };
 
+/** The world id the key names, "" when it cannot be read (a 410's recreate takes it off the deleted list). */
+async function worldIdOf(client: { getWorld(): Promise<Record<string, unknown>> }): Promise<string> {
+    try {
+        const id = (await client.getWorld()).id;
+        return typeof id === 'string' ? id : '';
+    } catch {
+        return '';
+    }
+}
+
 /** Note path and key of each likely-misnamed key auto-sync has named this session (round C, 4). */
 const misnamedShown = new Set<string>();
 
@@ -379,17 +389,19 @@ export class SaveElementCommand {
         try {
             current = await client.get(type, elementUuid);
         } catch (error) {
-            if (this.isNotFound(error)) {
+            const gone = this.isGone(error);
+            if (gone || this.isNotFound(error)) {
                 try {
                     // A 404 is "never uploaded" or "deleted on the server". The
                     // deleted list, with the feed read on from the session's
                     // cursor (or Download's, or the start), tells them apart:
                     // a deleted element is never recreated by auto-sync, and
                     // only on the user's word by Save Element
-                    // (Kael's second read, N1).
-                    const view = await readDeletedOnServer(this.plugin, client);
+                    // (Kael's second read, N1). A 410 is keel saying this
+                    // world deleted it: no feed read (OW Infra #403).
+                    const view = gone ? null : await readDeletedOnServer(this.plugin, client);
                     let recreated = false;
-                    if (view.ids.has(elementUuid)) {
+                    if (!view || view.ids.has(elementUuid)) {
                         if (!manual) {
                             return this.fail(`${label} was deleted on onlyworlds.com; Save Element can create it again.`, 10000);
                         }
@@ -445,8 +457,8 @@ export class SaveElementCommand {
                     // element the view this 404 read names deleted, a note
                     // here or not (Kael's fixes read, low 4).
                     const plan = manual
-                        ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view)
-                        : this.leftOutOf(worldName, type, payload, () => true, view.ids);
+                        ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view ?? undefined)
+                        : this.leftOutOf(worldName, type, payload, () => true, view?.ids ?? new Set());
                     if (!(await this.approveCreateFirst(String(label), plan))) {
                         return this.fail(stopMessage(plan), plan.refused ? 15000 : plan.overflow ? 12000 : undefined);
                     }
@@ -462,13 +474,13 @@ export class SaveElementCommand {
                             { type, id: elementUuid, name: String(label), payload: sendPayload },
                         ]);
                         if (together.refused) return this.fail(`Failed to create ${category}: ${together.refused}`, 12000);
-                        if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
+                        if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                         const extra = createFirstNotes(together.replaced, plan);
                         new Notice(`${createdFirstMessage(firsts)} ${category} created.${extra}`, extra ? 15000 : 8000);
                         return { ok: true, outcome: 'created' };
                     }
                     await client.create(type, { id: elementUuid, ...sendPayload });
-                    if (recreated) await forgetDeleted(this.plugin, view.worldId, [elementUuid]);
+                    if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
                 } catch (createError) {
@@ -607,6 +619,14 @@ export class SaveElementCommand {
                     await client.get(parsed.category, id);
                     continue; // already on the server
                 } catch (error) {
+                    // A 410: keel says this world deleted it, so it is left
+                    // out as a feed-reported delete is, with no feed read
+                    // (OW Infra #403). Any other non-404 stays "on the server".
+                    if (this.isGone(error)) {
+                        leftOut.push({ type: parsed.category, name: parsed.name });
+                        leftOutIds.push(id);
+                        continue;
+                    }
                     if (!this.isNotFound(error)) continue;
                 }
                 // A 404 is "never pushed" or "deleted": an id the change feed
@@ -858,6 +878,13 @@ export class SaveElementCommand {
             return error.status === 404;
         }
         return error instanceof Error && /^API Error 404\b/.test(error.message);
+    }
+
+    // keel answers 410 `gone` on a GET of an id this world deleted as this
+    // type (a never-uploaded id, another type, a guest key and v1 still get
+    // 404): the server has said "deleted", no feed read needed (OW Infra #403).
+    private isGone(error: unknown): boolean {
+        return error instanceof V2ApiError && error.status === 410;
     }
 
     // Helper to extract World Name and Category from path
