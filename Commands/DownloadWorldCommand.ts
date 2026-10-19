@@ -24,6 +24,7 @@ import { writeElement } from '../vault/element-file';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
+import { keptDeleteCount } from '../sync/deleted-on-server';
 
 export class DownloadWorldCommand {
     app: App;
@@ -112,12 +113,11 @@ export class DownloadWorldCommand {
                         latest.set(change.id, change);
                     }
                     const worldData: Record<string, any> = {};
-                    let deleteCount = 0;
                     for (const change of latest.values()) {
                         if (change.op === 'delete') {
                             // Notes are never auto-deleted (a note may hold user
-                            // prose beyond the element). Surface the count instead.
-                            deleteCount++;
+                            // prose beyond the element). The count of kept notes
+                            // is surfaced below.
                             continue;
                         }
                         if (!change.element) continue;
@@ -170,31 +170,33 @@ export class DownloadWorldCommand {
                     // Update all category folder names with counts
                     await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
 
-                    // The world's Bases file (a table and cards per type, OW Infra #188),
-                    // behind its setting; never fails the download.
-                    if (this.plugin?.settings.writeBasesFile !== false) {
-                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName, this.plugin ?? undefined);
+                    // The ids the feed reported deleted, old and new: a save never
+                    // recreates them as link targets; a later upsert of an id
+                    // clears it (Kael's read, blocker 1c). Only ids that still
+                    // have a note here, or that a note here links to by id, are
+                    // kept: the list guards kept notes and their links, and a
+                    // full walk sees every delete the world ever had (Kael's
+                    // third read, 4; the fix round, item 8). An empty list needs
+                    // no read of every note (round C, 8).
+                    const deleted = new Set(this.plugin?.settings.deletedOnServer?.[worldId] ?? []);
+                    for (const change of latest.values()) {
+                        if (change.op === 'delete') deleted.add(change.id);
+                        else deleted.delete(change.id);
                     }
+                    const { own, all: local } = deleted.size > 0 ? await this.localElementIds(uniqueWorldName)
+                        : { own: new Set<string>(), all: new Set<string>() };
+                    // The notice counts only deletes that left a note of their
+                    // own in this vault: a fresh vault's first download walks the
+                    // world's whole history and meets deletes that never had a
+                    // note here (Seethe, 3.5.1: "7 elements deleted" on an empty
+                    // vault); a raw-id link to a deleted element is not a kept
+                    // note (Kael's read, h37 #7470).
+                    const keptCount = keptDeleteCount(latest.values(), own);
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time.
                     if (this.plugin && walk.cursor) {
                         this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
-                        // The ids the feed reported deleted (their notes stay):
-                        // a save never recreates them as link targets. A later
-                        // upsert of an id clears it (Kael's read, blocker 1c).
-                        const deleted = new Set(this.plugin.settings.deletedOnServer?.[worldId] ?? []);
-                        for (const change of latest.values()) {
-                            if (change.op === 'delete') deleted.add(change.id);
-                            else deleted.delete(change.id);
-                        }
-                        // Only ids that still have a note here, or that a note
-                        // here links to by id: the list guards kept notes and
-                        // their links, and a full walk sees every delete the
-                        // world ever had (Kael's third read, 4; the fix round,
-                        // item 8). An empty list needs no read of every note
-                        // (round C, 8).
-                        const local = deleted.size > 0 ? await this.localElementIds(uniqueWorldName) : new Set<string>();
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
                             [worldId]: [...deleted].filter(id => local.has(id)),
@@ -204,8 +206,16 @@ export class DownloadWorldCommand {
 
                     const changedNote = stored ? ` (${latest.size} changed element${latest.size === 1 ? '' : 's'})` : '';
                     new Notice(`Successfully downloaded world: ${uniqueWorldName}${changedNote}`);
-                    if (deleteCount > 0) {
-                        new Notice(`${deleteCount} element${deleteCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
+                    if (keptCount > 0) {
+                        new Notice(`${keptCount} element${keptCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
+                    }
+
+                    // The world's Bases file (a table and cards per type, OW Infra #188),
+                    // behind its setting; never fails the download. After the
+                    // download's own notices, so its once-per-vault notice reads
+                    // as the footnote it is (Seethe, 3.5.1).
+                    if (this.plugin?.settings.writeBasesFile !== false) {
+                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName, this.plugin ?? undefined);
                     }
                     return uniqueWorldName;
                 } catch (error) {
@@ -597,23 +607,25 @@ export class DownloadWorldCommand {
         return noteContent;
     }
 
-    /** The element ids this world's notes carry, read from disk (the cache is cold mid-download). */
-    private async localElementIds(worldName: string): Promise<Set<string>> {
+    /** The element ids this world's notes carry, read from disk (the cache is cold mid-download):
+     *  `own` the notes' own ids; `all` those plus every id a note's Properties link to. */
+    private async localElementIds(worldName: string): Promise<{ own: Set<string>; all: Set<string> }> {
         const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
-        const ids = new Set<string>();
+        const own = new Set<string>();
+        const all = new Set<string>();
         for (const file of this.app.vault.getMarkdownFiles()) {
             if (!file.path.startsWith(prefix)) continue;
             try {
                 const content = await this.app.vault.read(file);
                 const id = parseRawFrontmatterScalars(content, ['id']).id;
-                if (id) ids.add(id);
+                if (id) { own.add(id); all.add(id); }
                 // The ids its Properties hold (a raw-id link to an element
                 // with no note here): the deleted list keeps those too, so a
                 // save leaves the link out (the fix round, item 8).
-                for (const linked of idsInFrontmatter(content)) ids.add(linked);
+                for (const linked of idsInFrontmatter(content)) all.add(linked);
             } catch { /* unreadable note — skip */ }
         }
-        return ids;
+        return { own, all };
     }
 
     /** Does the vault hold ANY element note for this world? Used to sanity-check
