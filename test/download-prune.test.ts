@@ -29,7 +29,7 @@ async function downloadCountingPrunes(changes: unknown[]) {
 	});
 	const cmd = new DownloadWorldCommand(app, { version: "t" }, plugin as never);
 	let prunes = 0;
-	const own = cmd as unknown as { localElementIds(w: string): Promise<Set<string>> };
+	const own = cmd as unknown as { localElementIds(w: string): Promise<{ own: Set<string>; all: Set<string> }> };
 	const real = own.localElementIds.bind(cmd);
 	own.localElementIds = async (w: string) => {
 		prunes++;
