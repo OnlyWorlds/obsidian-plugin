@@ -112,12 +112,11 @@ export class DownloadWorldCommand {
                         latest.set(change.id, change);
                     }
                     const worldData: Record<string, any> = {};
-                    let deleteCount = 0;
                     for (const change of latest.values()) {
                         if (change.op === 'delete') {
                             // Notes are never auto-deleted (a note may hold user
-                            // prose beyond the element). Surface the count instead.
-                            deleteCount++;
+                            // prose beyond the element). The count of kept notes
+                            // is surfaced below.
                             continue;
                         }
                         if (!change.element) continue;
@@ -170,31 +169,30 @@ export class DownloadWorldCommand {
                     // Update all category folder names with counts
                     await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
 
-                    // The world's Bases file (a table and cards per type, OW Infra #188),
-                    // behind its setting; never fails the download.
-                    if (this.plugin?.settings.writeBasesFile !== false) {
-                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName, this.plugin ?? undefined);
+                    // The ids the feed reported deleted, old and new: a save never
+                    // recreates them as link targets; a later upsert of an id
+                    // clears it (Kael's read, blocker 1c). Only ids that still
+                    // have a note here, or that a note here links to by id, are
+                    // kept: the list guards kept notes and their links, and a
+                    // full walk sees every delete the world ever had (Kael's
+                    // third read, 4; the fix round, item 8). An empty list needs
+                    // no read of every note (round C, 8).
+                    const deleted = new Set(this.plugin?.settings.deletedOnServer?.[worldId] ?? []);
+                    for (const change of latest.values()) {
+                        if (change.op === 'delete') deleted.add(change.id);
+                        else deleted.delete(change.id);
                     }
+                    const local = deleted.size > 0 ? await this.localElementIds(uniqueWorldName) : new Set<string>();
+                    // The notice counts only deletes that left a note in this
+                    // vault: a fresh vault's first download walks the world's
+                    // whole history and meets deletes that never had a note here
+                    // (Seethe, 3.5.1: "7 elements deleted" on an empty vault).
+                    const keptCount = [...latest.values()].filter(c => c.op === 'delete' && local.has(c.id)).length;
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time.
                     if (this.plugin && walk.cursor) {
                         this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
-                        // The ids the feed reported deleted (their notes stay):
-                        // a save never recreates them as link targets. A later
-                        // upsert of an id clears it (Kael's read, blocker 1c).
-                        const deleted = new Set(this.plugin.settings.deletedOnServer?.[worldId] ?? []);
-                        for (const change of latest.values()) {
-                            if (change.op === 'delete') deleted.add(change.id);
-                            else deleted.delete(change.id);
-                        }
-                        // Only ids that still have a note here, or that a note
-                        // here links to by id: the list guards kept notes and
-                        // their links, and a full walk sees every delete the
-                        // world ever had (Kael's third read, 4; the fix round,
-                        // item 8). An empty list needs no read of every note
-                        // (round C, 8).
-                        const local = deleted.size > 0 ? await this.localElementIds(uniqueWorldName) : new Set<string>();
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
                             [worldId]: [...deleted].filter(id => local.has(id)),
@@ -204,8 +202,16 @@ export class DownloadWorldCommand {
 
                     const changedNote = stored ? ` (${latest.size} changed element${latest.size === 1 ? '' : 's'})` : '';
                     new Notice(`Successfully downloaded world: ${uniqueWorldName}${changedNote}`);
-                    if (deleteCount > 0) {
-                        new Notice(`${deleteCount} element${deleteCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
+                    if (keptCount > 0) {
+                        new Notice(`${keptCount} element${keptCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
+                    }
+
+                    // The world's Bases file (a table and cards per type, OW Infra #188),
+                    // behind its setting; never fails the download. After the
+                    // download's own notices, so its once-per-vault notice reads
+                    // as the footnote it is (Seethe, 3.5.1).
+                    if (this.plugin?.settings.writeBasesFile !== false) {
+                        await writeWorldBasesFileQuietly(this.app, uniqueWorldName, this.plugin ?? undefined);
                     }
                     return uniqueWorldName;
                 } catch (error) {
