@@ -24,6 +24,7 @@ import { writeElement } from '../vault/element-file';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
+import { keptDeleteCount } from '../sync/deleted-on-server';
 
 export class DownloadWorldCommand {
     app: App;
@@ -182,12 +183,15 @@ export class DownloadWorldCommand {
                         if (change.op === 'delete') deleted.add(change.id);
                         else deleted.delete(change.id);
                     }
-                    const local = deleted.size > 0 ? await this.localElementIds(uniqueWorldName) : new Set<string>();
-                    // The notice counts only deletes that left a note in this
-                    // vault: a fresh vault's first download walks the world's
-                    // whole history and meets deletes that never had a note here
-                    // (Seethe, 3.5.1: "7 elements deleted" on an empty vault).
-                    const keptCount = [...latest.values()].filter(c => c.op === 'delete' && local.has(c.id)).length;
+                    const { own, all: local } = deleted.size > 0 ? await this.localElementIds(uniqueWorldName)
+                        : { own: new Set<string>(), all: new Set<string>() };
+                    // The notice counts only deletes that left a note of their
+                    // own in this vault: a fresh vault's first download walks the
+                    // world's whole history and meets deletes that never had a
+                    // note here (Seethe, 3.5.1: "7 elements deleted" on an empty
+                    // vault); a raw-id link to a deleted element is not a kept
+                    // note (Kael's read, h37 #7470).
+                    const keptCount = keptDeleteCount(latest.values(), own);
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time.
@@ -603,23 +607,25 @@ export class DownloadWorldCommand {
         return noteContent;
     }
 
-    /** The element ids this world's notes carry, read from disk (the cache is cold mid-download). */
-    private async localElementIds(worldName: string): Promise<Set<string>> {
+    /** The element ids this world's notes carry, read from disk (the cache is cold mid-download):
+     *  `own` the notes' own ids; `all` those plus every id a note's Properties link to. */
+    private async localElementIds(worldName: string): Promise<{ own: Set<string>; all: Set<string> }> {
         const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
-        const ids = new Set<string>();
+        const own = new Set<string>();
+        const all = new Set<string>();
         for (const file of this.app.vault.getMarkdownFiles()) {
             if (!file.path.startsWith(prefix)) continue;
             try {
                 const content = await this.app.vault.read(file);
                 const id = parseRawFrontmatterScalars(content, ['id']).id;
-                if (id) ids.add(id);
+                if (id) { own.add(id); all.add(id); }
                 // The ids its Properties hold (a raw-id link to an element
                 // with no note here): the deleted list keeps those too, so a
                 // save leaves the link out (the fix round, item 8).
-                for (const linked of idsInFrontmatter(content)) ids.add(linked);
+                for (const linked of idsInFrontmatter(content)) all.add(linked);
             } catch { /* unreadable note — skip */ }
         }
-        return ids;
+        return { own, all };
     }
 
     /** Does the vault hold ANY element note for this world? Used to sanity-check

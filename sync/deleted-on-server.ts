@@ -217,3 +217,19 @@ export async function forgetDeleted(host: DeletedListHost, worldId: string, crea
 		/* best effort */
 	}
 }
+
+/**
+ * How many of a walk's deletes left a note of their own in this vault (OW Infra
+ * #411, Seethe on 3.5.1: a fresh vault's first download walks the world's whole
+ * history and said "7 elements deleted on the server — their notes were kept"
+ * with no note in the vault). Counted against the notes' OWN ids, never the ids
+ * their Properties link to: a stale raw-id link is not a kept note (Kael's read,
+ * h37 #7470). `latest` is the walk folded to one change per id, later ops winning.
+ */
+export function keptDeleteCount(latest: Iterable<{ id: string; op: string }>, ownNoteIds: Set<string>): number {
+	let n = 0;
+	for (const change of latest) {
+		if (change.op === "delete" && ownNoteIds.has(change.id)) n++;
+	}
+	return n;
+}
