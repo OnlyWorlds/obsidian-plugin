@@ -54,7 +54,7 @@ export class TemplateSelectionModal extends Modal {
         });
 
         // Create "OK" button
-        const button = contentEl.createEl('button', { text: 'CHOOSE' });
+        const button = contentEl.createEl('button', { text: 'Choose' });
         button.style.marginLeft = '10px'; // Add some spacing between input and button
 
         // Handle button click for category selection

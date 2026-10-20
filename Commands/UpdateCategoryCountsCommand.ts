@@ -16,7 +16,7 @@ export class UpdateCategoryCountsCommand {
         try {
             const worldName = await this.worldService.getWorldName();
             await this.worldService.updateAllCategoryFolderNames(worldName);
-            new Notice('Category folder counts updated successfully!');
+            new Notice('Category folder counts updated.');
         } catch (error) {
             console.error('Error updating category counts:', error);
             new Notice('Failed to update category folder counts');

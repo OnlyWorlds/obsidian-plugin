@@ -16,7 +16,7 @@ export class WorldRenameModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Select and Rename World' });
+        contentEl.createEl('h3', { text: 'Select and rename world' });
         contentEl.addClass('rename-modal-container');
 
         const worldFolders = this.worlds ?? await this.getWorldFolders();

@@ -25,7 +25,7 @@ test("★ the unresolved-link notice names the fix, never Export World or Upload
 	});
 	const n = r.notices.find((x) => x.startsWith("Not saved to those links")) ?? "";
 	assert.ok(n, r.notices.join(" | "));
-	assert.doesNotMatch(n, /Export World|Upload World/);
+	assert.doesNotMatch(n, /Export World|Upload world/);
 	assert.match(n, /No note in this world is named Nowhere: create it or correct the link\./);
 	assert.match(n, /Krezk has a note with no element id yet, or of another type than the field takes\./);
 });

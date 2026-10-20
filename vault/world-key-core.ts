@@ -77,6 +77,6 @@ export const READ_ONLY_WORLDS_NOT_LISTED =
  */
 export const LOCAL_WORLD_SYNC_MESSAGE =
     'This is a local-only world — nothing was sent to onlyworlds.com. ' +
-    'To put it online: run "Create World" and use "Or take a local world online" — ' +
+    'To put it online: run "Create world" and use "Or take a local world online" — ' +
     'it creates the world, links the key and uploads everything in one move. ' +
     '(Or paste an existing world\'s API key into World.md yourself.)';

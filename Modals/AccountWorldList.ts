@@ -12,7 +12,7 @@ export function renderAccountWorlds(
 ): void {
 	el.empty();
 	if (worlds.length === 0) {
-		el.createEl("p", { text: "This account has no worlds yet. Create one on onlyworlds.com, or with Create World." });
+		el.createEl("p", { text: "This account has no worlds yet. Create one on onlyworlds.com, or with Create world." });
 		return;
 	}
 	for (const w of worlds) {
@@ -20,7 +20,7 @@ export function renderAccountWorlds(
 		const label = row.createDiv({ cls: "ow-account-world-label" });
 		label.createSpan({ text: w.name || "(unnamed world)" });
 		label.createSpan({ text: ` · ${roleWords(w)}`, cls: "ow-account-world-role" });
-		const pick = row.createEl("button", { text: "DOWNLOAD" });
+		const pick = row.createEl("button", { text: "Download" });
 		pick.addEventListener("click", () => onPick(w));
 	}
 }

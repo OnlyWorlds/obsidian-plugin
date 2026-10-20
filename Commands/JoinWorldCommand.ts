@@ -104,7 +104,7 @@ export class JoinWorldCommand {
         try {
             worlds = await listAccountWorlds(token);
         } catch (e) {
-            new Notice(`You joined, but your worlds could not be read here. Use Download World. (${e instanceof Error ? e.message : String(e)})`, 10000);
+            new Notice(`You joined, but your worlds could not be read here. Use Download world. (${e instanceof Error ? e.message : String(e)})`, 10000);
             return;
         }
         // A 409 already_member names no world: find it by the preview's name, when only one fits.
@@ -113,7 +113,7 @@ export class JoinWorldCommand {
             : worlds.find((w) => w.id === joined.world_id) ?? null;
         if (joined.already) new Notice(`You are a member of ${preview.world.name} already.`, 6000);
         if (!world) {
-            new Notice(`${preview.world.name} is on your account; download it with Download World.`, 10000);
+            new Notice(`${preview.world.name} is on your account; download it with Download world.`, 10000);
             return;
         }
         await this.download.downloadAccountWorld(world);

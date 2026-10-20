@@ -54,7 +54,7 @@ export class ValidateResultModal extends Modal {
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });
 
         if (this.errorCount > 0) {
-            contentEl.createEl('p', { text: `Please correct these issues below before uploading ${this.worldName}.` });
+            contentEl.createEl('p', { text: `Fix the issues below before uploading ${this.worldName}.` });
         } else if (this.checkedCount > 0) {
             contentEl.createEl('p', { text: `No issues in what was checked.` });
         } else {
@@ -87,7 +87,8 @@ export class ValidateResultModal extends Modal {
     }
 
     formatTitle(key: string): string {
-        return key.replace(/([A-Z])/g, ' $1').trim().replace(/\b\w/g, char => char.toUpperCase());
+        const words = key.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+        return words.charAt(0).toUpperCase() + words.slice(1);
     }
 
     onClose() {

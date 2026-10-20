@@ -63,7 +63,7 @@ export class UpdateWorldFormatModal extends Modal {
 			warn.style.borderLeft = '3px solid var(--text-warning)';
 			warn.style.padding = '8px 12px';
 			warn.style.margin = '12px 0';
-			warn.createEl('strong', { text: `${review.length} note(s) skipped — please look at these yourself` });
+			warn.createEl('strong', { text: `${review.length} note(s) skipped. Check these yourself` });
 			warn.createEl('p', {
 				text:
 					'Their body already contains headings that match field names. Updating them ' +

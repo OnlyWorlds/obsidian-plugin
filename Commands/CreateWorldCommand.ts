@@ -129,7 +129,7 @@ export class CreateWorldCommand {
             // preview's overwrite warning is meaningless for a just-born world.
             await this.exportCommand.executeFor(worldData.pin, worldData.name, { skipPreview: true });
         } else {
-            new Notice('Run "Upload World" to push your elements.', 8000);
+            new Notice('Run "Upload world" to push your elements.', 8000);
         }
     }
 
@@ -173,7 +173,7 @@ export class CreateWorldCommand {
                         new ApiResponseModal(
                             this.app,
                             true,
-                            `World "${worldData.name}" created successfully!`,
+                            `World "${worldData.name}" created.`,
                             {
                                 api_key: data.api_key,
                             },
@@ -190,7 +190,7 @@ export class CreateWorldCommand {
                         data.message || "Server reported an error creating the world.",
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                     return null;
                 }
@@ -202,20 +202,20 @@ export class CreateWorldCommand {
                     new ApiResponseModal(
                         this.app,
                         false,
-                        data.message || "Please verify your OnlyWorlds account email address and PIN and try again.",
+                        data.message || "Email address or PIN not accepted. Check both and try again.",
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                 } catch (parseError) {
                     // Fallback if parsing fails
                     new ApiResponseModal(
                         this.app,
                         false,
-                        "Please verify your OnlyWorlds account email address and PIN and try again.",
+                        "Email address or PIN not accepted. Check both and try again.",
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                 }
                 return null;
@@ -227,20 +227,20 @@ export class CreateWorldCommand {
                     new ApiResponseModal(
                         this.app,
                         false,
-                        data.message || "Too many requests. Please try again later.",
+                        data.message || "Too many requests. Try again later.",
                         null,
                         () => {},
-                        "Rate Limit Exceeded"
+                        "Rate limit exceeded"
                     ).open();
                 } catch (parseError) {
                     // Fallback if parsing fails
                     new ApiResponseModal(
                         this.app,
                         false,
-                        "Too many requests. Please try again later.",
+                        "Too many requests. Try again later.",
                         null,
                         () => {},
-                        "Rate Limit Exceeded"
+                        "Rate limit exceeded"
                     ).open();
                 }
                 return null;
@@ -255,7 +255,7 @@ export class CreateWorldCommand {
                         data.message || "Server error: Unable to create world.",
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                 } catch (parseError) {
                     // Fallback if parsing fails
@@ -265,7 +265,7 @@ export class CreateWorldCommand {
                         `Server error: Unable to create world.`,
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                 }
                 return null;
@@ -273,7 +273,7 @@ export class CreateWorldCommand {
         } catch (error) {
             // Network or parsing errors
             let errorMessage = "Unable to connect to OnlyWorlds server.";
-            let errorTitle = "Connection Error";
+            let errorTitle = "Connection error";
             
             // Log detailed error for debugging
             console.error("World creation API error:", error);
@@ -288,10 +288,10 @@ export class CreateWorldCommand {
                     new ApiResponseModal(
                         this.app,
                         false,
-                        "Please verify your OnlyWorlds account email address and PIN and try again.",
+                        "Email address or PIN not accepted. Check both and try again.",
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                     return null;
                 }
@@ -301,10 +301,10 @@ export class CreateWorldCommand {
                     new ApiResponseModal(
                         this.app,
                         false,
-                        "Too many requests. Please try again later.",
+                        "Too many requests. Try again later.",
                         null,
                         () => {},
-                        "Rate Limit Exceeded"
+                        "Rate limit exceeded"
                     ).open();
                     return null;
                 }
@@ -317,7 +317,7 @@ export class CreateWorldCommand {
                         "Server error. Unable to create world.",
                         null,
                         () => {},
-                        "World Create Failed"
+                        "World create failed"
                     ).open();
                     return null;
                 }
@@ -405,7 +405,7 @@ export class CreateWorldCommand {
                 "That PIN is not your account's PIN, so nothing was created on onlyworlds.com. Type your account PIN and try again.",
                 null,
                 () => {},
-                'World Create Failed'
+                'World create failed'
             ).open();
             return null;
         }
@@ -419,7 +419,7 @@ export class CreateWorldCommand {
                 error instanceof Error ? error.message : 'The world could not be created.',
                 null,
                 () => {},
-                'World Create Failed'
+                'World create failed'
             ).open();
             return null;
         }
@@ -440,10 +440,10 @@ export class CreateWorldCommand {
                 this.app,
                 false,
                 `World "${worldData.name}" was created on onlyworlds.com, but no key for this vault could be made: ` +
-                    `${error instanceof Error ? error.message : String(error)}. Download it with Download World.`,
+                    `${error instanceof Error ? error.message : String(error)}. Download it with Download world.`,
                 null,
                 () => {},
-                'World Create Failed'
+                'World create failed'
             ).open();
             return null;
         }
@@ -504,8 +504,8 @@ export class CreateWorldCommand {
                 `\n## Local-only world\n` +
                 `This world lives entirely in your vault — nothing is sent to onlyworlds.com.\n\n` +
                 `To take it online later, either:\n` +
-                `- run **Create World** and use **Take online** (creates the world under your account and uploads your elements), or\n` +
-                `- create a world at [onlyworlds.com](https://www.onlyworlds.com), then replace \`local\` in the API Key line above with its key and run **Upload World**.\n`;
+                `- run **Create world** and use **Take online** (creates the world under your account and uploads your elements), or\n` +
+                `- create a world at [onlyworlds.com](https://www.onlyworlds.com), then replace \`local\` in the API Key line above with its key and run **Upload world**.\n`;
         }
         await this.app.vault.create(`${worldBasePath}/World.md`, worldNoteContent);
 

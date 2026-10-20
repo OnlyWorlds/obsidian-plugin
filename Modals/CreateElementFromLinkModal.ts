@@ -22,7 +22,7 @@ export class CreateElementFromLinkModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Create New Element' });
+        contentEl.createEl('h3', { text: 'Create new element' });
         contentEl.addClass('create-element-modal');
 
         // World Selection Section
@@ -87,7 +87,7 @@ export class CreateElementFromLinkModal extends Modal {
         }
 
         // Element Name Section
-        const nameLabel = contentEl.createEl('label', { text: 'Element Name' });
+        const nameLabel = contentEl.createEl('label', { text: 'Element name' });
         nameLabel.style.display = 'block';
         nameLabel.style.marginBottom = '4px';
         nameLabel.style.fontWeight = 'bold';
@@ -138,8 +138,16 @@ export class CreateElementFromLinkModal extends Modal {
             const category = categoryInput.value.trim();
             const elementName = nameInput.value.trim();
 
-            if (!worldName || !category || !elementName) {
-                new Notice('Please fill in all fields');
+            if (!worldName) {
+                new Notice('Select a world');
+                return;
+            }
+            if (!category) {
+                new Notice('Category is required');
+                return;
+            }
+            if (!elementName) {
+                new Notice('Element name is required');
                 return;
             }
 

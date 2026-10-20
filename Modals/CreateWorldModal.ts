@@ -30,10 +30,10 @@ export class CreateWorldModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Create New World' });
+        contentEl.createEl('h3', { text: 'Create new world' });
         
         // World Name Field
-        const nameLabel = contentEl.createEl('label', { text: 'World Name' });
+        const nameLabel = contentEl.createEl('label', { text: 'World name' });
         nameLabel.style.display = 'block';
         nameLabel.style.marginTop = '15px';
         nameLabel.style.marginBottom = '4px';
@@ -47,7 +47,7 @@ export class CreateWorldModal extends Modal {
         nameInput.style.marginBottom = '15px';
         
         // Email Field
-        const emailLabel = contentEl.createEl('label', { text: 'OnlyWorlds Email Address' });
+        const emailLabel = contentEl.createEl('label', { text: 'OnlyWorlds email address' });
         emailLabel.style.display = 'block';
         emailLabel.style.marginBottom = '4px';
         emailLabel.style.fontWeight = 'bold';
@@ -119,21 +119,21 @@ export class CreateWorldModal extends Modal {
         buttonContainer.style.marginTop = '20px';
 
         // Cancel Button
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
             this.onSubmit(null);
         });
 
         // Local-Only Button — no account, no server call; name is the only requirement
-        const localButton = buttonContainer.createEl('button', { text: 'CREATE LOCAL-ONLY' });
+        const localButton = buttonContainer.createEl('button', { text: 'Create local-only' });
         localButton.style.marginLeft = '8px';
         localButton.addEventListener('click', () => {
             this.validateAndSubmitLocal(nameInput.value);
         });
 
         // Create Button
-        const createButton = buttonContainer.createEl('button', { text: 'CREATE WITH ACCOUNT' });
+        const createButton = buttonContainer.createEl('button', { text: 'Create with account' });
         createButton.style.marginLeft = '8px';
         createButton.addEventListener('click', () => {
             this.validateAndSubmit(nameInput.value, emailInput.value, pinInput.value);
@@ -165,7 +165,7 @@ export class CreateWorldModal extends Modal {
                 worldSelect.createEl('option', { text: w, value: w });
             }
 
-            const publishButton = contentEl.createEl('button', { text: 'TAKE ONLINE' });
+            const publishButton = contentEl.createEl('button', { text: 'Take online' });
             publishButton.addEventListener('click', () => {
                 this.validateAndSubmitFromLocal(worldSelect.value, emailInput.value, pinInput.value);
             });
@@ -201,20 +201,20 @@ export class CreateWorldModal extends Modal {
     validateAndSubmit(name: string, email: string, pinStr: string) {
         // Validate name
         if (!name.trim()) {
-            new Notice('Please enter a world name');
+            new Notice('World name is required');
             return;
         }
         
         // Validate email (signed in: the account names the owner, no email)
         if (!this.account && !this.isValidEmail(email)) {
-            new Notice('Please enter a valid email address');
+            new Notice('Enter a valid email address');
             return;
         }
         
         // Validate PIN
         const pin = parseInt(pinStr, 10);
         if (isNaN(pin) || pin < 1000 || pin > 9999) {
-            new Notice('Please enter a valid 4-digit PIN');
+            new Notice('Enter a 4-digit PIN (1000 to 9999)');
             return;
         }
         
@@ -229,7 +229,7 @@ export class CreateWorldModal extends Modal {
     
     validateAndSubmitLocal(name: string) {
         if (!name.trim()) {
-            new Notice('Please enter a world name');
+            new Notice('World name is required');
             return;
         }
         this.close();
@@ -263,12 +263,12 @@ export class CreateWorldModal extends Modal {
             return;
         }
         if (!this.account && !this.isValidEmail(email)) {
-            new Notice('Please enter a valid email address (account fields above are used to create the world online)');
+            new Notice('Enter a valid email address. The account fields above are used to create the world online.');
             return;
         }
         const pin = parseInt(pinStr, 10);
         if (isNaN(pin) || pin < 1000 || pin > 9999) {
-            new Notice('Please enter a valid 4-digit PIN');
+            new Notice('Enter a 4-digit PIN (1000 to 9999)');
             return;
         }
         this.close();

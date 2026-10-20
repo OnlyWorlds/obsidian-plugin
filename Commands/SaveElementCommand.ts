@@ -119,7 +119,7 @@ const knownOfShown = new Set<string>();
 // after a restart (the fix round, item 6: N7; Kael's fixes read, low 5).
 
 /** What auto-sync adds to its saved notice when the note keeps its old name. */
-const KEEPS_OLD_NAME = ' The note keeps its old name; Save Element renames it.';
+const KEEPS_OLD_NAME = ' The note keeps its old name; Save element renames it.';
 
 /** Why a save stopped before its creates: a target refused, past the cap, or the dialog cancelled. */
 function stopMessage(plan: CreateFirstPlan): string {
@@ -133,7 +133,7 @@ const MAX_CREATE_FIRST = 50;
 /** Past the cap: nothing is created, Upload World sends the group. */
 const OVERFLOW_MESSAGE =
     `More than ${MAX_CREATE_FIRST} linked notes are not on onlyworlds.com yet, so nothing was created or saved. ` +
-    'Run Upload World to send them all, then save this note again.';
+    'Run Upload world to send them all, then save this note again.';
 
 /** What a cancelled create-first dialog leaves the user with. */
 const CANCELLED_MESSAGE = 'Save cancelled: nothing was created or saved.';
@@ -176,7 +176,7 @@ function createFirstNotes(replaced: string[], plan: CreateFirstPlan): string {
  */
 function missingLinkHint(error: unknown, manual: boolean): string {
     if (manual || !(error instanceof V2ApiError) || error.code !== 'invalid_link') return '';
-    return ' A link names an element onlyworlds.com does not have: Save Element creates it first if it is new, or leaves it out if it was deleted there.';
+    return ' A link names an element onlyworlds.com does not have: Save element creates it first if it is new, or leaves it out if it was deleted there.';
 }
 
 function capitalize(s: string): string {
@@ -442,7 +442,7 @@ export class SaveElementCommand {
                     let recreated = false;
                     if (!view || view.ids.has(elementUuid)) {
                         if (!manual) {
-                            return this.fail(`${label} was deleted on onlyworlds.com; Save Element can create it again.`, 10000);
+                            return this.fail(`${label} was deleted on onlyworlds.com; Save element can create it again.`, 10000);
                         }
                         const again = await confirm(
                             this.app,
@@ -468,13 +468,13 @@ export class SaveElementCommand {
                         }
                         if (!manual && view.reason === 'rewound') {
                             return this.fail(
-                                `onlyworlds.com was restored from a backup since this device's last Download, so ${label} was not created: run Download World.`,
+                                `onlyworlds.com was restored from a backup since this device's last Download, so ${label} was not created: run Download world.`,
                                 10000
                             );
                         }
                         if (!manual && view.reason === 'resync') {
                             return this.fail(
-                                `onlyworlds.com asks this device to read the world again, so ${label} was not created: Download World to catch up.`,
+                                `onlyworlds.com asks this device to read the world again, so ${label} was not created: Download world to catch up.`,
                                 10000
                             );
                         }

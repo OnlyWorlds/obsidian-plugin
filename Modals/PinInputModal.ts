@@ -48,7 +48,7 @@ export class PinInputModal extends Modal {
                         if (errorEl) errorEl.remove();
                         
                         const error = contentEl.createEl('div', { 
-                            text: 'Please enter a valid 4-digit PIN (1000-9999)', 
+                            text: 'Enter a 4-digit PIN (1000 to 9999)', 
                             cls: 'pin-error' 
                         });
                         error.style.color = 'var(--text-error)';

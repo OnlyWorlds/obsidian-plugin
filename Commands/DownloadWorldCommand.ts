@@ -51,7 +51,7 @@ export class DownloadWorldCommand {
             if (data.apiKey.trim().length > 0) {
                 await this.downloadWithKey(data.apiKey, data.pin, overwrite);
             } else {
-                new Notice('Please enter a world API key.');
+                new Notice('API key is required.');
             }
         }, this.accountChoice()).open();
     }
@@ -292,7 +292,7 @@ export class DownloadWorldCommand {
                         if (error.status === 401 || error.status === 403) {
                             new Notice('Download failed: Invalid PIN or API key.');
                         } else if (error.status === 429) {
-                            new Notice('Download failed: Rate limit exceeded. Please try again later.');
+                            new Notice('Download failed: rate limit exceeded. Try again later.');
                         } else {
                             new Notice(`Download failed: ${error.message}`, 10000);
                         }

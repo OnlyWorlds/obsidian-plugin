@@ -56,7 +56,7 @@ test("★ auto-sync saves a new name, keeps the note's file name, and says Save 
 	assert.equal(s.sent[0]?.name, "Vallaki Town");
 	assert.deepEqual(s.renames(), []);
 	assert.ok(
-		r.notices.some((n) => /The note keeps its old name; Save Element renames it\./.test(n)),
+		r.notices.some((n) => /The note keeps its old name; Save element renames it\./.test(n)),
 		r.notices.join(" | ")
 	);
 });

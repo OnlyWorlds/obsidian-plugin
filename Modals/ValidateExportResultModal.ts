@@ -51,10 +51,15 @@ export class ValidateExportResultModal extends Modal {
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });
     
         if (this.errorCount > 0) {
-            contentEl.createEl('p', { text: `Please correct these issues to allow upload of ${this.worldName}.` });
+            contentEl.createEl('p', { text: `Fix these issues before uploading ${this.worldName}.` });
          } else {
             contentEl.createEl('p', { text: `No issues detected. ${this.worldName} is ready for upload.` });
-            contentEl.createEl('p', { text: `!! This will overwrite the world stored on onlyworlds.com!!` });
+            // The warning's weight is its styling (the same warning edge the update-format modal uses), not its punctuation.
+            const warn = contentEl.createDiv();
+            warn.style.borderLeft = '3px solid var(--text-warning)';
+            warn.style.padding = '8px 12px';
+            warn.style.margin = '12px 0';
+            warn.createEl('strong', { text: 'This will overwrite the world stored on onlyworlds.com.' });
         }
     
         const errorKeys = Object.keys(this.errors) as (keyof typeof this.errors)[];
@@ -79,14 +84,14 @@ export class ValidateExportResultModal extends Modal {
         buttonContainer.style.marginTop = '20px';
         
         // Cancel Button (always shown)
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
         });
         
         // Export Button (only shown if validation passed)
         if (this.errorCount === 0) {
-            const exportButton = buttonContainer.createEl('button', { text: 'UPLOAD' });
+            const exportButton = buttonContainer.createEl('button', { text: 'Upload' });
             exportButton.style.marginLeft = '8px';
             exportButton.addEventListener('click', () => {
                 this.exportCallback?.();
@@ -106,7 +111,8 @@ export class ValidateExportResultModal extends Modal {
     
 
     formatTitle(key: string): string {
-        return key.replace(/([A-Z])/g, ' $1').trim().replace(/\b\w/g, char => char.toUpperCase());
+        const words = key.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+        return words.charAt(0).toUpperCase() + words.slice(1);
     }
 
     onClose() {

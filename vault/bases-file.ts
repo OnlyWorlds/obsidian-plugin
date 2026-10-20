@@ -43,7 +43,7 @@ export const MAX_TYPE_COLUMNS = 8;
 
 const FORMAT_VERSION = 1;
 const MARKER_TEXT =
-	"# OnlyWorlds Builder wrote this file. Download World rewrites it; change anything and the plugin leaves it alone.";
+	"# OnlyWorlds Builder wrote this file. Download world rewrites it; change anything and the plugin leaves it alone.";
 const MARKER_RE = /^# OnlyWorlds Builder wrote this file\..* owb-bases:(\d+):([0-9a-f]{8})\s*$/;
 
 /** Base keys every table opens with, never repeated among a type's own fields. */

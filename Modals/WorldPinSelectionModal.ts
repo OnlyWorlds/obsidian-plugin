@@ -18,7 +18,7 @@ export class WorldPinSelectionModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Select World and Enter PIN' });
+        contentEl.createEl('h3', { text: 'Select world and enter PIN' });
         contentEl.addClass('pin-selection-modal');
 
         // Add description text
@@ -83,13 +83,13 @@ export class WorldPinSelectionModal extends Modal {
         buttonContainer.style.marginTop = '20px';
         
         // Cancel Button
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
         });
         
         // Export Button
-        const exportButton = buttonContainer.createEl('button', { text: 'VALIDATE' });
+        const exportButton = buttonContainer.createEl('button', { text: 'Validate' });
         exportButton.style.marginLeft = '8px';
         exportButton.addEventListener('click', () => {
             this.validateAndSubmit(input.value, dropdown.getValue());
@@ -109,7 +109,7 @@ export class WorldPinSelectionModal extends Modal {
     validateAndSubmit(pinValue: string, worldFolder: string) {
         const pin = parseInt(pinValue, 10);
         if (isNaN(pin) || pin < 1000 || pin > 9999) {
-            new Notice('Please enter a valid 4-digit PIN');
+            new Notice('Enter a 4-digit PIN (1000 to 9999)');
             return;
         }
         this.close();

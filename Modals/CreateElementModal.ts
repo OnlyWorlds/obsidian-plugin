@@ -22,7 +22,7 @@ export class CreateElementModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Create New Element' });
+        contentEl.createEl('h3', { text: 'Create new element' });
         contentEl.addClass('create-element-modal');
 
         // World Selection Section
@@ -80,7 +80,7 @@ export class CreateElementModal extends Modal {
         }
 
         // Element Name Section
-        const nameLabel = contentEl.createEl('label', { text: 'Element Name' });
+        const nameLabel = contentEl.createEl('label', { text: 'Element name' });
         nameLabel.style.display = 'block';
         nameLabel.style.marginBottom = '4px';
         nameLabel.style.fontWeight = 'bold';
@@ -100,13 +100,13 @@ export class CreateElementModal extends Modal {
         buttonContainer.style.marginTop = '20px';
         
         // Cancel Button
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
         });
         
         // Create Button
-        const createButton = buttonContainer.createEl('button', { text: 'CREATE' });
+        const createButton = buttonContainer.createEl('button', { text: 'Create' });
         createButton.style.marginLeft = '8px';
         createButton.addEventListener('click', () => {
             const selectedCategory = this.validateCategory(categoryInput.value, categories, dataListEl);
@@ -162,17 +162,17 @@ export class CreateElementModal extends Modal {
 
     validateAndSubmit(worldName: string, category: string, elementName: string) {
         if (!elementName.trim()) {
-            new Notice('Please enter an element name');
+            new Notice('Element name is required');
             return;
         }
 
         if (!worldName) {
-            new Notice('Please select a world');
+            new Notice('Select a world');
             return;
         }
 
         if (!category) {
-            new Notice('Please select a category');
+            new Notice('Select a category');
             return;
         }
 
@@ -196,7 +196,7 @@ export class CreateElementModal extends Modal {
             return matchedOption.value;
         }
 
-        new Notice('No matching category found. Please select a valid category.');
+        new Notice('No matching category found. Select a valid category.');
         return null;
     }
 

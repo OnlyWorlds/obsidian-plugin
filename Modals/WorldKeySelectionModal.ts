@@ -13,7 +13,7 @@ export class WorldKeySelectionModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Select World and Enter Key' });
+        contentEl.createEl('h3', { text: 'Select world and enter key' });
         contentEl.addClass('key-selection-modal');
 
         const worldFolders = await this.getWorldFolders();

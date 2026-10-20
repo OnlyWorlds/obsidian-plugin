@@ -15,7 +15,7 @@ export class WorldCopyModal extends Modal {
         contentEl.createEl('p', {
             text: `Copied ${this.worldName} to clipboard and to World Data file`
         });
-        contentEl.createEl('button', { text: 'OK', type: 'button' }, (button) => {
+        contentEl.createEl('button', { text: 'Close', type: 'button' }, (button) => {
             button.onclick = () => this.close();
         });
         applyMobileModal(this);

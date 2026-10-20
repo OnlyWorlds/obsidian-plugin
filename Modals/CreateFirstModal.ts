@@ -76,12 +76,12 @@ export const FEED_FAILED_LINE =
 /** What the plugin says when the server is behind this device's last Download (Kael's third read, 4). */
 export const REWOUND_LINE =
     'onlyworlds.com was restored from a backup since this device last downloaded the world, so the plugin ' +
-    'cannot tell a note never uploaded from one deleted there. Download World first.';
+    'cannot tell a note never uploaded from one deleted there. Download world first.';
 
 /** What the plugin says when onlyworlds.com asks this device to re-read the world (keel's 409 resync_required). */
 export const RESYNC_LINE =
     'onlyworlds.com asks this device to read the world again, so the plugin cannot tell a note never uploaded ' +
-    'from one deleted there: Download World to catch up.';
+    'from one deleted there: Download world to catch up.';
 
 /**
  * Why the plugin cannot tell: a failed feed read, a restored server, or keel's

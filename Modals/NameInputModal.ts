@@ -34,7 +34,7 @@ export class NameInputModal extends Modal {
         });
 
         // Create the OK button
-        const button = this.contentEl.createEl('button', { text: 'CREATE' });
+        const button = this.contentEl.createEl('button', { text: 'Create' });
         button.style.marginLeft = '10px';  // Add margin for spacing
 
         button.addEventListener('click', () => {

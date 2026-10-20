@@ -12,14 +12,14 @@ export  class WorldKeyModal extends Modal {
 
     onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Enter World Key' });
+        contentEl.createEl('h3', { text: 'Enter world key' });
 
         const input = contentEl.createEl('input', {
             type: 'text',
             placeholder: 'ow_ key or 10-digit key',
         });
 
-        const button = contentEl.createEl('button', { text: 'IMPORT' });
+        const button = contentEl.createEl('button', { text: 'Import' });
         button.style.marginLeft = '8px';
         button.addEventListener('click', () => {
             if (input.value.trim() !== '') {

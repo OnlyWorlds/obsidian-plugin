@@ -29,9 +29,9 @@ export class JoinLinkModal extends Modal {
             }
         });
         const row = contentEl.createDiv({ cls: 'ow-join-buttons' });
-        const cancel = row.createEl('button', { text: 'CANCEL' });
+        const cancel = row.createEl('button', { text: 'Cancel' });
         cancel.addEventListener('click', () => this.close());
-        const join = row.createEl('button', { text: 'NEXT' });
+        const join = row.createEl('button', { text: 'Next' });
         join.addEventListener('click', submit);
         if (!suppressAutofocus()) input.focus();
         applyMobileModal(this);
@@ -56,9 +56,9 @@ export class JoinConfirmModal extends Modal {
         contentEl.createEl('p', { text: this.words });
         if (this.detail) contentEl.createEl('p', { text: this.detail, cls: 'ow-account-hint' });
         const row = contentEl.createDiv({ cls: 'ow-join-buttons' });
-        const cancel = row.createEl('button', { text: 'CANCEL' });
+        const cancel = row.createEl('button', { text: 'Cancel' });
         cancel.addEventListener('click', () => this.answer(false));
-        const join = row.createEl('button', { text: 'JOIN' });
+        const join = row.createEl('button', { text: 'Join' });
         join.addEventListener('click', () => this.answer(true));
         applyMobileModal(this);
     }

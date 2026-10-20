@@ -105,7 +105,7 @@ export class ValidateWorldCommand {
         const nameMatch = content.match(/Name:\s*(\S+)/);
         if (!idMatch || !nameMatch) {
             this.errorCount++;
-            this.errors.worldFileErrors.push(`World file format error detected: please check Id and Name fields each have values`);
+            this.errors.worldFileErrors.push(`World file format error: Id and Name must each have a value`);
             return false;
         }
         return true;

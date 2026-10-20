@@ -13,7 +13,7 @@ export class WorldSelectionModal extends Modal {
 
     async onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Select World' });
+        contentEl.createEl('h3', { text: 'Select world' });
         contentEl.addClass('world-selection-modal');
 
         // Add description text
@@ -48,13 +48,13 @@ export class WorldSelectionModal extends Modal {
         buttonContainer.style.marginTop = '20px';
         
         // Cancel Button
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
         });
         
         // Validate Button
-        const validateButton = buttonContainer.createEl('button', { text: 'VALIDATE' });
+        const validateButton = buttonContainer.createEl('button', { text: 'Validate' });
         validateButton.style.marginLeft = '8px';
         validateButton.addEventListener('click', () => {
             this.close();

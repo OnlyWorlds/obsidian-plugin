@@ -51,9 +51,9 @@ export class ValidateCopyResultModal extends Modal {
         contentEl.createEl('p', { text: `Errors found: ${this.errorCount}` });
     
         if (this.errorCount > 0) {
-            contentEl.createEl('p', { text: `Please correct these issues to allow copy of ${this.worldName}.` });
+            contentEl.createEl('p', { text: `Fix these issues before copying ${this.worldName}.` });
          } else {
-            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} can be copied to clipboard!` });
+            contentEl.createEl('p', { text: `No issues detected. ${this.worldName} can be copied to clipboard.` });
         }
     
         const errorKeys = Object.keys(this.errors) as (keyof typeof this.errors)[];
@@ -78,14 +78,14 @@ export class ValidateCopyResultModal extends Modal {
         buttonContainer.style.marginTop = '20px';
         
         // Cancel Button (always shown)
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
         });
         
         // Copy Button (only shown if validation passed)
         if (this.errorCount === 0) {
-            const copyButton = buttonContainer.createEl('button', { text: 'COPY' });
+            const copyButton = buttonContainer.createEl('button', { text: 'Copy' });
             copyButton.style.marginLeft = '8px';
             copyButton.addEventListener('click', () => {
                 this.exportCallback?.();
@@ -105,7 +105,8 @@ export class ValidateCopyResultModal extends Modal {
     
 
     formatTitle(key: string): string {
-        return key.replace(/([A-Z])/g, ' $1').trim().replace(/\b\w/g, char => char.toUpperCase());
+        const words = key.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+        return words.charAt(0).toUpperCase() + words.slice(1);
     }
 
     onClose() {

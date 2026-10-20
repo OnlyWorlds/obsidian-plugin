@@ -60,7 +60,7 @@ export class ApiResponseModal extends Modal {
             
             if (this.details.api_key) {
                 const apiKeyRow = detailsContainer.createEl('div');
-                apiKeyRow.createEl('strong', { text: 'API Key: ' });
+                apiKeyRow.createEl('strong', { text: 'API key: ' });
                 apiKeyRow.createSpan({ text: this.details.api_key });
                 
                 // Add a note about the API key
@@ -68,7 +68,7 @@ export class ApiResponseModal extends Modal {
                 note.style.fontSize = '0.9em';
                 note.style.fontStyle = 'italic';
                 note.style.marginTop = '5px';
-                note.textContent = 'This API key is required for accessing your world. Please save it somewhere safe.';
+                note.textContent = 'This API key is required to access your world. Save it somewhere safe.';
             }
         } else if (this.success && this.details && !this.showDetails && this.details.api_key) {
             // If details are hidden for a success message, don't show any additional notes

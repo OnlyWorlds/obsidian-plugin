@@ -11,7 +11,7 @@ export class WorldNameModal extends Modal {
 
     onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Enter World Name' });
+        contentEl.createEl('h3', { text: 'Enter world name' });
 
         const input = contentEl.createEl('input', {
             type: 'text',
@@ -25,7 +25,7 @@ export class WorldNameModal extends Modal {
             }
         });
 
-        const button = contentEl.createEl('button', { text: 'CREATE' });
+        const button = contentEl.createEl('button', { text: 'Create' });
         button.style.marginLeft = '8px';
         button.addEventListener('click', () => {
             if (input.value.trim() !== '') {

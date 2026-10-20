@@ -161,14 +161,14 @@ export default class OnlyWorldsPlugin extends Plugin {
              // Register a command to convert nodes and send as world data
         this.addCommand({
             id: 'export-world',
-            name: 'Upload World',
+            name: 'Upload world',
             callback: () => sendWorldCommand.execute(),
         });
 
              // Pull an existing API world into the vault (counterpart to Upload)
         this.addCommand({
             id: 'download-world',
-            name: 'Download World',
+            name: 'Download world',
             callback: () => downloadWorldCommand.execute(),
         });
 
@@ -182,14 +182,14 @@ export default class OnlyWorldsPlugin extends Plugin {
              // Register a command to create a new world and OW file structures
         this.addCommand({
             id: 'create-world',
-            name: 'Create World',
+            name: 'Create world',
             callback: () => createWorldCommand.execute(),
         });
       
 
         this.addCommand({
           id: 'create-element',
-          name: 'Create Element',
+          name: 'Create element',
           callback: () => {
               let createElementModal = new CreateElementModal(
                   this.app, 
@@ -205,7 +205,7 @@ export default class OnlyWorldsPlugin extends Plugin {
   
       this.addCommand({
         id: 'validate-world',
-        name: 'Validate World',
+        name: 'Validate world',
         callback: () => validateWorldCommand.execute(),
     });
       // A table and cards per element type in Obsidian's core Bases (OW Infra #188)
@@ -222,23 +222,23 @@ export default class OnlyWorldsPlugin extends Plugin {
     });
     this.addCommand({
       id: 'paste-world',
-      name: 'Paste World from Clipboard',
+      name: 'Paste world from clipboard',
       callback: () => pasteWorldCommand.execute(),
   });
       this.addCommand({
         id: 'copy-world',
-        name: 'Copy World to Clipboard',
+        name: 'Copy world to clipboard',
         callback: () => copyWorldCommand.execute(),
     });
       this.addCommand({
         id: 'rename-world',
-        name: 'Rename World',
+        name: 'Rename world',
         callback: () => renameWorldCommand.execute(),
     });
    
     this.addCommand({
       id: 'save-element',
-      name: 'Save Element',
+      name: 'Save element',
       // No default hotkey — Obsidian guidelines recommend letting users bind their own
       // to avoid conflicts. Suggest Ctrl/Cmd+Shift+S in the README/docs.
       // manual: only this command creates link targets first (OW Infra #166 row 8).
@@ -248,7 +248,7 @@ export default class OnlyWorldsPlugin extends Plugin {
     const deleteElementCommand = new DeleteElementCommand(this.app, this);
     this.addCommand({
       id: 'delete-element',
-      name: 'Delete Element (server + note)',
+      name: 'Delete element (server + note)',
       callback: () => deleteElementCommand.execute(),
   });
 
@@ -265,7 +265,7 @@ export default class OnlyWorldsPlugin extends Plugin {
     const updateWorldFormatCommand = new UpdateWorldFormatCommand(this.app, (p) => this.autoSync?.markSelfWrite(p));
     this.addCommand({
       id: 'update-world-format',
-      name: 'Update World to Latest Format',
+      name: 'Update world to latest format',
       callback: async () => {
           const worldName = await this.worldService.getActiveWorldName();
           if (!worldName) { new Notice('No world found.'); return; }
@@ -303,7 +303,7 @@ export default class OnlyWorldsPlugin extends Plugin {
 
   this.addCommand({
       id: 'link-elements',
-      name: 'Link Elements',
+      name: 'Link elements',
       callback: () => { void this.noteLinker.linkActiveNote(); }
   });
 
@@ -311,7 +311,7 @@ export default class OnlyWorldsPlugin extends Plugin {
   // fields a note carries is editable — both directions, plus custom fields.
   this.addCommand({
       id: 'manage-fields',
-      name: 'Manage Fields',
+      name: 'Manage fields',
       callback: () => {
           void new ManageFieldsCommand(this.app, (p) => this.autoSync?.markSelfWrite(p)).execute();
       }
@@ -319,7 +319,7 @@ export default class OnlyWorldsPlugin extends Plugin {
 
   this.addCommand({
       id: 'add-custom-field',
-      name: 'Add Custom Field',
+      name: 'Add custom field',
       callback: () => {
           void new ManageFieldsCommand(this.app, (p) => this.autoSync?.markSelfWrite(p)).addCustomField();
       }

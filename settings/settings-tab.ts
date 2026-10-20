@@ -83,7 +83,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Default new element category")
-			.setDesc("Pre-selected category in the Create Element command.")
+			.setDesc("Pre-selected category in the Create element command.")
 			.addDropdown((dd) => {
 				const cats = [
 					"Character",
@@ -129,7 +129,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Write a Bases file per world")
 			.setDesc(
-				"Download World and Create World write <world>.base beside World.md: a table and a card view " +
+				"Download world and Create world write <world>.base beside World.md: a table and a card view " +
 					"for each element type, in Obsidian's Bases (Obsidian 1.9 or later). Download never overwrites " +
 					"a file you have changed. The Write Bases file command writes one any time, and rebuilds a " +
 					"changed one, keeping your version beside it."
@@ -160,7 +160,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 			.setName("Auto-sync to OnlyWorlds")
 			.setDesc(
 				"When on, element notes are pushed to onlyworlds.com a short time after you stop editing. " +
-					"When off, run the Save Element command to push manually (give it a hotkey in Settings, Hotkeys)."
+					"When off, run the Save element command to push manually (give it a hotkey in Settings, Hotkeys)."
 			)
 			.addToggle((tog) =>
 				tog.setValue(this.plugin.settings.autoSync).onChange(async (value) => {
@@ -199,7 +199,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Rename note when the element's name changes")
 			.setDesc(
-				"After Save Element changes an element's name, rename its note to match. " +
+				"After Save element changes an element's name, rename its note to match. " +
 					"Auto-sync never renames. Links to it update as your Files and links setting says."
 			)
 			.addToggle((tog) =>
@@ -221,7 +221,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName(signedInLabel(settings.accountUsername || "your account"))
 				.setDesc(
-					"Download World offers your onlyworlds.com worlds, and Join a world with a link joins with this account. " +
+					"Download world offers your onlyworlds.com worlds, and Join a world with a link joins with this account. " +
 						"Signing out keeps the worlds in this vault and their keys. " +
 						TOKEN_STORAGE_NOTE
 				)

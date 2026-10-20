@@ -11,7 +11,7 @@ export class WorldPasteModal extends Modal {
 
     onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Create World From World Data' });
+        contentEl.createEl('h3', { text: 'Create world from world data' });
         
         // Add subtext under the header
         const subtext = contentEl.createEl('p', { text: 'Paste a JSON world data object here. It will additively overwrite any existing world that has the same API key. ' });

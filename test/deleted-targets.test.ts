@@ -339,7 +339,7 @@ const VALLAKI_NOTE = { "Location/Vallaki.md": note(VALLAKI, "Vallaki") };
 test("★ auto-sync on a deleted element's own note refuses: nothing created, the notice says Save Element can create it again", async () => {
 	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", deleted: [VALLAKI], manual: false });
 	assert.equal(r.result.ok, false);
-	assert.match((r.result as { reason: string }).reason, /Vallaki was deleted on onlyworlds\.com; Save Element can create it again/);
+	assert.match((r.result as { reason: string }).reason, /Vallaki was deleted on onlyworlds\.com; Save element can create it again/);
 	assert.ok(!r.calls.some((c) => c.startsWith("create") || c === "bulk"), r.calls.join(" | "));
 });
 
@@ -372,7 +372,7 @@ test("★ 410 on the save's GET, auto-sync: refused with the deleted message, no
 	// The feed says nothing was deleted: only the 410 can tell.
 	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", cursor: "c5", feed: [], gone: [VALLAKI], manual: false });
 	assert.equal(r.result.ok, false);
-	assert.match((r.result as { reason: string }).reason, /Vallaki was deleted on onlyworlds\.com; Save Element can create it again/);
+	assert.match((r.result as { reason: string }).reason, /Vallaki was deleted on onlyworlds\.com; Save element can create it again/);
 	assert.deepEqual(feedReads(r.calls), [], "a 410 read the feed");
 	assert.ok(!r.calls.some((c) => c.startsWith("create") || c === "bulk"), r.calls.join(" | "));
 });
@@ -467,7 +467,7 @@ test("★ stored cursor, feed read fails, manual Save: asks with the failed-read
 test("★ no stored cursor, the feed reports the note's own id deleted: auto-sync refuses", async () => {
 	const r = await saveNote({ ...OWN, feed: [del(VALLAKI, 3)], manual: false });
 	assert.equal(r.result.ok, false);
-	assert.match((r.result as { reason: string }).reason, /was deleted on onlyworlds\.com; Save Element can create it again/);
+	assert.match((r.result as { reason: string }).reason, /was deleted on onlyworlds\.com; Save element can create it again/);
 	assert.ok(!r.calls.some((c) => c.startsWith("create")), r.calls.join(" | "));
 	assert.deepEqual(r.calls.filter((c) => c.startsWith("changes")), ["changes epoch"]);
 });
@@ -556,14 +556,14 @@ test("★ a feed answering 409 resync_required: auto-sync refuses and says Downl
 	const r = await saveNote({ ...OWN, cursor: "c5", feedResync: true, manual: false });
 	assert.equal(r.result.ok, false);
 	const reason = (r.result as { reason: string }).reason;
-	assert.match(reason, /Download World to catch up/);
+	assert.match(reason, /Download world to catch up/);
 	assert.doesNotMatch(reason, /tries again/);
 	assert.ok(!r.calls.some((c) => c.startsWith("create")));
 });
 
 test("the manual Save asks with the catch-up line", async () => {
 	const r = await saveNote({ ...OWN, cursor: "c5", feedResync: true, answer: false });
-	assert.ok(r.dialogs[0]?.lines?.some((l) => /Download World to catch up/.test(l)), JSON.stringify(r.dialogs[0]?.lines));
+	assert.ok(r.dialogs[0]?.lines?.some((l) => /Download world to catch up/.test(l)), JSON.stringify(r.dialogs[0]?.lines));
 });
 
 // --- Kael's third read, 4b: a stored cursor past the server's head ----------
@@ -571,7 +571,7 @@ test("the manual Save asks with the catch-up line", async () => {
 test("★ a feed whose head is below the stored head (a server restore) cannot tell: auto-sync refuses and points to Download World", async () => {
 	const r = await saveNote({ ...OWN, cursor: "c5", feed: [], feedHead: 3, manual: false });
 	assert.equal(r.result.ok, false);
-	assert.match((r.result as { reason: string }).reason, /restored.*Download World/);
+	assert.match((r.result as { reason: string }).reason, /restored.*Download world/);
 	assert.ok(!r.calls.some((c) => c.startsWith("create")));
 });
 

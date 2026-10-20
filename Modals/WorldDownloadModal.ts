@@ -36,7 +36,7 @@ export class WorldDownloadModal extends Modal {
 
     onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Download World from OnlyWorlds' });
+        contentEl.createEl('h3', { text: 'Download world from OnlyWorlds' });
         contentEl.addClass('world-download-modal');
 
         // Signed in: the account's worlds first; the key-and-PIN form below is unchanged.
@@ -71,7 +71,7 @@ export class WorldDownloadModal extends Modal {
         description.style.marginBottom = '15px';
 
         // API Key Input Section
-        const keyLabel = contentEl.createEl('label', { text: 'API Key' });
+        const keyLabel = contentEl.createEl('label', { text: 'API key' });
         keyLabel.style.display = 'block';
         keyLabel.style.marginBottom = '4px';
         keyLabel.style.fontWeight = 'bold';
@@ -141,14 +141,14 @@ export class WorldDownloadModal extends Modal {
         buttonContainer.style.marginTop = '20px';
         
         // Cancel Button
-        const cancelButton = buttonContainer.createEl('button', { text: 'CANCEL' });
+        const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
         cancelButton.addEventListener('click', () => {
             this.close();
             this.onSubmit(null);
         });
         
         // Import Button
-        const importButton = buttonContainer.createEl('button', { text: 'DOWNLOAD' });
+        const importButton = buttonContainer.createEl('button', { text: 'Download' });
         importButton.style.marginLeft = '8px';
         importButton.addEventListener('click', () => {
             this.validateAndSubmit(keyInput.value, pinInput.value);
@@ -178,7 +178,7 @@ export class WorldDownloadModal extends Modal {
         // Validate API key
         const apiKey = apiKeyValue.trim();
         if (!apiKey) {
-            new Notice('Please enter your API key');
+            new Notice('API key is required');
             return;
         }
 
@@ -192,7 +192,7 @@ export class WorldDownloadModal extends Modal {
         // Otherwise a valid 4-digit PIN is required (write keys / private worlds).
         const pinTrimmed = pinValue.trim();
         if (!/^\d{4}$/.test(pinTrimmed)) {
-            new Notice('Please enter a valid 4-digit PIN');
+            new Notice('Enter a 4-digit PIN');
             return;
         }
 
