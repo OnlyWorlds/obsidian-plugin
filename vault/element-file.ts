@@ -7,6 +7,7 @@ import {
 	bodyToFieldValues,
 	parseElementBody,
 	headingToFieldKey,
+	readsAsCustomField,
 	isExtensionKey,
 	isUserCustomKey,
 	toolShadowHeadings,
@@ -252,7 +253,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			const toolShadows = toolShadowHeadings(fm);
 			const unknownHeadings = (parsedBody ?? parseElementBody(body, category)).unknown.map((u) => u.heading.trim());
 			const customKeys = unknownHeadings
-				.filter((h) => /^[A-Za-z][A-Za-z0-9 _-]{0,40}$/.test(h) && h.split(/\s+/).length <= 3)
+				.filter((h) => readsAsCustomField(h))
 				.map((h) => `x_${headingToFieldKey(h)}`)
 				.filter((k) => !toolShadows.has(k) || k in fm);
 			const shadowKeys = [...toolShadows].filter((k) => !(k in fm));

@@ -780,6 +780,61 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 }
 
 /**
+ * True when an unknown `###` heading reads as a custom TEXT field (`### Looks`
+ * -> `x_looks`) rather than as prose structure: a clean token of at most three
+ * words, no punctuation. readElement's rule, kept in one place so the hidden
+ * stub (sync/hidden-on-server.ts) empties exactly the sections a save sends.
+ */
+export function readsAsCustomField(heading: string): boolean {
+	const h = heading.trim();
+	return /^[A-Za-z][A-Za-z0-9 _-]{0,40}$/.test(h) && h.split(/\s+/).length <= 3;
+}
+
+/** One stretch of a note body: the text before the first `###` heading (heading null), or one `###` section from its heading line to the next. */
+export interface BodySpan {
+	/** The section's heading text, or null for the text before the first heading. */
+	heading: string | null;
+	/** Offsets into the body: the heading line's start (or 0) up to the next heading line's start (or the end). */
+	start: number;
+	end: number;
+	/** The heading line's own line ending ("\n" for the text before the first heading). */
+	eol: string;
+}
+
+/**
+ * The body cut at its `###` field headings by parseElementBody's own rule
+ * (only `###` is a boundary; a heading inside a code fence is not), as byte
+ * offsets, so a caller can keep any stretch byte for byte. The first span is
+ * always the text before the first heading, possibly empty; a body with no
+ * heading is that one span.
+ */
+export function bodySpans(body: string): BodySpan[] {
+	const spans: BodySpan[] = [{ heading: null, start: 0, end: body.length, eol: "\n" }];
+	let fence: OpenFence | null = null;
+	let pos = 0;
+	for (;;) {
+		const nl = body.indexOf("\n", pos);
+		const next = nl < 0 ? body.length : nl + 1;
+		let line = body.slice(pos, nl < 0 ? body.length : nl);
+		const cr = line.endsWith("\r");
+		if (cr) line = line.slice(0, -1);
+		if (fence) {
+			if (fenceCloses(line, fence)) fence = null;
+		} else {
+			fence = fenceOpens(line);
+			const m = fence ? null : SECTION_HEADING_LINE.exec(line);
+			if (m) {
+				spans[spans.length - 1].end = pos;
+				spans.push({ heading: m[1], start: pos, end: body.length, eol: cr ? "\r\n" : "\n" });
+			}
+		}
+		if (nl < 0) break;
+		pos = next;
+	}
+	return spans;
+}
+
+/**
  * Turn a parsed body into the field values to upload.
  *
  * ★ Never-drop (R2): unknown sections and any preamble are appended to the body
