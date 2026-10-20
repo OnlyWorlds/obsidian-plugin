@@ -339,11 +339,13 @@ export interface WriteElementOpts {
 	 */
 	idToName?: (id: string) => string | null;
 	/**
-	 * Text written below the element's fields, as it is: the person's writing a
-	 * hidden element's stub kept, when Download writes that note in full again
-	 * (OW Infra #426; Kael's read, h37 #8212). Part of the one write.
+	 * Text written above the first field section, as it is: the person's
+	 * writing a hidden element's stub kept, when Download writes that note in
+	 * full again, back where it came from, so a later save folds it into the
+	 * description as any loose prose (OW Infra #426; ruled after Kael's read,
+	 * h37 #8212). Part of the one write.
 	 */
-	keepBelow?: string;
+	keepAbove?: string;
 }
 
 export async function writeElement(
@@ -441,7 +443,10 @@ export async function writeElement(
 	for (const [k, v] of Object.entries(preserved)) {
 		if (!(k in merged)) merged[k] = v;
 	}
-	const newContent = joinNote(serializeFrontmatter(merged), `${bodyValue}\n${opts.keepBelow ?? ""}`);
+	const above = opts.keepAbove ?? "";
+	// The kept text, then one blank line before the first heading.
+	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";
+	const newContent = joinNote(serializeFrontmatter(merged), `${above}${gap}${bodyValue}\n`);
 	if (newContent !== content) {
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);

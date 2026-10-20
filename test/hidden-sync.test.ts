@@ -231,7 +231,7 @@ test("★ Upload World never sends a stub or a hidden id, and strips links to it
 
 // --- Kael's read of the branch (h37 #8212), ruled -----------------------------
 
-test("★ Download: an unhide carries the stub's kept writing into the new body, below the fields, byte for byte", async () => {
+test("★ Download: an unhide carries the stub's kept writing above the first field section, byte for byte", async () => {
 	const { app, vault, plugin } = await setup();
 	await download(app, plugin, [hidden(ZEL, 3)], 3);
 	const stubbed = noteOf(app, ZEL);
@@ -241,7 +241,7 @@ test("★ Download: an unhide carries the stub's kept writing into the new body,
 	assert.ok(after.includes("name: Zelraun") && after.includes("A knight of Barovia."), after);
 	assert.ok(!after.includes(HIDDEN_STUB_LINE), after);
 	assert.ok(after.includes("My table's notes on him.\n\nA line I wrote in the stub.\n"), after);
-	assert.ok(after.indexOf("A line I wrote") > after.indexOf("### Description"), "the kept writing is not below the fields");
+	assert.ok(after.indexOf("A line I wrote") < after.indexOf("### Description"), "the kept writing is not above the first field");
 });
 
 test("★ an upgraded install (a cursor, no knownOnServer) walks the feed from the start once to fill the list, and applies nothing else from it", async () => {

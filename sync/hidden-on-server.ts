@@ -172,7 +172,7 @@ export function isStubNote(content: string): boolean {
  * The person's writing a stub kept: its body without the stub line (and the
  * blank line after it), every other byte as it is; "" for a note that is no
  * stub, or a stub that kept nothing. An unhide's Download carries it into the
- * rewritten note, below the element's fields (Kael's read, h37 #8212).
+ * rewritten note, above its first field section (Kael's read, h37 #8212).
  */
 export function stubKeptText(content: string): string {
 	if (!isStubNote(content)) return "";

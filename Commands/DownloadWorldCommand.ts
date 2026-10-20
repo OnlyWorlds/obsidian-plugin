@@ -567,14 +567,14 @@ export class DownloadWorldCommand {
 
             if (overwrite || existingElementPath || !await fs.exists(notePath)) {
                 // A stub written in full again (an unhide, or back in view)
-                // keeps the person's writing it held, below the fields, byte
+                // keeps the person's writing it held, above the first field, byte
                 // for byte (Kael's read, h37 #8212).
-                let keepBelow = '';
+                let keepAbove = '';
                 if (existingElementPath) {
                     const current = this.app.vault.getAbstractFileByPath(notePath);
                     if (current instanceof TFile) {
                         try {
-                            keepBelow = stubKeptText(await this.app.vault.read(current));
+                            keepAbove = stubKeptText(await this.app.vault.read(current));
                         } catch { /* unreadable: written as any note */ }
                     }
                 }
@@ -600,7 +600,7 @@ export class DownloadWorldCommand {
                         // the user no way to see what else it could carry —
                         // exactly the "kinda useless" problem 3.2 exists to fix.
                         scaffoldEmptyFields: true,
-                        keepBelow,
+                        keepAbove,
                     }
                 );
             }
