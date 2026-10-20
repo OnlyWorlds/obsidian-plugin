@@ -85,10 +85,10 @@ export class CreateWorldCommand {
             // Signed in, a stand-in key: the create route's own key goes once the vault's has landed.
             await apiResponse.afterLanding?.();
 
-            new Notice('Successfully created world: ' + worldData.name);
+            new Notice('World created: ' + worldData.name);
         } catch (error) {
             console.error("Error during world creation:", error);
-            new Notice('Failed to create world: ' + (error instanceof Error ? error.message : 'Unknown error'));
+            new Notice('Could not create the world: ' + (error instanceof Error ? error.message : 'Unknown error'));
         }
     }
 

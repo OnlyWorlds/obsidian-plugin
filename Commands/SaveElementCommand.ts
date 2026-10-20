@@ -512,7 +512,7 @@ export class SaveElementCommand {
                             ...strippedFirsts(plan),
                             { type, id: elementUuid, name: String(label), payload: sendPayload },
                         ]);
-                        if (together.refused) return this.fail(`Failed to create ${category}: ${together.refused}`, 12000);
+                        if (together.refused) return this.fail(`Could not create ${category}: ${together.refused}`, 12000);
                         if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                         const extra = createFirstNotes(together.replaced, plan);
                         new Notice(`${createdFirstMessage(firsts)} ${category} created.${extra}`, extra ? 15000 : 8000);
@@ -525,12 +525,12 @@ export class SaveElementCommand {
                 } catch (createError) {
                     console.error('Error during v2 create fallback:', createError);
                     const msg = createError instanceof Error ? createError.message : 'Unknown error';
-                    return this.fail(`Failed to create ${category}: ${msg}${missingLinkHint(createError, manual)}`, 10000);
+                    return this.fail(`Could not create ${category}: ${msg}${missingLinkHint(createError, manual)}`, 10000);
                 }
             }
             console.error('Error during v2 GET (read-before-PATCH):', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
-            return this.fail(`Failed to save ${category}: ${msg}`, 10000);
+            return this.fail(`Could not save ${category}: ${msg}`, 10000);
         }
 
         // A value that differs from the server's only by a backslash the
@@ -601,7 +601,7 @@ export class SaveElementCommand {
         } catch (error) {
             console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
-            return this.fail(`Failed to save ${category}: ${msg}${missingLinkHint(error, manual)}`, 10000);
+            return this.fail(`Could not save ${category}: ${msg}${missingLinkHint(error, manual)}`, 10000);
         }
     }
 

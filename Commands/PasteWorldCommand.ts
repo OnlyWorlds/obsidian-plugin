@@ -66,9 +66,9 @@ export class PasteWorldCommand {
             await this.worldService.updateAllCategoryFolderNames(targetWorldName);
 
             if (existingWorldName) {
-                new Notice(`Successfully updated existing world: ${targetWorldName}`);
+                new Notice(`Updated existing world: ${targetWorldName}`);
             } else {
-                new Notice(`Successfully created new world: ${targetWorldName}`);
+                new Notice(`Created new world: ${targetWorldName}`);
             }
         });
         modal.open();

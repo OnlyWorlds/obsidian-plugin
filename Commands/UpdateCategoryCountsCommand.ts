@@ -19,7 +19,7 @@ export class UpdateCategoryCountsCommand {
             new Notice('Category folder counts updated.');
         } catch (error) {
             console.error('Error updating category counts:', error);
-            new Notice('Failed to update category folder counts');
+            new Notice('Could not update category folder counts');
         }
     }
 }

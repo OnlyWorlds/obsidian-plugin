@@ -430,7 +430,7 @@ export class ExportWorldCommand {
         } catch (error) {
             console.error('Error reading World file:', error);
             const msg = error instanceof Error ? error.message : String(error);
-            new Notice('Failed to read World file: ' + msg);
+            new Notice('Could not read the World file: ' + msg);
             return {}; // Stop further processing if the World file cannot be read
         }
     

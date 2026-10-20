@@ -43,7 +43,7 @@ export class CreateElementCommand {
             }
         } catch (error) {
             console.error(`Failed to create ${category} note`, error);
-            new Notice(`Failed to create ${category}: ${error instanceof Error ? error.message : 'unknown error'}`);
+            new Notice(`Could not create ${category}: ${error instanceof Error ? error.message : 'unknown error'}`);
         }
     }
 

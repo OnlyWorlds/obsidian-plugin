@@ -35,7 +35,7 @@ export class RenameWorldCommand {
                 await this.pushRenameToApi(newWorldName, newFolder);
             } catch (error) {
                 console.error('Error in renaming process:', error);
-                new Notice('Failed to complete the renaming process.');
+                new Notice('Could not finish renaming the world.');
             }
         });
         // A read key (ow_r_) can never rename the world on onlyworlds.com:
@@ -103,7 +103,7 @@ export class RenameWorldCommand {
             const worldFileContent = await this.app.vault.read(worldFile);
             const updatedContent = this.updateWorldNameInContent(worldFileContent, newWorldName);
             await this.app.vault.modify(worldFile, updatedContent);
-            new Notice('World file name updated successfully.');
+            new Notice('World file name updated.');
         } else {
             new Notice('World file does not exist.');
         }
@@ -128,7 +128,7 @@ export class RenameWorldCommand {
         if (oldFolder instanceof TFolder) {
             // Correctly using renameFolder through the FileManager
             await this.app.fileManager.renameFile(oldFolder, newPath);
-            new Notice(`World folder renamed successfully from '${oldWorldName}' to '${newWorldName}'.`);
+            new Notice(`World folder renamed from '${oldWorldName}' to '${newWorldName}'.`);
             // The once-only Notice list names world folders: the old name no
             // longer names this world, or any (round C, 12).
             const noticed = this.plugin?.settings.basesKeptNoticed ?? [];
@@ -164,7 +164,7 @@ export class RenameWorldCommand {
             const content = await this.app.vault.read(settingsFile);
             const updatedContent = this.updateWorldNameInSettings(content, oldWorldName, newWorldName);
             await this.app.vault.modify(settingsFile, updatedContent);
-            new Notice('Settings file updated successfully.');
+            new Notice('Settings file updated.');
         } else {
             new Notice('Settings file does not exist.');
         }

@@ -430,7 +430,7 @@ export async function writeElement(
 		markSelfWrite?.(filePath);
 		file = await app.vault.create(filePath, `---\nid: ${elementId}\n---\n\n`);
 	}
-	if (!(file instanceof TFile)) throw new Error(`Failed to materialize element file at ${filePath}`);
+	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
 	// R1: render link ids as [[Name]] wikilinks. Prefer a caller-supplied map
 	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning

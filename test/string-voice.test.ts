@@ -37,7 +37,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 	return out;
 }
 
-interface Lit { file: string; line: number; text: string }
+interface Lit { file: string; line: number; text: string; code: string }
 
 const LITERAL = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\\n]|\\.)*)`/g;
 
@@ -51,7 +51,7 @@ function literals(files: string[]): Lit[] {
 			let m: RegExpExecArray | null;
 			while ((m = LITERAL.exec(l))) {
 				const text = m[1] ?? m[2] ?? m[3] ?? "";
-				out.push({ file: path.relative(ROOT, file).replace(/\\/g, "/"), line: i + 1, text });
+				out.push({ file: path.relative(ROOT, file).replace(/\\/g, "/"), line: i + 1, text, code: l });
 			}
 		});
 	}
@@ -70,6 +70,17 @@ test("no ALL-CAPS button label in Modals/ (PIN stays)", () => {
 
 test('no "Please" in any message', () => {
 	const bad = LITS.filter((l) => /\bplease\b/i.test(l.text));
+	assert.deepEqual(bad.map(where), []);
+});
+
+test('no "Failed to" and no "successfully" in a message (RULES section 3)', () => {
+	// An error names what did not happen ("Could not create the world"); a success
+	// drops the word ("World downloaded: X"). Exempt: console.* lines (a log, not
+	// a message) and `.includes(` lines (code matching the browser's own
+	// "Failed to fetch" text).
+	const bad = LITS.filter(
+		(l) => /failed to|successfully/i.test(l.text) && !/console\.|\.includes\(/.test(l.code),
+	);
 	assert.deepEqual(bad.map(where), []);
 });
 

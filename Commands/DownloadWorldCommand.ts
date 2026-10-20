@@ -271,7 +271,7 @@ export class DownloadWorldCommand {
                     }
 
                     const changedNote = stored ? ` (${latest.size} changed element${latest.size === 1 ? '' : 's'})` : '';
-                    new Notice(`Successfully downloaded world: ${uniqueWorldName}${changedNote}`);
+                    new Notice(`World downloaded: ${uniqueWorldName}${changedNote}`);
                     if (keptCount > 0) {
                         new Notice(`${keptCount} element${keptCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
                     }
