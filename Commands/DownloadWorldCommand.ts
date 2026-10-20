@@ -25,7 +25,8 @@ import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-t
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 import { keptDeleteCount } from '../sync/deleted-on-server';
-import { hiddenNotices, planHidden, resyncReasonOf, stubKeptText, stubNote, type ResyncReason } from '../sync/hidden-on-server';
+import { hiddenNotices, planHidden, resyncReasonOf, stubNote, type ResyncReason } from '../sync/hidden-on-server';
+import { isKnownOfElement, knownOfKeptText, knownOfNotices, knownOfWrite, noteStateOf, type NoteState } from '../sync/known-of';
 
 export class DownloadWorldCommand {
     app: App;
@@ -188,7 +189,7 @@ export class DownloadWorldCommand {
 
                     // Generate element notes in the correct category folders under Elements
                     // (Phase B: frontmatter via writeElement — no Handlebars templates)
-                    await this.generateElementNotes(elementsFolderPath, worldData, overwrite);
+                    const knownOf = await this.generateElementNotes(elementsFolderPath, worldData, overwrite, { resync });
 
                     // Update all category folder names with counts
                     await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
@@ -269,6 +270,7 @@ export class DownloadWorldCommand {
                         new Notice(`${keptCount} element${keptCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
                     }
                     for (const line of hiddenNotices(hiddenCount, viewCount)) new Notice(line, 10000);
+                    for (const line of knownOfNotices(knownOf.became, knownOf.keptWhole)) new Notice(line, 10000);
 
                     // The world's Bases file (a table and cards per type, OW Infra #188),
                     // behind its setting; never fails the download. After the
@@ -464,8 +466,22 @@ export class DownloadWorldCommand {
         }
     }
 
-    async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
+    /**
+     * Write the pulled elements' notes. `resync` is the reason of the 409 that
+     * forced this walk from the start, if any: a known-of stub replaces a whole
+     * note only after a `view` reset (the folder spec §4.4 rule 5, OW Infra
+     * #454). Returns how many notes became known of, and how many whole notes
+     * were kept as last known.
+     */
+    async generateElementNotes(
+        worldFolderPath: string,
+        data: any,
+        overwrite: boolean,
+        opts: { resync?: ResyncReason | null } = {}
+    ): Promise<{ became: number; keptWhole: number }> {
         const fs = this.app.vault.adapter;
+        let became = 0;
+        let keptWhole = 0;
 
         // Extract the (unique) world name once — used both for the id->name map's
         // disk fallback and per-category below.
@@ -491,6 +507,8 @@ export class DownloadWorldCommand {
             existingElementPath: string | null;
             renameFrom: string | null;
             notePath: string;
+            /** Written as a known-of stub (rule 1). */
+            knownOf: boolean;
         }[] = [];
         const planned = new Set<string>(); // lowercased note paths claimed in this pull
 
@@ -514,6 +532,29 @@ export class DownloadWorldCommand {
             for (const element of elements) {
                 // First check if an element with this ID already exists
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
+                // A known-of stub (the folder spec §4.4, OW Infra #454): written
+                // as it is over no note, a known-of note or a hidden stub; over
+                // a whole note only after a view reset, else that note is kept
+                // as last known (the Captain's B12 ruling).
+                let knownOf = false;
+                if (isKnownOfElement(element)) {
+                    let state: NoteState = 'none';
+                    if (existingElementPath) {
+                        const current = this.app.vault.getAbstractFileByPath(existingElementPath);
+                        try {
+                            state = current instanceof TFile ? noteStateOf(await this.app.vault.read(current)) : 'none';
+                        } catch {
+                            state = 'whole'; // unreadable: never overwritten by a stub
+                        }
+                    }
+                    const write = knownOfWrite(element, state, opts.resync ?? null);
+                    if (write === 'keep') {
+                        keptWhole++;
+                        continue;
+                    }
+                    knownOf = true;
+                    if (state !== 'known_of') became++;
+                }
                 let notePath: string;
                 let renameFrom: string | null = null;
 
@@ -536,7 +577,7 @@ export class DownloadWorldCommand {
                     notePath = `${categoryDirectory}/${uniqueFileName}`;
                 }
                 planned.add(notePath.toLowerCase());
-                plans.push({ category, categoryDirectory, element, existingElementPath, renameFrom, notePath });
+                plans.push({ category, categoryDirectory, element, existingElementPath, renameFrom, notePath, knownOf });
             }
         }
 
@@ -568,13 +609,14 @@ export class DownloadWorldCommand {
             if (overwrite || existingElementPath || !await fs.exists(notePath)) {
                 // A stub written in full again (an unhide, or back in view)
                 // keeps the person's writing it held, above the first field, byte
-                // for byte (Kael's read, h37 #8212).
+                // for byte (Kael's read, h37 #8212); so does a known-of note,
+                // written again or whole (OW Infra #454).
                 let keepAbove = '';
                 if (existingElementPath) {
                     const current = this.app.vault.getAbstractFileByPath(notePath);
                     if (current instanceof TFile) {
                         try {
-                            keepAbove = stubKeptText(await this.app.vault.read(current));
+                            keepAbove = knownOfKeptText(await this.app.vault.read(current));
                         } catch { /* unreadable: written as any note */ }
                     }
                 }
@@ -601,10 +643,12 @@ export class DownloadWorldCommand {
                         // exactly the "kinda useless" problem 3.2 exists to fix.
                         scaffoldEmptyFields: true,
                         keepAbove,
+                        knownOf: plan.knownOf,
                     }
                 );
             }
         }
+        return { became, keptWhole };
     }
 
     /**

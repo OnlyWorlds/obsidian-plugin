@@ -9,6 +9,7 @@ import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/elem
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
+import { KNOWN_OF_NOT_SAVED } from '../sync/known-of';
 import { confirm } from '../Modals/ConfirmModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
@@ -33,7 +34,8 @@ interface WorldFileData {
  */
 export type SaveResult =
     | { ok: true; outcome: 'created' | 'updated' | 'unchanged' }
-    | { ok: false; reason: string };
+    /** `local`: nothing is wrong, the note is never sent (a known-of note, OW Infra #454): auto-sync stays idle. */
+    | { ok: false; reason: string; local?: true };
 
 /**
  * The Notice for [[links]] a save left out because no element id answers
@@ -107,6 +109,9 @@ const hiddenShown = new Set<string>();
 
 /** Note paths whose left-view refusal auto-sync has shown this session (Kael's read, h37 #8212). */
 const leftViewShown = new Set<string>();
+
+/** Note paths whose known-of notice auto-sync has shown this session (OW Infra #454). */
+const knownOfShown = new Set<string>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
@@ -308,6 +313,10 @@ export class SaveElementCommand {
         let elementData: ElementData | null = null;
         const v2 = await readElement(this.app, activeFile);
         if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
+        // A known-of note is never sent, by any path (the folder spec §4.4
+        // rule 3, OW Infra #454): before any read of the server, so no create,
+        // re-create or update can follow.
+        if (v2?.knownOf) return this.knownOfRefusal(activeFile, manual);
         if (v2 && v2.id) {
             // A fence that never closes swallowed the sections after it: the
             // note is refused, never sent cut short (round C, 1).
@@ -641,6 +650,9 @@ export class SaveElementCommand {
                 }
                 const parsed = await readElement(this.app, file);
                 if (!parsed || parsed.id !== id) continue;
+                // A known-of target is the server's element, never created
+                // from its stub; the link to it travels (OW Infra #454).
+                if (parsed.knownOf) continue;
                 try {
                     await client.get(parsed.category, id);
                     continue; // already on the server
@@ -856,6 +868,19 @@ export class SaveElementCommand {
         if (!manual && leftViewShown.has(file.path)) return { ok: false, reason: LEFT_VIEW_NOT_SAVED };
         if (!manual) leftViewShown.add(file.path);
         return this.fail(LEFT_VIEW_NOT_SAVED, 8000);
+    }
+
+    /**
+     * A save of a known-of note: nothing sent, and said; Save Element says it
+     * each time it is asked, auto-sync once a session per note. Not an error:
+     * the edits are the person's, kept in this vault (OW Infra #454).
+     */
+    private knownOfRefusal(file: TFile, manual: boolean): SaveResult {
+        const local = { ok: false as const, reason: KNOWN_OF_NOT_SAVED, local: true as const };
+        if (!manual && knownOfShown.has(file.path)) return local;
+        if (!manual) knownOfShown.add(file.path);
+        new Notice(KNOWN_OF_NOT_SAVED, 8000);
+        return local;
     }
 
     /** A save of a hidden element: refused and said; auto-sync says it once a session per note. */

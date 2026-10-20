@@ -114,6 +114,10 @@ export class AutoSyncEngine {
 			// error, never on synced (OW Infra #166 row 7).
 			if (result.ok) {
 				this.plugin.setSyncStatus("synced");
+			} else if (result.local) {
+				// A note that is never sent (a known-of note, OW Infra #454):
+				// nothing failed and nothing synced.
+				this.plugin.setSyncStatus("idle");
 			} else {
 				this.plugin.setSyncStatus("error", { error: result.reason });
 			}

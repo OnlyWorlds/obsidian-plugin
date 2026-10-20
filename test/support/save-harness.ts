@@ -29,6 +29,8 @@ export interface HarnessOpts {
 	cursor?: { cursor: string; head: number };
 	/** What the change feed reports from any cursor. */
 	feed?: { id: string; op: string }[];
+	/** Ids keel answers 410 (deleted in this world). */
+	gone?: string[];
 }
 
 export async function harnessSave(o: HarnessOpts) {
@@ -52,6 +54,7 @@ export async function harnessSave(o: HarnessOpts) {
 			calls.push(`get ${type} ${id}`);
 			const el = server.get(id);
 			if (el) return { id, ...el };
+			if (o.gone?.includes(id)) throw new V2ApiError(410, "gone", "API Error 410", null);
 			throw new V2ApiError(404, "not_found", "API Error 404", null);
 		},
 		create: async (type: string, b: Record<string, unknown>) => {

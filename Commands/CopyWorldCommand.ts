@@ -169,6 +169,10 @@ export class CopyWorldCommand {
                         // id rides OUTSIDE parsed.fields — without it the copied
                         // JSON loses element identity and paste-dedupe breaks
                         // (gate finding, 2026-07-16).
+                        // A known-of note is copied as the stub it is:
+                        // `known_of: true` and only what it keeps, no field
+                        // filled in (the folder spec §4.4 rule 1, OW Infra #454).
+                        if (parsed?.knownOf) return { id: parsed.id, ...parsed.fields, known_of: true };
                         parsedElement = parsed
                             ? { id: parsed.id, ...parsed.fields }
                             : await this.parseTemplate(fileContent, worldName);

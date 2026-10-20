@@ -12,6 +12,7 @@ import {
 	joinNote,
 } from '../vault/element-transform';
 import { noteFence, parseElementPath, unclosedFenceMessage } from '../vault/element-file';
+import { isKnownOfNote } from '../sync/known-of';
 import { UpdateWorldFormatModal, WorldFormatPlan, NotePlan } from '../Modals/UpdateWorldFormatModal';
 
 const BASE_KEYS = new Set(['name', 'id', 'supertype', 'subtype', 'image_url']);
@@ -65,6 +66,9 @@ export class UpdateWorldFormatCommand {
 			if (!schema) continue;
 
 			const content = await this.app.vault.read(file);
+			// A known-of note leaves out what its reader does not know: no
+			// scaffold is added to it (the folder spec §4.4, OW Infra #454).
+			if (isKnownOfNote(content)) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
 			const body = stripFrontmatterBlock(content);
 			const textFields = bodyTextFields(category);
@@ -142,6 +146,9 @@ export class UpdateWorldFormatCommand {
 			if (!schema) continue;
 
 			const content = await this.app.vault.read(file);
+			// A known-of note leaves out what its reader does not know: no
+			// scaffold is added to it (the folder spec §4.4, OW Infra #454).
+			if (isKnownOfNote(content)) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
 			const body = stripFrontmatterBlock(content);
 			const parsed = parseElementBody(body, category);

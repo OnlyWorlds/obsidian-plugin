@@ -24,7 +24,10 @@ import {
 	parseRawFrontmatterScalars,
 	AMBIGUOUS_LINK,
 	likelyLinkField,
+	bodyTextFields,
+	isEmptyFieldValue,
 } from "./element-transform";
+import { KNOWN_OF_KEY, KNOWN_OF_LINE, isKnownOfNote, knownOfKept, withoutKnownOfLine } from "../sync/known-of";
 
 /**
  * Element file format (v2 / frontmatter).
@@ -80,6 +83,12 @@ export interface ParsedElement {
 	 * the field it likely meant. The CALLER names them; nothing is corrected.
 	 */
 	likelyMisnamed?: Array<{ key: string; field: string }>;
+	/**
+	 * The note carries `known_of: true` (or the known-of line): a stub of an
+	 * element its reader knows of, its absent fields unknown, not empty (the
+	 * folder spec §4.4). Never pushed (OW Infra #454).
+	 */
+	knownOf: boolean;
 }
 
 /** "allies is not a field of Character; did you mean friends? Sent as x_allies." */
@@ -193,7 +202,10 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// The separator joinNote writes, and only it: the `---` line's ending,
 		// then one blank line. A body with no field heading is the description
 		// itself, so nothing more of it is cut (Seethe's mark 2).
-		const raw = stripFrontmatter(content).replace(/^\r?\n/, "").replace(/^\r?\n/, "");
+		// A known-of note's line is no part of any field (OW Infra #454).
+		const knownOf = isKnownOfNote(content);
+		const afterFm = stripFrontmatter(content).replace(/^\r?\n/, "").replace(/^\r?\n/, "");
+		const raw = knownOf ? withoutKnownOfLine(afterFm) : afterFm;
 		const body = raw.trim() ? raw : "";
 		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
@@ -276,6 +288,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
 			...misnamed(category, adopted),
+			knownOf,
 		};
 	}
 
@@ -297,6 +310,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			fields,
 			unresolvedLinks: [],
 			ambiguousLinks: [],
+			knownOf: false,
 		};
 	}
 
@@ -346,6 +360,14 @@ export interface WriteElementOpts {
 	 * h37 #8212). Part of the one write.
 	 */
 	keepAbove?: string;
+	/**
+	 * Write the element as a known-of stub (the folder spec §4.4 rule 1, OW
+	 * Infra #454): `known_of: true` and only the keys whose values are set,
+	 * every unset field left out (no scaffold, no empty section), the known-of
+	 * line above the fields. Without it, `known_of` never survives a write: a
+	 * stub that arrives whole is written whole (rule 4).
+	 */
+	knownOf?: boolean;
 }
 
 export async function writeElement(
@@ -360,6 +382,9 @@ export async function writeElement(
 	const opts: WriteElementOpts =
 		typeof optsOrMark === "function" ? { markSelfWrite: optsOrMark } : optsOrMark ?? {};
 	const markSelfWrite = opts.markSelfWrite;
+	const knownOf = opts.knownOf === true;
+	// A stub keeps what it carries and nothing it leaves unset (rule 1).
+	if (knownOf) data = knownOfKept(data);
 	const cat = normalizeCategory(category);
 	const folderName = capitalize(cat);
 	const name = typeof data.name === "string" && data.name ? data.name : "Untitled";
@@ -380,7 +405,9 @@ export async function writeElement(
 	const customTextFields = Object.entries(data)
 		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string")
 		.map(([k]) => k);
-	const bodyValue = buildElementBody(data, cat, customTextFields);
+	const bodyValue = knownOf
+		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !isEmptyFieldValue(data[k])))
+		: buildElementBody(data, cat, customTextFields);
 
 	const folder = opts.folderPath
 		? normalizePath(opts.folderPath)
@@ -410,10 +437,14 @@ export async function writeElement(
 	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
 	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
 	// not yet indexed in metadataCache).
-	const fm = apiDataToFrontmatter(data, cat, elementId, {
+	const built = apiDataToFrontmatter(data, cat, elementId, {
 		resolveIdToName: opts.idToName ?? buildIdToNameResolver(app, worldName),
-		scaffoldEmptyFields: opts.scaffoldEmptyFields,
+		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
 	});
+	// The mark sits under the id, where the Properties panel shows it first.
+	const fm: Record<string, unknown> = knownOf
+		? { name: built.name, id: built.id, [KNOWN_OF_KEY]: true, ...built }
+		: built;
 
 	// ★ ONE write for the whole note — frontmatter AND body together.
 	//
@@ -433,10 +464,14 @@ export async function writeElement(
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
-	const ownedKeys = new Set<string>(["id", "name"]);
+	// `known_of` is the writer's alone: set on a stub, gone on a whole write.
+	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY]);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(existingFm)) {
+		// A stub replacing a whole copy keeps none of its extension values:
+		// they are the element's, and a stub carries only what it keeps.
+		if (knownOf && isExtensionKey(k)) continue;
 		if (!ownedKeys.has(k)) preserved[k] = v;
 	}
 	const merged: Record<string, unknown> = { ...fm };
@@ -446,7 +481,10 @@ export async function writeElement(
 	const above = opts.keepAbove ?? "";
 	// The kept text, then one blank line before the first heading.
 	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";
-	const newContent = joinNote(serializeFrontmatter(merged), `${above}${gap}${bodyValue}\n`);
+	// A stub with no field to show is the line and the person's writing alone.
+	const sections = bodyValue ? `${above}${gap}${bodyValue}\n` : above;
+	const body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
+	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);

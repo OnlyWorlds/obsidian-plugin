@@ -1,5 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { writeElement } from "../vault/element-file";
+import { isKnownOfElement } from "../sync/known-of";
 import { bodyFieldForCategory, getCategorySchema, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
 import { sanitizeFileName } from "../Scripts/WorldService";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
@@ -228,10 +229,18 @@ export class ImportFolderCommand {
 					);
 				}
 				const planned = idToName.get(id);
+				// A `known_of` file is a stub: written as a known-of note, never
+				// a whole one (the folder spec §4.4 rule 2, OW Infra #454). The
+				// note carries the mark, so the sidecar does not.
+				const knownOf = isKnownOfElement(el.carried);
+				if (knownOf) {
+					el.carried = Object.fromEntries(Object.entries(el.carried).filter(([k]) => k !== "known_of"));
+				}
 				const file = await writeElement(this.app, targetWorld, el.type, id, payload, {
 					markSelfWrite: this.markSelfWrite,
 					fileName: planned ? `${planned}.md` : undefined,
 					idToName: (target) => idToName.get(target) ?? null,
+					knownOf,
 				});
 				// "created" must only ever count notes that still exist. writeElement
 				// never hands two elements one path any more, but if it ever did, the

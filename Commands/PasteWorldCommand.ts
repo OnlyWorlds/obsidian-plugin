@@ -8,6 +8,7 @@ import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
+import { knownOfKeptText, knownOfWrite, noteStateOf } from '../sync/known-of';
 
 export class PasteWorldCommand {
     app: App;
@@ -136,6 +137,15 @@ export class PasteWorldCommand {
                 // Reuse an existing note for this id, else mint a unique filename.
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
                 if (existingElementPath && (await this.isStub(existingElementPath))) continue;
+                // A known-of stub (the folder spec §4.4, OW Infra #454) is
+                // written as one, never over a whole note (no reset brought it:
+                // the whole copy is kept); the person's writing a known-of note
+                // holds stays above its fields.
+                const existing = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
+                const current = existing instanceof TFile ? await this.app.vault.read(existing) : null;
+                const write = knownOfWrite(element, noteStateOf(current), null);
+                if (write === 'keep') continue;
+                const keepAbove = current === null ? '' : knownOfKeptText(current);
                 const fileName = existingElementPath
                     ? existingElementPath.split('/').pop()
                     : await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
@@ -150,7 +160,7 @@ export class PasteWorldCommand {
                     category,
                     element.id,
                     element,
-                    { folderPath: categoryDirectory, fileName, idToName }
+                    { folderPath: categoryDirectory, fileName, idToName, keepAbove, knownOf: write === 'stub' }
                 );
             }
         }

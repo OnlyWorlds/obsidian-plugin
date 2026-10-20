@@ -249,8 +249,11 @@ export function buildFolderElementBody(
 ): Record<string, unknown> {
 	const { type: _stray, ...rest } = payload;
 	const body: Record<string, unknown> = { type, ...rest };
+	// A known-of stub keeps only its keys: what it leaves out is unknown, never
+	// an empty to write (§4.4 rule 1, OW Infra #454).
+	const knownOf = body.known_of === true;
 	for (const [k, def] of Object.entries(getCategorySchema(type) ?? {})) {
-		if (!(k in body)) body[k] = serverEmptyValue(def);
+		if (!knownOf && !(k in body)) body[k] = serverEmptyValue(def);
 	}
 	for (const [k, v] of Object.entries(carried)) {
 		if (k === "type" || k in body) continue; // the note's own value wins

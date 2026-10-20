@@ -15,6 +15,7 @@ import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
 import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
+import { isKnownOfNote } from '../sync/known-of';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +36,8 @@ export class ExportWorldCommand {
     private stubIds = new Set<string>();
     /** Each stub's `Type "note name"`, to name a link left out to it. */
     private stubNames = new Map<string, string>();
+    /** The ids of this sweep's known-of notes: never sent (OW Infra #454). */
+    private knownOfIds = new Set<string>();
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
@@ -233,7 +236,7 @@ export class ExportWorldCommand {
                 }
             }
             for (const id of localIds) guarded.add(id);
-            const serverOnly = [...serverIds].filter(id => !localIds.has(id)).length;
+            const serverOnly = [...serverIds].filter(id => !localIds.has(id) && !this.knownOfIds.has(id)).length;
 
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
@@ -351,6 +354,10 @@ export class ExportWorldCommand {
             if (leftViewSkipped > 0) {
                 summary += ` ${leftViewSkipped} note${leftViewSkipped === 1 ? '' : 's'} no longer in your view ${leftViewSkipped === 1 ? 'was' : 'were'} not sent.`;
             }
+            const knownOfSkipped = this.knownOfIds.size;
+            if (knownOfSkipped > 0) {
+                summary += ` ${knownOfSkipped} known-of note${knownOfSkipped === 1 ? ' was' : 's were'} not sent; edits to ${knownOfSkipped === 1 ? 'it' : 'them'} stay in this vault.`;
+            }
             new Notice(summary, 8000);
             if (leftOut.names.length > 0) {
                 new Notice(`Left out, deleted on onlyworlds.com: ${leftOut.names.join(', ')}. Their notes are kept.`, 12000);
@@ -391,6 +398,7 @@ export class ExportWorldCommand {
         this.refusedNotes = [];
         this.stubIds = new Set();
         this.stubNames = new Map();
+        this.knownOfIds = new Set();
         const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};
     
@@ -424,6 +432,14 @@ export class ExportWorldCommand {
                     // span notes still fall through to the span parser so a mixed,
                     // partly-migrated world uploads correctly either way.
                     const fileContent = await fs.read(file.path);
+                    if (isKnownOfNote(fileContent) && !isStubNote(fileContent)) {
+                        // Known of: a stub of the server's element, never sent
+                        // (the folder spec §4.4 rule 3, OW Infra #454). Links to
+                        // it are real and travel; it is counted in the summary.
+                        const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
+                        if (id) this.knownOfIds.add(id);
+                        return {};
+                    }
                     if (isStubNote(fileContent)) {
                         // Hidden by the world's owner: the stub holds no field
                         // of the element, and is never sent (OW Infra #426).

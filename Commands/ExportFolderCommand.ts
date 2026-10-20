@@ -174,7 +174,10 @@ export class ExportFolderCommand {
 					refusedPaths.add(file.path);
 					continue;
 				}
-				const payload = { ...parsed.fields, id: parsed.id, name: parsed.name };
+				// A known-of note is written as the stub it is: `known_of: true`
+				// and only what it keeps (the folder spec §4.4 rule 1, OW Infra #454).
+				const payload: Record<string, unknown> = { ...parsed.fields, id: parsed.id, name: parsed.name };
+				if (parsed.knownOf) payload.known_of = true;
 				elements.push({ type: parsed.category, payload, path: file.path });
 				const ref = { id: parsed.id, name: parsed.name, type: parsed.category };
 				byPath.set(file.path, ref);
