@@ -2,6 +2,7 @@ import { App, Modal, Notice, Platform, Setting, TFile, TFolder, normalizePath } 
 import { v7 as uuidv7 } from "uuid";
 import { readElement, unclosedFenceMessage } from "../vault/element-file";
 import { bodyFieldForCategory } from "../vault/element-transform";
+import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
 import { buildWorldJson } from "../vault/world-json";
@@ -63,9 +64,12 @@ import {
  */
 export class ExportFolderCommand {
 	private app: App;
+	/** The plugin's settings, for the hidden lists (OW Infra #426); absent, only stubs are known. */
+	private host: HiddenListHost | null;
 
-	constructor(app: App) {
+	constructor(app: App, host?: HiddenListHost) {
 		this.app = app;
+		this.host = host ?? null;
 	}
 
 	async execute(): Promise<void> {
@@ -122,6 +126,7 @@ export class ExportFolderCommand {
 	): Promise<{
 		files: { rel: string; content: string }[];
 		failed: { path: string; reason: string }[];
+		hidden: number;
 	} | null> {
 		const files = this.elementFilesFor(world);
 		if (files.length === 0) {
@@ -143,11 +148,24 @@ export class ExportFolderCommand {
 		// Element notes of this world refused for an open fence: a link that
 		// lands on one is left as written, never sent to a same-name note.
 		const refusedPaths = new Set<string>();
+		// Hidden by the world's owner (OW Infra #426): a stub, or an id on a
+		// hidden list, is no element to carry; counted on its own line.
+		let hidden = 0;
 		for (const file of files) {
 			try {
+				if (isStubNote(await this.app.vault.read(file))) {
+					hidden++;
+					refusedPaths.add(file.path);
+					continue;
+				}
 				const parsed = await readElement(this.app, file);
 				if (!parsed || !parsed.id) {
 					failed.push({ path: file.path, reason: "no id / unreadable" });
+					continue;
+				}
+				if (this.host && isHiddenId(this.host.settings, parsed.id)) {
+					hidden++;
+					refusedPaths.add(file.path);
 					continue;
 				}
 				if (parsed.unclosedFence) {
@@ -215,7 +233,7 @@ export class ExportFolderCommand {
 			const rel = paths.get(String(el.payload.id)) as string;
 			planned.push({ rel, content: JSON.stringify(body, null, 2) + "\n" });
 		}
-		return { files: planned, failed };
+		return { files: planned, failed, hidden };
 	}
 
 	private async exportWorld(world: string, dest: ExportDestination): Promise<void> {
@@ -244,7 +262,7 @@ export class ExportFolderCommand {
 	private async writeVault(
 		world: string,
 		folderName: string,
-		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[] }
+		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number }
 	): Promise<void> {
 		const root = normalizePath(`OW-folder-export/${folderName}`);
 		if (this.app.vault.getAbstractFileByPath(root)) {
@@ -268,7 +286,7 @@ export class ExportFolderCommand {
 		new ExportReportModal(this.app, world, {
 			kind: "vault",
 			display: `OW-folder-export/${folderName}/`,
-		}, plan.files.length, plan.failed).open();
+		}, plan.files.length, plan.failed, plan.hidden).open();
 	}
 
 	/**
@@ -280,7 +298,7 @@ export class ExportFolderCommand {
 		world: string,
 		folderName: string,
 		destDir: string,
-		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[] }
+		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number }
 	): Promise<void> {
 		// eslint-disable-next-line @typescript-eslint/no-var-requires
 		const fs = require("fs/promises") as typeof import("fs/promises");
@@ -327,7 +345,7 @@ export class ExportFolderCommand {
 		new ExportReportModal(this.app, world, {
 			kind: "external",
 			display: target,
-		}, plan.files.length, plan.failed).open();
+		}, plan.files.length, plan.failed, plan.hidden).open();
 	}
 
 	private async ensureVaultFolder(path: string): Promise<void> {
@@ -562,7 +580,8 @@ class ExportReportModal extends Modal {
 		private world: string,
 		private dest: { kind: "vault" | "external"; display: string },
 		private writtenCount: number,
-		private failed: { path: string; reason: string }[]
+		private failed: { path: string; reason: string }[],
+		private hidden = 0
 	) {
 		super(app);
 	}
@@ -575,6 +594,9 @@ class ExportReportModal extends Modal {
 		const summary = contentEl.createEl("ul");
 		summary.createEl("li", { text: `${this.writtenCount} files written (incl. world.json)` });
 		summary.createEl("li", { text: `${this.failed.length} notes skipped (unreadable)` });
+		if (this.hidden > 0) {
+			summary.createEl("li", { text: `${this.hidden} note${this.hidden === 1 ? "" : "s"} hidden by the world's owner, not exported` });
+		}
 
 		const where = contentEl.createEl("p");
 		where.createEl("strong", { text: "Folder: " });

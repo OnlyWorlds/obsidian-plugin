@@ -239,6 +239,11 @@ export function hiddenNotices(hidden: number, view: number): string[] {
 	return out;
 }
 
+/** What a command needs to read the hidden lists: the plugin, or a test's stand-in. */
+export interface HiddenListHost {
+	settings: { hiddenOnServer?: Record<string, string[]> };
+}
+
 /** True when any world's hidden list holds `id` (an element id belongs to one world). */
 export function isHiddenId(settings: { hiddenOnServer?: Record<string, string[]> }, id: string): boolean {
 	return Object.values(settings.hiddenOnServer ?? {}).some((list) => list.includes(id));
