@@ -7,16 +7,21 @@ import { LOCAL_WORLD_KEY_TOKEN } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
+import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 
 export class PasteWorldCommand {
     app: App;
     manifest: any;
     private worldService: WorldService;
 
-    constructor(app: App, manifest: any) {
+    /** The plugin's settings, for the hidden lists (OW Infra #426); absent, only stubs are known. */
+    private host: HiddenListHost | null;
+
+    constructor(app: App, manifest: any, host?: HiddenListHost) {
         this.app = app;
         this.manifest = manifest;
         this.worldService = new WorldService(app);
+        this.host = host ?? null;
     }
 
     async execute() {
@@ -123,9 +128,14 @@ export class PasteWorldCommand {
 
             for (const element of elements) {
                 if (!element || typeof element.id !== 'string') continue;
+                // Hidden by the world's owner (OW Infra #426): an id on a
+                // hidden list is never written, and a stub never overwritten
+                // by an old copy of the element.
+                if (this.host && isHiddenId(this.host.settings, element.id)) continue;
 
                 // Reuse an existing note for this id, else mint a unique filename.
                 const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
+                if (existingElementPath && (await this.isStub(existingElementPath))) continue;
                 const fileName = existingElementPath
                     ? existingElementPath.split('/').pop()
                     : await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
@@ -143,6 +153,17 @@ export class PasteWorldCommand {
                     { folderPath: categoryDirectory, fileName, idToName }
                 );
             }
+        }
+    }
+
+    /** True when the note at `path` is a hidden element's stub. */
+    private async isStub(path: string): Promise<boolean> {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) return false;
+        try {
+            return isStubNote(await this.app.vault.read(file));
+        } catch {
+            return false;
         }
     }
 

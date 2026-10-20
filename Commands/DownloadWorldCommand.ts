@@ -20,11 +20,12 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client } from '../client-v2';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { writeElement } from '../vault/element-file';
+import { parseElementPath, writeElement } from '../vault/element-file';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 import { keptDeleteCount } from '../sync/deleted-on-server';
+import { hiddenNotices, planHidden, resyncReasonOf, stubKeptText, stubNote, type ResyncReason } from '../sync/hidden-on-server';
 
 export class DownloadWorldCommand {
     app: App;
@@ -92,15 +93,37 @@ export class DownloadWorldCommand {
                         console.log('OnlyWorlds: vault has no notes for this world — ignoring sync cursor, full download.');
                         stored = undefined;
                     }
+                    // An install from before the list (a stored cursor, no
+                    // knownOnServer entry for this world) walks the feed from
+                    // the start once, for the list alone: nothing else of that
+                    // walk is applied (Kael's read, h37 #8212). A failed read
+                    // leaves it for the next Download.
+                    let storedKnown: string[] = this.plugin?.settings.knownOnServer?.[worldId] ?? [];
+                    if (stored?.cursor && this.plugin && this.plugin.settings.knownOnServer?.[worldId] === undefined) {
+                        try {
+                            const full = await client.changesWalk();
+                            storedKnown = [...planHidden({ latest: full.changes, fromStart: true, resync: null, ownIds: new Set() }).known];
+                        } catch (e) {
+                            console.warn('OnlyWorlds: could not read the feed to fill the known list; next Download tries again.', e);
+                        }
+                    }
                     let walk: { changes: V2Change[]; cursor: string | null; head: number };
+                    // A walk from the start, and why: keel's 409 resync_required
+                    // says `view` (drop what the walk no longer names), `role` or
+                    // nothing (keep it): D127, OW Infra #426.
+                    let fromStart = !stored?.cursor;
+                    let resync: ResyncReason | null = null;
                     try {
                         walk = await client.changesWalk(stored?.cursor);
                         if (stored && walk.head < stored.head) {
                             walk = await client.changesWalk();
+                            fromStart = true;
                         }
                     } catch (e) {
                         if (stored) {
+                            resync = resyncReasonOf(e);
                             walk = await client.changesWalk();
+                            fromStart = true;
                         } else {
                             throw e;
                         }
@@ -178,13 +201,19 @@ export class DownloadWorldCommand {
                     // full walk sees every delete the world ever had (Kael's
                     // third read, 4; the fix round, item 8). An empty list needs
                     // no read of every note (round C, 8).
+                    // A hidden row is not a delete: its id goes on the hidden
+                    // list instead, below (OW Infra #426).
                     const deleted = new Set(this.plugin?.settings.deletedOnServer?.[worldId] ?? []);
                     for (const change of latest.values()) {
-                        if (change.op === 'delete') deleted.add(change.id);
+                        if (change.op === 'delete' && change.reason !== 'hidden') deleted.add(change.id);
                         else deleted.delete(change.id);
                     }
-                    const { own, all: local } = deleted.size > 0 ? await this.localElementIds(uniqueWorldName)
-                        : { own: new Set<string>(), all: new Set<string>() };
+                    const storedHidden = this.plugin?.settings.hiddenOnServer?.[worldId] ?? [];
+                    const storedLeftView = this.plugin?.settings.leftView?.[worldId] ?? [];
+                    const hiddenRow = [...latest.values()].some(c => c.op === 'delete' && c.reason === 'hidden');
+                    const readNotes = deleted.size > 0 || storedHidden.length > 0 || storedLeftView.length > 0 || hiddenRow || resync !== null;
+                    const { own, all: local, files } = readNotes ? await this.localElementIds(uniqueWorldName)
+                        : { own: new Set<string>(), all: new Set<string>(), files: new Map<string, TFile>() };
                     // The notice counts only deletes that left a note of their
                     // own in this vault: a fresh vault's first download walks the
                     // world's whole history and meets deletes that never had a
@@ -192,6 +221,22 @@ export class DownloadWorldCommand {
                     // vault); a raw-id link to a deleted element is not a kept
                     // note (Kael's read, h37 #7470).
                     const keptCount = keptDeleteCount(latest.values(), own);
+
+                    // Hidden by the world's owner (OW Infra #426): a hidden row,
+                    // or a view resync's walk not naming a note whose element
+                    // this device knew on the server, makes that note a stub.
+                    // Never a deleted file, never a note with no element id.
+                    const hidden = planHidden({
+                        latest: latest.values(),
+                        storedHidden,
+                        storedKnown,
+                        storedLeftView,
+                        fromStart,
+                        resync,
+                        ownIds: own,
+                    });
+                    const hiddenCount = await this.stubNotes(hidden.stubHidden, files);
+                    const viewCount = await this.stubNotes(hidden.stubView, files);
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time.
@@ -201,6 +246,20 @@ export class DownloadWorldCommand {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
                             [worldId]: [...deleted].filter(id => local.has(id)),
                         };
+                        this.plugin.settings.hiddenOnServer = {
+                            ...(this.plugin.settings.hiddenOnServer ?? {}),
+                            [worldId]: [...hidden.hidden].filter(id => local.has(id)),
+                        };
+                        this.plugin.settings.knownOnServer = {
+                            ...(this.plugin.settings.knownOnServer ?? {}),
+                            [worldId]: [...hidden.known],
+                        };
+                        // A role (or no-reason) reset's kept notes: never sent
+                        // again until the feed names them (Kael's read, h37 #8212).
+                        this.plugin.settings.leftView = {
+                            ...(this.plugin.settings.leftView ?? {}),
+                            [worldId]: [...hidden.leftView].filter(id => local.has(id)),
+                        };
                         await this.plugin.saveSettings();
                     }
 
@@ -209,6 +268,7 @@ export class DownloadWorldCommand {
                     if (keptCount > 0) {
                         new Notice(`${keptCount} element${keptCount === 1 ? '' : 's'} deleted on the server — their notes were kept. Remove them manually if desired.`, 10000);
                     }
+                    for (const line of hiddenNotices(hiddenCount, viewCount)) new Notice(line, 10000);
 
                     // The world's Bases file (a table and cards per type, OW Infra #188),
                     // behind its setting; never fails the download. After the
@@ -506,6 +566,18 @@ export class DownloadWorldCommand {
             }
 
             if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                // A stub written in full again (an unhide, or back in view)
+                // keeps the person's writing it held, above the first field, byte
+                // for byte (Kael's read, h37 #8212).
+                let keepAbove = '';
+                if (existingElementPath) {
+                    const current = this.app.vault.getAbstractFileByPath(notePath);
+                    if (current instanceof TFile) {
+                        try {
+                            keepAbove = stubKeptText(await this.app.vault.read(current));
+                        } catch { /* unreadable: written as any note */ }
+                    }
+                }
                 // v2 frontmatter format (Phase B). writeElement owns the file
                 // placement (it re-finds by embedded id), preserves extension
                 // fields verbatim, normalizes link ids, and maps the body to
@@ -528,6 +600,7 @@ export class DownloadWorldCommand {
                         // the user no way to see what else it could carry —
                         // exactly the "kinda useless" problem 3.2 exists to fix.
                         scaffoldEmptyFields: true,
+                        keepAbove,
                     }
                 );
             }
@@ -607,25 +680,53 @@ export class DownloadWorldCommand {
         return noteContent;
     }
 
+    /**
+     * Each note's stub (sync/hidden-on-server.ts), written through the one
+     * write (one read, one vault.modify, the frontmatter at byte 0). A note
+     * already a stub, or with no frontmatter id (a legacy span note), is left
+     * as it is. Returns how many notes changed.
+     */
+    private async stubNotes(ids: string[], files: Map<string, TFile>): Promise<number> {
+        let n = 0;
+        for (const id of ids) {
+            const file = files.get(id);
+            const category = file ? parseElementPath(file.path)?.category : undefined;
+            if (!file || !category) continue;
+            try {
+                const content = await this.app.vault.read(file);
+                const next = stubNote(content, category);
+                if (next === content) continue;
+                this.plugin?.autoSync?.markSelfWrite(file.path);
+                await this.app.vault.modify(file, next);
+                n++;
+            } catch (error) {
+                console.error(`OnlyWorlds: could not stub the hidden element's note ${file.path}`, error);
+            }
+        }
+        return n;
+    }
+
     /** The element ids this world's notes carry, read from disk (the cache is cold mid-download):
-     *  `own` the notes' own ids; `all` those plus every id a note's Properties link to. */
-    private async localElementIds(worldName: string): Promise<{ own: Set<string>; all: Set<string> }> {
+     *  `own` the notes' own ids; `all` those plus every id a note's Properties link to;
+     *  `files` each own id's note. */
+    private async localElementIds(worldName: string): Promise<{ own: Set<string>; all: Set<string>; files: Map<string, TFile> }> {
         const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const own = new Set<string>();
         const all = new Set<string>();
+        const files = new Map<string, TFile>();
         for (const file of this.app.vault.getMarkdownFiles()) {
             if (!file.path.startsWith(prefix)) continue;
             try {
                 const content = await this.app.vault.read(file);
                 const id = parseRawFrontmatterScalars(content, ['id']).id;
-                if (id) { own.add(id); all.add(id); }
+                if (id) { own.add(id); all.add(id); if (!files.has(id)) files.set(id, file); }
                 // The ids its Properties hold (a raw-id link to an element
                 // with no note here): the deleted list keeps those too, so a
                 // save leaves the link out (the fix round, item 8).
                 for (const linked of idsInFrontmatter(content)) all.add(linked);
             } catch { /* unreadable note — skip */ }
         }
-        return { own, all };
+        return { own, all, files };
     }
 
     /** Does the vault hold ANY element note for this world? Used to sanity-check

@@ -6,7 +6,8 @@ import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { readElement, unclosedFenceMessage } from '../vault/element-file';
-import { isSpanFormat } from '../vault/element-transform';
+import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
+import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
 
 export class CopyWorldCommand {
@@ -14,10 +15,14 @@ export class CopyWorldCommand {
     manifest: PluginManifest;
     worldService: WorldService;
 
-    constructor(app: App, manifest: PluginManifest, worldService: WorldService) {
+    /** The plugin's settings, for the hidden lists (OW Infra #426); absent, only stubs are known. */
+    private host: HiddenListHost | null;
+
+    constructor(app: App, manifest: PluginManifest, worldService: WorldService, host?: HiddenListHost) {
         this.app = app;
         this.manifest = manifest;
         this.worldService = worldService;
+        this.host = host ?? null;
     }
 
     async execute() {
@@ -146,6 +151,11 @@ export class CopyWorldCommand {
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     const fileContent = await fs.read(file.path);
+                    // Hidden by the world's owner (OW Infra #426): a stub, or
+                    // an id on a hidden list, is never copied as an element.
+                    if (isStubNote(fileContent)) return {};
+                    const ownId = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
+                    if (ownId && this.host && isHiddenId(this.host.settings, ownId)) return {};
                     // Phase B: frontmatter notes read via the shared reader; legacy
                     // span notes fall through to the span parser (mixed worlds copy
                     // correctly either way).

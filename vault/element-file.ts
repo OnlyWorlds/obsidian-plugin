@@ -7,6 +7,7 @@ import {
 	bodyToFieldValues,
 	parseElementBody,
 	headingToFieldKey,
+	readsAsCustomField,
 	isExtensionKey,
 	isUserCustomKey,
 	toolShadowHeadings,
@@ -252,7 +253,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			const toolShadows = toolShadowHeadings(fm);
 			const unknownHeadings = (parsedBody ?? parseElementBody(body, category)).unknown.map((u) => u.heading.trim());
 			const customKeys = unknownHeadings
-				.filter((h) => /^[A-Za-z][A-Za-z0-9 _-]{0,40}$/.test(h) && h.split(/\s+/).length <= 3)
+				.filter((h) => readsAsCustomField(h))
 				.map((h) => `x_${headingToFieldKey(h)}`)
 				.filter((k) => !toolShadows.has(k) || k in fm);
 			const shadowKeys = [...toolShadows].filter((k) => !(k in fm));
@@ -337,6 +338,14 @@ export interface WriteElementOpts {
 	 * Absent -> today's buildIdToNameResolver behavior (back-compat for Create/Import).
 	 */
 	idToName?: (id: string) => string | null;
+	/**
+	 * Text written above the first field section, as it is: the person's
+	 * writing a hidden element's stub kept, when Download writes that note in
+	 * full again, back where it came from, so a later save folds it into the
+	 * description as any loose prose (OW Infra #426; ruled after Kael's read,
+	 * h37 #8212). Part of the one write.
+	 */
+	keepAbove?: string;
 }
 
 export async function writeElement(
@@ -434,7 +443,10 @@ export async function writeElement(
 	for (const [k, v] of Object.entries(preserved)) {
 		if (!(k in merged)) merged[k] = v;
 	}
-	const newContent = joinNote(serializeFrontmatter(merged), `${bodyValue}\n`);
+	const above = opts.keepAbove ?? "";
+	// The kept text, then one blank line before the first heading.
+	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";
+	const newContent = joinNote(serializeFrontmatter(merged), `${above}${gap}${bodyValue}\n`);
 	if (newContent !== content) {
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);

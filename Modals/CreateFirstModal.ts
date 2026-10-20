@@ -5,6 +5,10 @@ import { applyMobileModal } from './mobile';
 export interface CreateFirstItem {
     type: string;
     name: string;
+    /** Left out because the world's owner hid it, not because it was deleted (OW Infra #426). */
+    hidden?: boolean;
+    /** Left out because a role reset took it out of this reader's view (Kael's read, h37 #8212). */
+    leftView?: boolean;
 }
 
 /**
@@ -98,7 +102,13 @@ export function itemLabel(item: CreateFirstItem): string {
     return `${item.type.charAt(0).toUpperCase()}${item.type.slice(1)} "${item.name}"`;
 }
 
-/** One line per target left out because it was deleted on the server. */
+/** One line per target left out because it was deleted on the server, or hidden by the world's owner. */
 export function leftOutLines(leftOut: CreateFirstItem[]): string[] {
-    return leftOut.map((i) => `${itemLabel(i)} was deleted on onlyworlds.com and is left out.`);
+    return leftOut.map((i) =>
+        i.hidden
+            ? `${itemLabel(i)} is hidden by the world's owner and is left out.`
+            : i.leftView
+              ? `${itemLabel(i)} is no longer in your view and is left out.`
+              : `${itemLabel(i)} was deleted on onlyworlds.com and is left out.`
+    );
 }

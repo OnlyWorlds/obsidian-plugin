@@ -20,15 +20,26 @@
 export interface DeletedListHost {
 	settings: {
 		deletedOnServer?: Record<string, string[]>;
+		/** Per world id: element ids hidden from this reader by the world's owner (sync/hidden-on-server.ts). */
+		hiddenOnServer?: Record<string, string[]>;
+		/** Per world id: ids a role (or no-reason) reset's walk no longer named (Kael's read, h37 #8212). */
+		leftView?: Record<string, string[]>;
 		syncCursors?: Record<string, { cursor?: string; head?: number } | undefined>;
 	};
 	saveSettings?: () => Promise<void>;
 }
 
+/** A change of the feed as this reads it: a delete row carries `reason` while keel's hidden mark is on. */
+export interface FeedChange {
+	id: string;
+	op: string;
+	reason?: string | null;
+}
+
 /** The client calls this needs. */
 export interface DeletedListClient {
 	getWorld(): Promise<Record<string, unknown>>;
-	changesWalk(since?: string): Promise<{ changes: { id: string; op: string }[]; cursor?: string | null; head?: number }>;
+	changesWalk(since?: string): Promise<{ changes: FeedChange[]; cursor?: string | null; head?: number }>;
 }
 
 /**
@@ -41,8 +52,16 @@ export type CannotTell = "failed" | "rewound" | "resync";
 export interface DeletedView {
 	/** The world's id, "" when it could not be read. */
 	worldId: string;
-	/** Element ids deleted on the server. */
+	/**
+	 * Element ids gone from the server for this reader: deleted, or hidden by
+	 * the world's owner (a GET answers 404 for both). Every caller that leaves
+	 * a deleted id out leaves a hidden one out too.
+	 */
 	ids: Set<string>;
+	/** The ids of `ids` that are hidden, not deleted (OW Infra #426): named so, never offered to create again. */
+	hidden: Set<string>;
+	/** The ids of `ids` no longer in this reader's view after a role (or no-reason) reset: kept notes, never created again. */
+	leftView: Set<string>;
 	/** False when this device cannot tell (no stored cursor, or the feed could not be read). */
 	known: boolean;
 	/** Why not, when `known` is false: no stored cursor (never downloaded here), or a read that failed. */
@@ -56,17 +75,31 @@ export interface DeletedView {
  * the deletes the session has seen (amended rule 2; Kael's delta read, 1;
  * the fix round, item 4).
  */
-const sessionState = new WeakMap<object, Map<string, { cursor?: string; stored?: string; head?: number; seen: Set<string> }>>();
+const sessionState = new WeakMap<object, Map<string, { cursor?: string; stored?: string; head?: number; seen: Set<string>; seenHidden: Set<string> }>>();
 
-/** `ids` with each change's latest op applied: a delete adds its id, any other op takes it out. */
-function foldDeletes(ids: Set<string>, changes: { id: string; op: string }[]): Set<string> {
-	const latest = new Map<string, string>();
-	for (const c of changes) latest.set(c.id, c.op);
-	for (const [id, op] of latest) {
-		if (op === "delete") ids.add(id);
+/**
+ * `ids` and `hidden` with each change's latest op applied: a delete adds its
+ * id to `ids`, and to `hidden` when its reason is `hidden` (out of it
+ * otherwise); any other op (an upsert, an unhide) takes it out of both.
+ */
+function foldDeletes(ids: Set<string>, hidden: Set<string>, leftView: Set<string>, changes: FeedChange[]): void {
+	const latest = new Map<string, FeedChange>();
+	for (const c of changes) latest.set(c.id, c);
+	for (const [id, c] of latest) {
+		// An id the feed names again is in view again: any row takes it off.
+		leftView.delete(id);
+		if (c.op === "delete") ids.add(id);
 		else ids.delete(id);
+		if (c.op === "delete" && c.reason === "hidden") hidden.add(id);
+		else hidden.delete(id);
 	}
-	return ids;
+}
+
+/** The world's stored deleted, hidden and left-view lists, as one view's `ids`, `hidden` and `leftView`. */
+function storedView(host: DeletedListHost, worldId: string): { ids: Set<string>; hidden: Set<string>; leftView: Set<string> } {
+	const hidden = new Set(host.settings.hiddenOnServer?.[worldId] ?? []);
+	const leftView = new Set(host.settings.leftView?.[worldId] ?? []);
+	return { ids: new Set([...(host.settings.deletedOnServer?.[worldId] ?? []), ...hidden, ...leftView]), hidden, leftView };
 }
 
 /**
@@ -82,21 +115,21 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 	try {
 		worldId = String((await client.getWorld()).id ?? "");
 	} catch {
-		return { worldId: "", ids: new Set(), known: false, reason: "failed" };
+		return { worldId: "", ids: new Set(), hidden: new Set(), leftView: new Set(), known: false, reason: "failed" };
 	}
-	if (!worldId) return { worldId, ids: new Set(host.settings.deletedOnServer?.[worldId] ?? []), known: false, reason: "failed" };
+	if (!worldId) return { worldId, ...storedView(host, worldId), known: false, reason: "failed" };
 	let pending = inFlight.get(host);
 	if (!pending) inFlight.set(host, (pending = new Map()));
 	const running = pending.get(worldId);
 	if (running) {
 		const view = await running;
-		return { ...view, ids: new Set(view.ids) };
+		return { ...view, ids: new Set(view.ids), hidden: new Set(view.hidden), leftView: new Set(view.leftView) };
 	}
 	const read = readFeed(host, client, worldId);
 	pending.set(worldId, read);
 	try {
 		const view = await read;
-		return { ...view, ids: new Set(view.ids) };
+		return { ...view, ids: new Set(view.ids), hidden: new Set(view.hidden), leftView: new Set(view.leftView) };
 	} finally {
 		pending.delete(worldId);
 	}
@@ -104,7 +137,7 @@ export async function readDeletedOnServer(host: DeletedListHost, client: Deleted
 
 /** One feed read for `worldId`, folded into the view (readDeletedOnServer shares it). */
 async function readFeed(host: DeletedListHost, client: DeletedListClient, worldId: string): Promise<DeletedView> {
-	const ids = new Set(host.settings.deletedOnServer?.[worldId] ?? []);
+	const { ids, hidden, leftView } = storedView(host, worldId);
 	const stored = host.settings.syncCursors?.[worldId];
 	const cursor = stored?.cursor;
 	// The session reads on from where its last walk ended, in memory only:
@@ -125,7 +158,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	const downloadRan = !session?.cursor || session.stored !== cursor;
 	let since = downloadRan ? cursor ?? session?.cursor : session.cursor;
 	let rewound = false;
-	let walk: { changes: { id: string; op: string }[]; cursor?: string | null; head?: number };
+	let walk: { changes: FeedChange[]; cursor?: string | null; head?: number };
 	for (;;) {
 		try {
 			walk = await client.changesWalk(since);
@@ -135,7 +168,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 			// (Kael's delta read, low 3).
 			const e = error as { status?: unknown; code?: unknown } | null;
 			const resync = e?.status === 409 && e?.code === "resync_required";
-			return { worldId, ids, known: false, reason: resync ? "resync" : "failed" };
+			return { worldId, ids, hidden, leftView, known: false, reason: resync ? "resync" : "failed" };
 		}
 		// A head below the one the session's last walk ended at: the server
 		// was restored since, and the session's cursor points past what it
@@ -154,38 +187,47 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	// delete at or below the old cursor would never show (Download compares
 	// heads the same way).
 	if (cursor && typeof stored?.head === "number" && typeof walk.head === "number" && walk.head < stored.head) {
-		return { worldId, ids, known: false, reason: "rewound" };
+		return { worldId, ids, hidden, leftView, known: false, reason: "rewound" };
 	}
 	const seen = (!rewound && session?.seen) || new Set<string>();
-	sessions.set(worldId, { cursor: walk.cursor ?? since, stored: cursor, head: walk.head, seen });
+	const seenHidden = (!rewound && session?.seenHidden) || new Set<string>();
+	sessions.set(worldId, { cursor: walk.cursor ?? since, stored: cursor, head: walk.head, seen, seenHidden });
 	if (!cursor) {
 		// No stored cursor: the view stays in memory, never written as a
 		// cursor or into the list (amended rule 2).
-		foldDeletes(seen, walk.changes);
+		foldDeletes(seen, seenHidden, leftView, walk.changes);
 		for (const id of seen) ids.add(id);
-		return { worldId, ids, known: true };
+		for (const id of seenHidden) hidden.add(id);
+		return { worldId, ids, hidden, leftView, known: true };
 	}
-	foldDeletes(ids, walk.changes);
-	host.settings.deletedOnServer = { ...(host.settings.deletedOnServer ?? {}), [worldId]: [...ids] };
+	foldDeletes(ids, hidden, leftView, walk.changes);
+	// The two lists stay apart: a hidden id is never on the deleted list (no
+	// delete review offers it back), and Download stubs its note (OW Infra #426).
+	host.settings.deletedOnServer = { ...(host.settings.deletedOnServer ?? {}), [worldId]: [...ids].filter((id) => !hidden.has(id) && !leftView.has(id)) };
+	host.settings.hiddenOnServer = { ...(host.settings.hiddenOnServer ?? {}), [worldId]: [...hidden] };
+	host.settings.leftView = { ...(host.settings.leftView ?? {}), [worldId]: [...leftView] };
 	try {
 		await host.saveSettings?.();
 	} catch {
 		/* the list is still right for this run */
 	}
-	return { worldId, ids, known: true };
+	return { worldId, ids, hidden, leftView, known: true };
 }
 
 /**
- * The stored list alone, no feed read: what auto-sync consults, so a save it
+ * The stored lists alone, no feed read: what auto-sync consults, so a save it
  * makes at every pause costs one `getWorld` and nothing more (Kael's third
- * read, 4). Empty when the world's id cannot be read.
+ * read, 4). `ids` holds the deleted and the hidden ids, `hidden` the hidden
+ * ones. Empty when the world's id cannot be read.
  */
-export async function storedDeleted(host: DeletedListHost, client: { getWorld(): Promise<Record<string, unknown>> }): Promise<Set<string>> {
+export async function storedDeleted(
+	host: DeletedListHost,
+	client: { getWorld(): Promise<Record<string, unknown>> }
+): Promise<{ ids: Set<string>; hidden: Set<string>; leftView: Set<string> }> {
 	try {
-		const worldId = String((await client.getWorld()).id ?? "");
-		return new Set(host.settings.deletedOnServer?.[worldId] ?? []);
+		return storedView(host, String((await client.getWorld()).id ?? ""));
 	} catch {
-		return new Set();
+		return { ids: new Set(), hidden: new Set(), leftView: new Set() };
 	}
 }
 
@@ -226,10 +268,11 @@ export async function forgetDeleted(host: DeletedListHost, worldId: string, crea
  * their Properties link to: a stale raw-id link is not a kept note (Kael's read,
  * h37 #7470). `latest` is the walk folded to one change per id, later ops winning.
  */
-export function keptDeleteCount(latest: Iterable<{ id: string; op: string }>, ownNoteIds: Set<string>): number {
+export function keptDeleteCount(latest: Iterable<FeedChange>, ownNoteIds: Set<string>): number {
 	let n = 0;
 	for (const change of latest) {
-		if (change.op === "delete" && ownNoteIds.has(change.id)) n++;
+		// A hidden row is counted apart, never as a delete (OW Infra #426).
+		if (change.op === "delete" && change.reason !== "hidden" && ownNoteIds.has(change.id)) n++;
 	}
 	return n;
 }

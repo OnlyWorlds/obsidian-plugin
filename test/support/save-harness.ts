@@ -21,6 +21,10 @@ export interface HarnessOpts {
 	bulkStatus?: (id: string) => number;
 	/** The plugin's stored deleted list for the world. */
 	deleted?: string[];
+	/** The plugin's stored hidden list for the world (OW Infra #426). */
+	hidden?: string[];
+	/** The plugin's stored left-view list for the world (OW Infra #426, Kael h37 #8212). */
+	leftView?: string[];
 	/** The stored (Download's) cursor for the world. */
 	cursor?: { cursor: string; head: number };
 	/** What the change feed reports from any cursor. */
@@ -75,6 +79,8 @@ export async function harnessSave(o: HarnessOpts) {
 	const settings = {
 		apiKey: "",
 		deletedOnServer: (o.deleted ? { [HARNESS_WID]: o.deleted } : {}) as Record<string, string[]>,
+		hiddenOnServer: (o.hidden ? { [HARNESS_WID]: o.hidden } : {}) as Record<string, string[]>,
+		leftView: (o.leftView ? { [HARNESS_WID]: o.leftView } : {}) as Record<string, string[]>,
 		syncCursors: (o.cursor ? { [HARNESS_WID]: o.cursor } : {}) as Record<string, { cursor: string; head: number }>,
 	};
 	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => client };

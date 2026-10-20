@@ -8,6 +8,7 @@ import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
+import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
 import { confirm } from '../Modals/ConfirmModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
@@ -100,6 +101,12 @@ const misnamedShown = new Set<string>();
 
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
+
+/** Note paths whose hidden refusal auto-sync has shown this session (OW Infra #426). */
+const hiddenShown = new Set<string>();
+
+/** Note paths whose left-view refusal auto-sync has shown this session (Kael's read, h37 #8212). */
+const leftViewShown = new Set<string>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
@@ -220,15 +227,26 @@ function strippedFirsts(plan: CreateFirstPlan): PendingCreate[] {
     return plan.firsts.map((f) => ({ ...f, payload: withoutLinks(f.type, f.payload, plan.leftOutIds) }));
 }
 
-/** The notice for links a save left out because their targets were deleted (N5). */
+/** The notice for links a save left out because their targets were deleted (N5) or hidden by the world's owner (OW Infra #426). */
 function leftOutNotice(plan: CreateFirstPlan): void {
-    if (plan.leftOut.length === 0) return;
-    const lines = plan.leftOut.map((i) => `${capitalize(i.type)} "${i.name}"`).join(', ');
-    new Notice(
-        `${lines} ${plan.leftOut.length === 1 ? 'was' : 'were'} deleted on onlyworlds.com: ` +
-            'the link is left out of this save, and the note keeps it.',
-        12000
-    );
+    const say = (items: CreateFirstItem[], why: string) => {
+        if (items.length === 0) return;
+        const lines = items.map((i) => `${capitalize(i.type)} "${i.name}"`).join(', ');
+        new Notice(`${lines} ${items.length === 1 ? 'was' : 'were'} ${why}: the link is left out of this save, and the note keeps it.`, 12000);
+    };
+    say(plan.leftOut.filter((i) => !i.hidden && !i.leftView), 'deleted on onlyworlds.com');
+    say(plan.leftOut.filter((i) => i.hidden), "hidden by the world's owner");
+    say(plan.leftOut.filter((i) => i.leftView), 'no longer in your view');
+}
+
+/**
+ * `{ hidden: true }` for an id the world's owner hid, `{ leftView: true }` for
+ * one a role reset left out of view, else nothing: a deleted item keeps its
+ * shape (OW Infra #426; Kael's read, h37 #8212).
+ */
+function hiddenMark(hidden: Set<string> | undefined, id: string, leftView?: Set<string>): { hidden?: true; leftView?: true } {
+    if (hidden?.has(id)) return { hidden: true };
+    return leftView?.has(id) ? { leftView: true } : {};
 }
 
 /** True when a server link value (an id, a list of ids, or stubs) already holds `id`. */
@@ -289,6 +307,7 @@ export class SaveElementCommand {
         // 2. Try v2 (frontmatter) first; fall back to v1 (span-tag) if no frontmatter id.
         let elementData: ElementData | null = null;
         const v2 = await readElement(this.app, activeFile);
+        if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
         if (v2 && v2.id) {
             // A fence that never closes swallowed the sections after it: the
             // note is refused, never sent cut short (round C, 1).
@@ -341,6 +360,7 @@ export class SaveElementCommand {
             console.error("Missing ID in parsed data:", elementData);
             return this.fail("Could not find element ID in the note after parsing.");
         }
+        if (!v2?.id && isHiddenId(this.plugin.settings, elementUuid)) return this.hiddenRefusal(activeFile, manual);
 
         // Remove ID from payload as it's in the URL path
         delete elementData.id;
@@ -399,7 +419,13 @@ export class SaveElementCommand {
                     // only on the user's word by Save Element
                     // (Kael's second read, N1). A 410 is keel saying this
                     // world deleted it: no feed read (OW Infra #403).
+                    // A note a role reset kept: keel answers its id 404, and
+                    // it is never created again (Kael's read, h37 #8212).
+                    if (!gone && isLeftViewId(this.plugin.settings, elementUuid)) return this.leftViewRefusal(activeFile, manual);
                     const view = gone ? null : await readDeletedOnServer(this.plugin, client);
+                    // The feed says the world's owner hid it: never created
+                    // again, never asked (OW Infra #426).
+                    if (view?.hidden.has(elementUuid)) return this.hiddenRefusal(activeFile, manual);
                     let recreated = false;
                     if (!view || view.ids.has(elementUuid)) {
                         if (!manual) {
@@ -458,7 +484,7 @@ export class SaveElementCommand {
                     // here or not (Kael's fixes read, low 4).
                     const plan = manual
                         ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view ?? undefined)
-                        : this.leftOutOf(worldName, type, payload, () => true, view?.ids ?? new Set());
+                        : this.leftOutOf(worldName, type, payload, () => true, view?.ids ?? new Set(), view?.hidden, view?.leftView);
                     if (!(await this.approveCreateFirst(String(label), plan))) {
                         return this.fail(stopMessage(plan), plan.refused ? 15000 : plan.overflow ? 12000 : undefined);
                     }
@@ -608,7 +634,7 @@ export class SaveElementCommand {
                     // fix round, item 8; Kael's delta read, E-8a).
                     view = view ?? (await readDeletedOnServer(this.plugin, client));
                     if (view.ids.has(id)) {
-                        leftOut.push({ type: 'element', name: id });
+                        leftOut.push({ type: 'element', name: id, ...hiddenMark(view.hidden, id, view.leftView) });
                         leftOutIds.push(id);
                     }
                     continue;
@@ -636,7 +662,14 @@ export class SaveElementCommand {
                 // yet counts too (second read, N3; delta read, low 1).
                 view = view ?? (await readDeletedOnServer(this.plugin, client));
                 if (view.ids.has(id)) {
-                    leftOut.push({ type: parsed.category, name: parsed.name });
+                    leftOut.push({ type: parsed.category, name: parsed.name, ...hiddenMark(view.hidden, id, view.leftView) });
+                    leftOutIds.push(id);
+                    continue;
+                }
+                // A stub is never created first, even with the hidden list
+                // lost: its fields are not the element's (OW Infra #426).
+                if (await this.isHidden(file, id)) {
+                    leftOut.push({ type: parsed.category, name: file.basename, hidden: true });
                     leftOutIds.push(id);
                     continue;
                 }
@@ -779,16 +812,23 @@ export class SaveElementCommand {
         keep: (key: string, id: string) => boolean
     ): Promise<CreateFirstPlan> {
         if (linkIdsOf(type, fields, keep).length === 0) return NO_PLAN;
-        return this.leftOutOf(worldName, type, fields, keep, await storedDeleted(this.plugin, client));
+        const stored = await storedDeleted(this.plugin, client);
+        return this.leftOutOf(worldName, type, fields, keep, stored.ids, stored.hidden, stored.leftView);
     }
 
-    /** The plan that leaves out the links of `fields` (narrowed by `keep`) to ids in `deleted`, each named by its note or its id. */
+    /**
+     * The plan that leaves out the links of `fields` (narrowed by `keep`) to ids
+     * in `deleted`, each named by its note or its id; those in `hidden` are
+     * named as hidden by the world's owner (OW Infra #426).
+     */
     private leftOutOf(
         worldName: string,
         type: string,
         fields: Record<string, unknown>,
         keep: (key: string, id: string) => boolean,
-        deleted: Set<string>
+        deleted: Set<string>,
+        hidden?: Set<string>,
+        leftView?: Set<string>
     ): CreateFirstPlan {
         const hit = [...new Set(linkIdsOf(type, fields, keep))].filter((id) => deleted.has(id));
         if (hit.length === 0) return NO_PLAN;
@@ -796,9 +836,33 @@ export class SaveElementCommand {
         const leftOut = hit.map((id) => {
             const file = index.get(id);
             const cat = file ? this.extractPathInfo(file.path)?.category.toLowerCase() : undefined;
-            return { type: cat ?? 'element', name: file?.basename ?? id };
+            return { type: cat ?? 'element', name: file?.basename ?? id, ...hiddenMark(hidden, id, leftView) };
         });
         return { firsts: [], leftOut, leftOutIds: hit };
+    }
+
+    /** True when the note is a stub, or its id is on a hidden list: never sent (OW Infra #426). */
+    private async isHidden(file: TFile, id: string): Promise<boolean> {
+        if (isHiddenId(this.plugin.settings, id)) return true;
+        try {
+            return isStubNote(await this.app.vault.read(file));
+        } catch {
+            return false;
+        }
+    }
+
+    /** A save of a note a role reset kept: refused and said; auto-sync says it once a session per note. */
+    private leftViewRefusal(file: TFile, manual: boolean): SaveResult {
+        if (!manual && leftViewShown.has(file.path)) return { ok: false, reason: LEFT_VIEW_NOT_SAVED };
+        if (!manual) leftViewShown.add(file.path);
+        return this.fail(LEFT_VIEW_NOT_SAVED, 8000);
+    }
+
+    /** A save of a hidden element: refused and said; auto-sync says it once a session per note. */
+    private hiddenRefusal(file: TFile, manual: boolean): SaveResult {
+        if (!manual && hiddenShown.has(file.path)) return { ok: false, reason: HIDDEN_NOT_SAVED };
+        if (!manual) hiddenShown.add(file.path);
+        return this.fail(HIDDEN_NOT_SAVED, 8000);
     }
 
     /** The file names (lower case) of this world's element notes, for the unresolved-link notice. */

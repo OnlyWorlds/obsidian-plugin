@@ -41,6 +41,12 @@ export interface V2Change {
     change_seq: number;
     updated_at: string;
     element?: Record<string, unknown>;
+    /**
+     * On a delete row while keel's hidden mark is on (D124): `deleted` (a
+     * tombstone) or `hidden` (the world's owner hid it from this reader:
+     * sync/hidden-on-server.ts). Absent with the mark off.
+     */
+    reason?: string;
 }
 
 export interface V2ChangesPage {
@@ -57,13 +63,20 @@ export class V2ApiError extends Error {
     status: number;
     code: string;
     docUrl: string | null;
+    /**
+     * Why keel answered so, when it says: the 409 `resync_required` carries
+     * `role` or `view` while the hidden mark is on (D127). Read inside the
+     * error envelope or beside it; null when neither holds a string.
+     */
+    reason: string | null;
 
-    constructor(status: number, code: string, message: string, docUrl: string | null) {
+    constructor(status: number, code: string, message: string, docUrl: string | null, reason: string | null = null) {
         super(message);
         this.name = "V2ApiError";
         this.status = status;
         this.code = code;
         this.docUrl = docUrl;
+        this.reason = reason;
     }
 }
 
@@ -110,19 +123,23 @@ export class V2Client {
             let code = `http_${response.status}`;
             let message = `API error ${response.status}`;
             let docUrl: string | null = null;
+            let reason: string | null = null;
             try {
                 const parsed = JSON.parse(response.text);
                 if (parsed && typeof parsed === "object" && parsed.error) {
                     code = parsed.error.code ?? code;
                     message = parsed.error.message ?? message;
                     docUrl = parsed.error.doc_url ?? null;
+                    const envelope = parsed as { reason?: unknown; error: { reason?: unknown } };
+                    const why = envelope.error.reason ?? envelope.reason;
+                    reason = typeof why === "string" ? why : null;
                 } else if (response.text) {
                     message += `: ${response.text}`;
                 }
             } catch {
                 if (response.text) message += `: ${response.text}`;
             }
-            throw new V2ApiError(response.status, code, message, docUrl);
+            throw new V2ApiError(response.status, code, message, docUrl, reason);
         }
 
         if (response.status === 204) {

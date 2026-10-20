@@ -37,6 +37,29 @@ export interface OnlyWorldsPluginSettings {
 	deletedOnServer: Record<string, string[]>;
 
 	/**
+	 * Per world id: element ids the world's owner hid from this reader (a feed
+	 * delete row with reason `hidden`, or a 409 with reason `view` whose walk no
+	 * longer names them). Download keeps each note as a stub; a save or an
+	 * upload never sends the id (OW Infra #426, sync/hidden-on-server.ts).
+	 */
+	hiddenOnServer: Record<string, string[]>;
+
+	/**
+	 * Per world id: the element ids Download's walks found on the server, so a
+	 * 409 with reason `view` stubs only notes whose element was there, never a
+	 * note made here and not yet saved (OW Infra #426).
+	 */
+	knownOnServer: Record<string, string[]>;
+
+	/**
+	 * Per world id: element ids a role (or no-reason) reset's walk no longer
+	 * named. Their notes are kept, the person's now: keel answers the id 404, and
+	 * a save or an upload never creates it again. An upsert of the id later
+	 * takes it off (Kael's read, h37 #8212).
+	 */
+	leftView: Record<string, string[]>;
+
+	/**
 	 * An OnlyWorlds account token (`ow_a_`), kept like the API key (masked in
 	 * the UI), and the username it signed in as. Empty: not signed in, and every
 	 * command works as it did before accounts (key and PIN per world).
@@ -93,6 +116,9 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 
 	syncCursors: {},
 	deletedOnServer: {},
+	hiddenOnServer: {},
+	knownOnServer: {},
+	leftView: {},
 
 	accountToken: "",
 	accountUsername: "",

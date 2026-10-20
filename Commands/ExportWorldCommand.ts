@@ -8,12 +8,13 @@ import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { readElement, unclosedFenceMessage } from '../vault/element-file';
-import { isSpanFormat } from '../vault/element-transform';
+import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
 import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
+import { isStubNote } from '../sync/hidden-on-server';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,6 +31,10 @@ export class ExportWorldCommand {
     private ambiguousLinks: string[] = [];
     /** Notes this sweep does not send whole (an unclosed code fence), each with why (round C, 1). */
     private refusedNotes: string[] = [];
+    /** The ids of this sweep's stubs: notes of elements hidden by the world's owner, never sent (OW Infra #426). */
+    private stubIds = new Set<string>();
+    /** Each stub's `Type "note name"`, to name a link left out to it. */
+    private stubNames = new Map<string, string>();
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
@@ -161,6 +166,27 @@ export class ExportWorldCommand {
             }
             for (const [id, op] of latestOp) if (op === 'upsert') serverIds.add(id);
 
+            // Hidden by the world's owner (OW Infra #426): a hidden row's id,
+            // an id on a hidden list the walk does not show again, and every
+            // stub. Never created, never updated, and links to them left out.
+            const hiddenIds = new Set<string>(this.stubIds);
+            for (const change of walk.changes) {
+                if (change.op === 'delete' && change.reason === 'hidden') hiddenIds.add(change.id);
+                else if (!this.stubIds.has(change.id)) hiddenIds.delete(change.id);
+            }
+            for (const list of Object.values(this.plugin?.settings.hiddenOnServer ?? {})) {
+                for (const id of list) if (latestOp.get(id) !== 'upsert') hiddenIds.add(id);
+            }
+            let hiddenSkipped = this.stubIds.size;
+            // Kept by a role (or no-reason) reset: keel answers the id 404, and
+            // the note is never created again until the feed names it (Kael's
+            // read, h37 #8212).
+            const leftViewIds = new Set<string>();
+            for (const list of Object.values(this.plugin?.settings.leftView ?? {})) {
+                for (const id of list) if (!latestOp.has(id) && !hiddenIds.has(id)) leftViewIds.add(id);
+            }
+            let leftViewSkipped = 0;
+
             // Partition local elements.
             const toCreate: { type: string; element: Record<string, unknown> }[] = [];
             const toUpdate: { type: string; id: string; payload: Record<string, unknown> }[] = [];
@@ -173,6 +199,14 @@ export class ExportWorldCommand {
                     const element = toV2Payload(raw as Record<string, unknown>);
                     const id = element.id ? String(element.id) : null;
                     if (!id) continue; // no identity — validator should have caught it
+                    if (hiddenIds.has(id)) {
+                        hiddenSkipped++;
+                        continue;
+                    }
+                    if (leftViewIds.has(id)) {
+                        leftViewSkipped++;
+                        continue;
+                    }
                     if (serverIds.has(id)) {
                         const { id: _id, ...patchFields } = element;
                         toUpdate.push({ type, id, payload: patchFields });
@@ -204,7 +238,7 @@ export class ExportWorldCommand {
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
             // without the user's word (Kael's second read, N4).
-            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, guarded);
+            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, guarded, new Set([...hiddenIds, ...leftViewIds]));
             for (const id of leftOut.ids) {
                 const at = toCreate.findIndex(i => String(i.element.id) === id);
                 if (at >= 0) toCreate.splice(at, 1);
@@ -216,7 +250,7 @@ export class ExportWorldCommand {
             // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
             const strippedTargets = new Set<string>();
-            const stripIds = [...leftOut.deleted].filter(id => !leftOut.recreate.has(id));
+            const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds, ...leftViewIds];
             if (stripIds.length > 0) {
                 const strip = (type: string, fields: Record<string, unknown>) => {
                     const out = withoutLinks(type, fields, stripIds);
@@ -231,7 +265,9 @@ export class ExportWorldCommand {
                 for (const item of toCreate) item.element = strip(item.type, item.element);
                 for (const item of toUpdate) item.payload = strip(item.type, item.payload);
             }
-            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? feedName.get(id) ?? `an element deleted there (${id})`);
+            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? this.stubNames.get(id) ?? feedName.get(id)
+                ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})`
+                    : leftViewIds.has(id) ? `an element no longer in your view (${id})` : `an element deleted there (${id})`));
 
             // Progress feedback — the sweep can run for a minute on a big world.
             new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
@@ -309,6 +345,12 @@ export class ExportWorldCommand {
             if (linksStripped > 0) {
                 summary += ` Links to ${strippedNames.join(', ')} left out of ${linksStripped} note${linksStripped === 1 ? '' : 's'}.`;
             }
+            if (hiddenSkipped > 0) {
+                summary += ` ${hiddenSkipped} note${hiddenSkipped === 1 ? '' : 's'} hidden by the world's owner ${hiddenSkipped === 1 ? 'was' : 'were'} not sent.`;
+            }
+            if (leftViewSkipped > 0) {
+                summary += ` ${leftViewSkipped} note${leftViewSkipped === 1 ? '' : 's'} no longer in your view ${leftViewSkipped === 1 ? 'was' : 'were'} not sent.`;
+            }
             new Notice(summary, 8000);
             if (leftOut.names.length > 0) {
                 new Notice(`Left out, deleted on onlyworlds.com: ${leftOut.names.join(', ')}. Their notes are kept.`, 12000);
@@ -347,6 +389,8 @@ export class ExportWorldCommand {
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
         this.refusedNotes = [];
+        this.stubIds = new Set();
+        this.stubNames = new Map();
         const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};
     
@@ -380,6 +424,16 @@ export class ExportWorldCommand {
                     // span notes still fall through to the span parser so a mixed,
                     // partly-migrated world uploads correctly either way.
                     const fileContent = await fs.read(file.path);
+                    if (isStubNote(fileContent)) {
+                        // Hidden by the world's owner: the stub holds no field
+                        // of the element, and is never sent (OW Infra #426).
+                        const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
+                        if (id) {
+                            this.stubIds.add(id);
+                            this.stubNames.set(id, `${category} "${file.basename}"`);
+                        }
+                        return {};
+                    }
                     if (!isSpanFormat(fileContent) && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
                         // id rides OUTSIDE parsed.fields — without it the upload
@@ -430,7 +484,8 @@ export class ExportWorldCommand {
         latestOp: Map<string, string>,
         serverIds: Set<string>,
         toCreate: { type: string; element: Record<string, unknown> }[],
-        guardedIds: Set<string>
+        guardedIds: Set<string>,
+        hiddenIds: Set<string> = new Set()
     ): Promise<{ ids: string[]; names: string[]; recreate: Set<string>; worldId: string; deleted: Set<string>; nameOf: Map<string, string> }> {
         const none = { ids: [], names: [], recreate: new Set<string>(), worldId: '', deleted: new Set<string>(), nameOf: new Map<string, string>() };
         let worldId = '';
@@ -447,6 +502,8 @@ export class ExportWorldCommand {
             if (op === 'delete') deleted.add(id);
             else deleted.delete(id);
         }
+        // A hidden id is never offered back, nor kept on the deleted list (OW Infra #426).
+        for (const id of hiddenIds) deleted.delete(id);
         if (worldId && this.plugin) {
             // Kept: only ids with a note in this vault or linked from one, the
             // ones the list guards (Kael's third read, 4; the fix round, item 8).

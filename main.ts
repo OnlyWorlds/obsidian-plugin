@@ -152,8 +152,8 @@ export default class OnlyWorldsPlugin extends Plugin {
         const drawRelationshipsCommand = new DrawRelationshipsCommand(this.app, () => this.settings.canvasIncomingLinks !== false);
         const joinWorldCommand = new JoinWorldCommand(this.app, this, downloadWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
-        const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest);
-        const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService);
+        const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest, this);
+        const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService, this);
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest, this);
         const saveElementCommand = new SaveElementCommand(this.app, this);
 
@@ -273,7 +273,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       },
   });
 
-    const exportFolderCommand = new ExportFolderCommand(this.app);
+    const exportFolderCommand = new ExportFolderCommand(this.app, this);
     this.addCommand({
       id: 'export-onlyworlds-folder',
       name: 'Export as OnlyWorlds folder',
