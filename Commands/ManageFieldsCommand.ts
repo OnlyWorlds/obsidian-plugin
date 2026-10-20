@@ -14,7 +14,9 @@ import {
 	joinNote,
 	serializeFrontmatter,
 	appendBodySection,
+	bodySpans,
 } from '../vault/element-transform';
+import { isKnownOfNote } from '../sync/known-of';
 
 /**
  * Base identity keys are never offered for removal: name/id ARE the element,
@@ -126,7 +128,12 @@ export class ManageFieldsCommand {
 	): Promise<void> {
 		const content = await this.app.vault.read(file);
 		const fmBlock = extractFrontmatterBlock(content);
-		const body = stripFrontmatterBlock(content);
+		const whole = stripFrontmatterBlock(content);
+		// A known-of note's line and the person's text above its first field
+		// stay where they are, byte for byte, and are no field's text (h37
+		// #8936, 5).
+		const kept = isKnownOfNote(content) ? whole.slice(0, bodySpans(whole)[0].end) : '';
+		const body = whole.slice(kept.length);
 		const parsed = parseElementBody(body, category);
 		// A dialog opened before the fence was typed open: still refused.
 		if (refusedForFence(file, category, content, body, parsed)) return;
@@ -191,7 +198,7 @@ export class ManageFieldsCommand {
 		}
 		// The body ends as writeElement ends it (one newline after the last
 		// section), so the last value reads back exactly (OW Infra #166 row 16).
-		const finalContent = joinNote(serializeFrontmatter(fmOut), `${newBody}\n`);
+		const finalContent = joinNote(serializeFrontmatter(fmOut), `${kept}${newBody}\n`);
 		if (finalContent !== current) {
 			this.markSelfWrite?.(file.path);
 			await this.app.vault.modify(file, finalContent);

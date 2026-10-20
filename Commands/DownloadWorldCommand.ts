@@ -26,7 +26,7 @@ import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 import { keptDeleteCount } from '../sync/deleted-on-server';
 import { hiddenNotices, planHidden, resyncReasonOf, stubNote, type ResyncReason } from '../sync/hidden-on-server';
-import { isKnownOfElement, knownOfKeptText, knownOfNotices, knownOfWrite, noteStateOf, type NoteState } from '../sync/known-of';
+import { isKnownOfElement, knownOfKeptText, knownOfNotices, knownOfWrite, nextLastKnown, noteStateOf, type NoteState } from '../sync/known-of';
 
 export class DownloadWorldCommand {
     app: App;
@@ -261,6 +261,12 @@ export class DownloadWorldCommand {
                             ...(this.plugin.settings.leftView ?? {}),
                             [worldId]: [...hidden.leftView].filter(id => local.has(id)),
                         };
+                        // Whole notes kept over a stub: never sent while keel
+                        // serves a stub for them (h37 #8936, 4).
+                        this.plugin.settings.lastKnown = {
+                            ...(this.plugin.settings.lastKnown ?? {}),
+                            [worldId]: nextLastKnown(this.plugin.settings.lastKnown?.[worldId] ?? [], knownOf.kept, knownOf.written),
+                        };
                         await this.plugin.saveSettings();
                     }
 
@@ -470,18 +476,19 @@ export class DownloadWorldCommand {
      * Write the pulled elements' notes. `resync` is the reason of the 409 that
      * forced this walk from the start, if any: a known-of stub replaces a whole
      * note only after a `view` reset (the folder spec §4.4 rule 5, OW Infra
-     * #454). Returns how many notes became known of, and how many whole notes
-     * were kept as last known.
+     * #454). Returns how many notes became known of, the ids of whole notes
+     * kept as last known, and the ids written.
      */
     async generateElementNotes(
         worldFolderPath: string,
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[] }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
+        const kept: string[] = [];
 
         // Extract the (unique) world name once — used both for the id->name map's
         // disk fallback and per-category below.
@@ -550,6 +557,7 @@ export class DownloadWorldCommand {
                     const write = knownOfWrite(element, state, opts.resync ?? null);
                     if (write === 'keep') {
                         keptWhole++;
+                        kept.push(String((element as { id?: unknown }).id));
                         continue;
                     }
                     knownOf = true;
@@ -648,7 +656,7 @@ export class DownloadWorldCommand {
                 );
             }
         }
-        return { became, keptWhole };
+        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)) };
     }
 
     /**

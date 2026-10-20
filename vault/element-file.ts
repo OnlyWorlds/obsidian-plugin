@@ -25,9 +25,8 @@ import {
 	AMBIGUOUS_LINK,
 	likelyLinkField,
 	bodyTextFields,
-	isEmptyFieldValue,
 } from "./element-transform";
-import { KNOWN_OF_KEY, KNOWN_OF_LINE, isKnownOfNote, knownOfKept, withoutKnownOfLine } from "../sync/known-of";
+import { KNOWN_OF_KEY, KNOWN_OF_LINE, isKnownOfNote, knownOfKept, knownOfOwnSections, noteStateOf, withoutKnownOfLine } from "../sync/known-of";
 
 /**
  * Element file format (v2 / frontmatter).
@@ -406,7 +405,7 @@ export async function writeElement(
 		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string")
 		.map(([k]) => k);
 	const bodyValue = knownOf
-		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !isEmptyFieldValue(data[k])))
+		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data))
 		: buildElementBody(data, cat, customTextFields);
 
 	const folder = opts.folderPath
@@ -441,10 +440,17 @@ export async function writeElement(
 		resolveIdToName: opts.idToName ?? buildIdToNameResolver(app, worldName),
 		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
 	});
-	// The mark sits under the id, where the Properties panel shows it first.
-	const fm: Record<string, unknown> = knownOf
-		? { name: built.name, id: built.id, [KNOWN_OF_KEY]: true, ...built }
-		: built;
+	// The mark sits under the id, where the Properties panel shows it first;
+	// the stub's base keys follow, written even when empty, as the reference
+	// writers write them (h37 #8936, 6).
+	let fm: Record<string, unknown> = built;
+	if (knownOf) {
+		fm = { name: built.name, id: built.id, [KNOWN_OF_KEY]: true };
+		for (const k of ["supertype", "subtype", "image_url"]) {
+			if (k in data) fm[k] = k in built ? built[k] : data[k];
+		}
+		for (const [k, v] of Object.entries(built)) if (!(k in fm)) fm[k] = v;
+	}
 
 	// ★ ONE write for the whole note — frontmatter AND body together.
 	//
@@ -468,10 +474,12 @@ export async function writeElement(
 	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY]);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
+	// A stub replacing a whole copy (a view reset) keeps none of its extension
+	// values: they are the element's, and a stub carries only what it keeps.
+	// Over a known-of note they are the person's own, and stay (h37 #8936, 3).
+	const replacesWhole = knownOf && noteStateOf(content) === "whole";
 	for (const [k, v] of Object.entries(existingFm)) {
-		// A stub replacing a whole copy keeps none of its extension values:
-		// they are the element's, and a stub carries only what it keeps.
-		if (knownOf && isExtensionKey(k)) continue;
+		if (replacesWhole && isExtensionKey(k)) continue;
 		if (!ownedKeys.has(k)) preserved[k] = v;
 	}
 	const merged: Record<string, unknown> = { ...fm };
@@ -482,7 +490,11 @@ export async function writeElement(
 	// The kept text, then one blank line before the first heading.
 	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";
 	// A stub with no field to show is the line and the person's writing alone.
-	const sections = bodyValue ? `${above}${gap}${bodyValue}\n` : above;
+	let sections = bodyValue ? `${above}${gap}${bodyValue}\n` : above;
+	// The person's own sections of a known-of note follow the fields, byte for
+	// byte, whether the stub arrives again or whole (h37 #8936, 3).
+	const own = knownOfOwnSections(content, cat, data);
+	if (own) sections = `${sections}${!sections || sections.endsWith("\n\n") ? "" : sections.endsWith("\n") ? "\n" : "\n\n"}${own}`;
 	const body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {

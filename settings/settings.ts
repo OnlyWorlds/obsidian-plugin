@@ -58,6 +58,14 @@ export interface OnlyWorldsPluginSettings {
 	 * takes it off (Kael's read, h37 #8212).
 	 */
 	leftView: Record<string, string[]>;
+	/**
+	 * Per world id: whole notes kept as last known when their element arrived
+	 * as a known-of stub after a role reset, or with none (the folder spec §4.4
+	 * rule 5). keel now serves a stub for them, so a save or an upload never
+	 * sends them; the id leaves the list when the element arrives whole or the
+	 * note becomes a stub (OW Infra #454, h37 #8936, 4).
+	 */
+	lastKnown: Record<string, string[]>;
 
 	/**
 	 * An OnlyWorlds account token (`ow_a_`), kept like the API key (masked in
@@ -119,6 +127,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	hiddenOnServer: {},
 	knownOnServer: {},
 	leftView: {},
+	lastKnown: {},
 
 	accountToken: "",
 	accountUsername: "",

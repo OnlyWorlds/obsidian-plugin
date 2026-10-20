@@ -24,7 +24,7 @@
  * The kept keys are never listed here: a stub keeps every key whose value is
  * not an unset one, whatever keel decides a stub keeps.
  */
-import { isEmptyFieldValue, parseRawFrontmatterScalars, splitNote, bodySpans } from "../vault/element-transform";
+import { bodySpans, bodyTextFields, headingToFieldKey, parseRawFrontmatterScalars, splitNote } from "../vault/element-transform";
 import { isStubNote, stubKeptText, type ResyncReason } from "./hidden-on-server";
 
 /** The frontmatter key (and wire key) that marks a stub. */
@@ -34,7 +34,14 @@ export const KNOWN_OF_KEY = "known_of";
 export const KNOWN_OF_LINE = "Known of: you know of this element, not all of it. A field not shown here is unknown, not empty.";
 
 /** What a save of a known-of note says (Save Element always; auto-sync once a session per note). */
-export const KNOWN_OF_NOT_SAVED = "Known of: your edits to this note stay in this vault.";
+export const KNOWN_OF_NOT_SAVED = "Known of: this note is not sent. What you add to it stays in this vault; its fields follow the next Download.";
+
+/**
+ * What a save of a whole note kept as last known says (rule 5, a role reset
+ * or none): keel now serves its element as a stub, and the note is the
+ * person's record of what they had (h37 #8936, 4).
+ */
+export const LAST_KNOWN_NOT_SAVED = "Known of now: this note keeps what you knew in full, and is not sent.";
 
 /** True when a wire element (a feed row's element, a pasted or folder element) is a known-of stub. */
 export function isKnownOfElement(element: unknown): boolean {
@@ -42,14 +49,28 @@ export function isKnownOfElement(element: unknown): boolean {
 }
 
 /**
- * A stub's kept keys: every key but `known_of` whose value is not an unset
- * one. `id` and `name` always stay (a note's identity). Rule 1.
+ * The keys every stub keeps, written even when empty (keel's `KNOWN_OF_BASE`;
+ * ow-folder-store's `knownOfBody` and Python's `known_of_for_disk` write the
+ * same set: h37 #8936, 6). A note holds the six of them that are note keys.
+ */
+export const KNOWN_OF_KEEPS: ReadonlySet<string> = new Set([
+	"id", "type", "name", "description", "supertype", "subtype", "image_url", "created_at", "updated_at", "change_seq",
+]);
+
+/** A value is anything but "", null and []: 0, false and whitespace are values (the reference writers' `_is_set`). */
+export function isSetValue(value: unknown): boolean {
+	return !(value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0));
+}
+
+/**
+ * A stub's kept keys: every KNOWN_OF_KEEPS key, and every other key but
+ * `known_of` whose value is set. Rule 1, as the reference writers read it.
  */
 export function knownOfKept(element: Record<string, unknown>): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(element)) {
 		if (k === KNOWN_OF_KEY) continue;
-		if (k === "id" || k === "name" || !isEmptyFieldValue(v)) out[k] = v;
+		if (KNOWN_OF_KEEPS.has(k) || isSetValue(v)) out[k] = v;
 	}
 	return out;
 }
@@ -68,8 +89,10 @@ function linesOf(text: string): string[] {
 export function isKnownOfNote(content: string): boolean {
 	const { frontmatter, body } = splitNote(content);
 	if (!frontmatter) return false;
-	const fm = parseRawFrontmatterScalars(frontmatter, ["id", KNOWN_OF_KEY]);
-	if (fm[KNOWN_OF_KEY] === "true") return true;
+	// YAML true as the plugin's reader (js-yaml 4, the core schema) reads it:
+	// `true`, `True` or `TRUE`, unquoted, a comment allowed after it (h37 #8936, 7).
+	if (/^known_of[ \t]*:[ \t]*(?:true|True|TRUE)[ \t]*(?:#.*)?\r?$/m.test(frontmatter)) return true;
+	const fm = parseRawFrontmatterScalars(frontmatter, ["id"]);
 	return !!fm.id && linesOf(body).includes(KNOWN_OF_LINE);
 }
 
@@ -100,6 +123,39 @@ export function knownOfKeptText(content: string): string {
 	}
 	kept = withoutKnownOfLine(kept);
 	return kept.trim() ? kept : "";
+}
+
+/**
+ * The sections of a known-of note that are the person's own, byte for byte:
+ * every `###` section whose heading names no text field of the type, and no
+ * custom field `data` carries (`### Looks` when `x_looks` arrives). The next
+ * write of the note puts them back after its fields, as stubBody keeps a
+ * hidden stub's (h37 #8936, 3). "" for any other note.
+ */
+export function knownOfOwnSections(content: string, category: string, data: Record<string, unknown> = {}): string {
+	if (!isKnownOfNote(content) || isStubNote(content)) return "";
+	const body = splitNote(content).body;
+	const fields = new Set(bodyTextFields(category));
+	let out = "";
+	for (const span of bodySpans(body)) {
+		if (span.heading === null) continue;
+		const key = headingToFieldKey(span.heading);
+		if (fields.has(key) || `x_${key}` in data) continue;
+		out += body.slice(span.start, span.end);
+	}
+	return out;
+}
+
+/** True when any world's last-known list holds `id` (a whole note kept over a stub). */
+export function isLastKnownId(settings: { lastKnown?: Record<string, string[]> }, id: string): boolean {
+	return Object.values(settings.lastKnown ?? {}).some((list) => list.includes(id));
+}
+
+/** The world's last-known list after a pull: the stored ids and those kept now, less every id the pull wrote. */
+export function nextLastKnown(stored: Iterable<string>, kept: Iterable<string>, written: Iterable<string>): string[] {
+	const out = new Set([...stored, ...kept]);
+	for (const id of written) out.delete(id);
+	return [...out];
 }
 
 /** What a note here is, as a known-of write reads it. */
@@ -138,7 +194,7 @@ export function knownOfNotices(became: number, keptWhole: number): string[] {
 	const out: string[] = [];
 	if (became > 0) {
 		out.push(
-			`${became} element${became === 1 ? " is" : "s are"} known of: ${became === 1 ? "its note shows" : "their notes show"} only what you know, and edits to ${became === 1 ? "it" : "them"} stay in this vault.`
+			`${became} element${became === 1 ? " is" : "s are"} known of: ${became === 1 ? "its note shows" : "their notes show"} only what you know, and what you add to ${became === 1 ? "it" : "them"} stays in this vault.`
 		);
 	}
 	if (keptWhole > 0) {

@@ -15,7 +15,7 @@ import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
 import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
-import { isKnownOfNote } from '../sync/known-of';
+import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -38,6 +38,8 @@ export class ExportWorldCommand {
     private stubNames = new Map<string, string>();
     /** The ids of this sweep's known-of notes: never sent (OW Infra #454). */
     private knownOfIds = new Set<string>();
+    /** Each known-of note's `Type "note name"`, to name a link left out to it. */
+    private knownOfNames = new Map<string, string>();
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
@@ -189,6 +191,7 @@ export class ExportWorldCommand {
                 for (const id of list) if (!latestOp.has(id) && !hiddenIds.has(id)) leftViewIds.add(id);
             }
             let leftViewSkipped = 0;
+            let lastKnownSkipped = 0;
 
             // Partition local elements.
             const toCreate: { type: string; element: Record<string, unknown> }[] = [];
@@ -208,6 +211,13 @@ export class ExportWorldCommand {
                     }
                     if (leftViewIds.has(id)) {
                         leftViewSkipped++;
+                        continue;
+                    }
+                    // A whole note kept as last known over a stub keel now
+                    // serves: never sent, counted with the known-of notes
+                    // (h37 #8936, 4).
+                    if (this.plugin && isLastKnownId(this.plugin.settings, id)) {
+                        lastKnownSkipped++;
                         continue;
                     }
                     if (serverIds.has(id)) {
@@ -253,7 +263,11 @@ export class ExportWorldCommand {
             // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
             const strippedTargets = new Set<string>();
-            const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds, ...leftViewIds];
+            // A known-of note keel does not serve (out of view, or never on
+            // this world's server): a link to it is refused, so it is left out
+            // (h37 #8936, 2). One keel serves stays linked.
+            const knownOfAbsent = [...this.knownOfIds].filter(id => !serverIds.has(id));
+            const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds, ...leftViewIds, ...knownOfAbsent];
             if (stripIds.length > 0) {
                 const strip = (type: string, fields: Record<string, unknown>) => {
                     const out = withoutLinks(type, fields, stripIds);
@@ -268,7 +282,7 @@ export class ExportWorldCommand {
                 for (const item of toCreate) item.element = strip(item.type, item.element);
                 for (const item of toUpdate) item.payload = strip(item.type, item.payload);
             }
-            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? this.stubNames.get(id) ?? feedName.get(id)
+            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? this.stubNames.get(id) ?? this.knownOfNames.get(id) ?? feedName.get(id)
                 ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})`
                     : leftViewIds.has(id) ? `an element no longer in your view (${id})` : `an element deleted there (${id})`));
 
@@ -354,9 +368,9 @@ export class ExportWorldCommand {
             if (leftViewSkipped > 0) {
                 summary += ` ${leftViewSkipped} note${leftViewSkipped === 1 ? '' : 's'} no longer in your view ${leftViewSkipped === 1 ? 'was' : 'were'} not sent.`;
             }
-            const knownOfSkipped = this.knownOfIds.size;
+            const knownOfSkipped = this.knownOfIds.size + lastKnownSkipped;
             if (knownOfSkipped > 0) {
-                summary += ` ${knownOfSkipped} known-of note${knownOfSkipped === 1 ? ' was' : 's were'} not sent; edits to ${knownOfSkipped === 1 ? 'it' : 'them'} stay in this vault.`;
+                summary += ` ${knownOfSkipped} known-of note${knownOfSkipped === 1 ? ' was' : 's were'} not sent.`;
             }
             new Notice(summary, 8000);
             if (leftOut.names.length > 0) {
@@ -399,6 +413,7 @@ export class ExportWorldCommand {
         this.stubIds = new Set();
         this.stubNames = new Map();
         this.knownOfIds = new Set();
+        this.knownOfNames = new Map();
         const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};
     
@@ -437,7 +452,10 @@ export class ExportWorldCommand {
                         // (the folder spec §4.4 rule 3, OW Infra #454). Links to
                         // it are real and travel; it is counted in the summary.
                         const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
-                        if (id) this.knownOfIds.add(id);
+                        if (id) {
+                            this.knownOfIds.add(id);
+                            this.knownOfNames.set(id, `${category} "${file.basename}"`);
+                        }
                         return {};
                     }
                     if (isStubNote(fileContent)) {

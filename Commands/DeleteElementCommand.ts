@@ -4,6 +4,9 @@ import { readElement } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { V2ApiError } from '../client-v2';
 
+/** What removing a known-of note says (OW Infra #454). */
+export const KNOWN_OF_DELETED = 'Note moved to trash. It was known of, so nothing was deleted on onlyworlds.com.';
+
 /**
  * Delete the active element note's element from onlyworlds.com, then move the
  * note to trash. Human-gated by design: a typed-name confirm modal, one element
@@ -52,6 +55,17 @@ export class DeleteElementCommand {
             return;
         }
 
+        // A known-of note is a stub of an element this reader only knows of:
+        // removing it is local, never a DELETE on onlyworlds.com (OW Infra
+        // #454, h37 #8936, 8). Before the read-key refusal: a player with a
+        // read key may still remove a note of their own vault.
+        if (v2?.knownOf) {
+            new DeleteConfirmModal(this.app, elementName, category, 'known-of', () => {
+                void this.app.fileManager.trashFile(activeFile).then(() => new Notice(KNOWN_OF_DELETED, 8000));
+            }).open();
+            return;
+        }
+
         // Resolve BEFORE the modal so its wording tells the truth: a local-only
         // world's delete touches nothing on onlyworlds.com.
         const preResolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
@@ -64,7 +78,7 @@ export class DeleteElementCommand {
             return;
         }
 
-        new DeleteConfirmModal(this.app, elementName, category, isLocalWorld, async () => {
+        new DeleteConfirmModal(this.app, elementName, category, isLocalWorld ? 'local' : 'server', async () => {
             const resolved = await resolveWorldKey(this.app, worldName, this.plugin.settings.apiKey);
             if (resolved.source === 'local-world') {
                 // Local-only world: nothing exists server-side; just trash the note.
@@ -122,27 +136,30 @@ export class DeleteElementCommand {
 class DeleteConfirmModal extends Modal {
     private elementName: string;
     private category: string;
-    private isLocalWorld: boolean;
+    /** `server`: the element is deleted there; `local`: a local-only world; `known-of`: a known-of note, removed here only. */
+    private reach: 'server' | 'local' | 'known-of';
     private onConfirm: () => void;
 
-    constructor(app: App, elementName: string, category: string, isLocalWorld: boolean, onConfirm: () => void) {
+    constructor(app: App, elementName: string, category: string, scope: 'server' | 'local' | 'known-of', onConfirm: () => void) {
         super(app);
         this.elementName = elementName;
         this.category = category;
-        this.isLocalWorld = isLocalWorld;
+        this.reach = scope;
         this.onConfirm = onConfirm;
     }
 
     onOpen() {
         const { contentEl } = this;
         contentEl.createEl('h3', { text: `Delete ${this.category} "${this.elementName}"?` });
-        contentEl.createEl('p', { text: this.isLocalWorld
+        contentEl.createEl('p', { text: this.reach === 'known-of'
+            ? 'This moves the note to trash. You only know of this element, so nothing is deleted on onlyworlds.com.'
+            : this.reach === 'local'
             ? 'This moves the note to trash (local-only world — nothing exists on onlyworlds.com). Links from other elements to it will dangle.'
             : 'This permanently deletes the element from onlyworlds.com and moves this note to trash. Links from other elements to it will dangle.' });
         contentEl.createEl('p', { text: `Type the element name to confirm:` });
         const input = contentEl.createEl('input', { type: 'text' });
         input.style.width = '100%';
-        const btn = contentEl.createEl('button', { text: 'Delete permanently' });
+        const btn = contentEl.createEl('button', { text: this.reach === 'known-of' ? 'Move to trash' : 'Delete permanently' });
         btn.style.marginTop = '10px';
         btn.disabled = true;
         input.addEventListener('input', () => {

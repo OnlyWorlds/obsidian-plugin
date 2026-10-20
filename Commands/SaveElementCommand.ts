@@ -9,7 +9,7 @@ import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/elem
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
-import { KNOWN_OF_NOT_SAVED } from '../sync/known-of';
+import { KNOWN_OF_NOT_SAVED, LAST_KNOWN_NOT_SAVED, isLastKnownId } from '../sync/known-of';
 import { confirm } from '../Modals/ConfirmModal';
 
 // Define the structure for element data (adapt as needed based on actual fields)
@@ -317,6 +317,10 @@ export class SaveElementCommand {
         // rule 3, OW Infra #454): before any read of the server, so no create,
         // re-create or update can follow.
         if (v2?.knownOf) return this.knownOfRefusal(activeFile, manual);
+        // A whole note kept as last known: keel serves its element as a stub
+        // now, and a diff against that stub would read its blanks as values
+        // (rule 2). Refused up front, as a known-of note is (h37 #8936, 4).
+        if (v2?.id && isLastKnownId(this.plugin.settings, v2.id)) return this.knownOfRefusal(activeFile, manual, LAST_KNOWN_NOT_SAVED);
         if (v2 && v2.id) {
             // A fence that never closes swallowed the sections after it: the
             // note is refused, never sent cut short (round C, 1).
@@ -650,9 +654,6 @@ export class SaveElementCommand {
                 }
                 const parsed = await readElement(this.app, file);
                 if (!parsed || parsed.id !== id) continue;
-                // A known-of target is the server's element, never created
-                // from its stub; the link to it travels (OW Infra #454).
-                if (parsed.knownOf) continue;
                 try {
                     await client.get(parsed.category, id);
                     continue; // already on the server
@@ -682,6 +683,15 @@ export class SaveElementCommand {
                 // lost: its fields are not the element's (OW Infra #426).
                 if (await this.isHidden(file, id)) {
                     leftOut.push({ type: parsed.category, name: file.basename, hidden: true });
+                    leftOutIds.push(id);
+                    continue;
+                }
+                // A known-of target is never created from its stub. One keel
+                // serves stays linked (the GET above answered); one it answers
+                // 404 for, not deleted, is out of this reader's view: the link
+                // is left out, or keel refuses the whole save (h37 #8936, 1).
+                if (parsed.knownOf) {
+                    leftOut.push({ type: parsed.category, name: parsed.name, leftView: true });
                     leftOutIds.push(id);
                     continue;
                 }
@@ -875,11 +885,11 @@ export class SaveElementCommand {
      * each time it is asked, auto-sync once a session per note. Not an error:
      * the edits are the person's, kept in this vault (OW Infra #454).
      */
-    private knownOfRefusal(file: TFile, manual: boolean): SaveResult {
-        const local = { ok: false as const, reason: KNOWN_OF_NOT_SAVED, local: true as const };
+    private knownOfRefusal(file: TFile, manual: boolean, reason: string = KNOWN_OF_NOT_SAVED): SaveResult {
+        const local = { ok: false as const, reason, local: true as const };
         if (!manual && knownOfShown.has(file.path)) return local;
         if (!manual) knownOfShown.add(file.path);
-        new Notice(KNOWN_OF_NOT_SAVED, 8000);
+        new Notice(reason, 8000);
         return local;
     }
 
