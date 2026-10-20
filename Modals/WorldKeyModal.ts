@@ -12,7 +12,7 @@ export  class WorldKeyModal extends Modal {
 
     onOpen() {
         let { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Enter world key' });
+        contentEl.createEl('h3', { text: 'Enter API key' });
 
         const input = contentEl.createEl('input', {
             type: 'text',
