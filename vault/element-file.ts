@@ -338,6 +338,12 @@ export interface WriteElementOpts {
 	 * Absent -> today's buildIdToNameResolver behavior (back-compat for Create/Import).
 	 */
 	idToName?: (id: string) => string | null;
+	/**
+	 * Text written below the element's fields, as it is: the person's writing a
+	 * hidden element's stub kept, when Download writes that note in full again
+	 * (OW Infra #426; Kael's read, h37 #8212). Part of the one write.
+	 */
+	keepBelow?: string;
 }
 
 export async function writeElement(
@@ -435,7 +441,7 @@ export async function writeElement(
 	for (const [k, v] of Object.entries(preserved)) {
 		if (!(k in merged)) merged[k] = v;
 	}
-	const newContent = joinNote(serializeFrontmatter(merged), `${bodyValue}\n`);
+	const newContent = joinNote(serializeFrontmatter(merged), `${bodyValue}\n${opts.keepBelow ?? ""}`);
 	if (newContent !== content) {
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);

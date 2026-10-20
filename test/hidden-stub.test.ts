@@ -17,6 +17,7 @@ import {
 	isStubNote,
 	planHidden,
 	resyncReasonOf,
+	stubKeptText,
 	stubNote,
 } from "../sync/hidden-on-server";
 import { keptDeleteCount } from "../sync/deleted-on-server";
@@ -178,12 +179,30 @@ test("an incremental walk adds what it upserts to what this device knows on the 
 	assert.deepEqual([...plan.known].sort(), [B, C]);
 });
 
+test("★ a stub's kept writing is everything but the stub line, byte for byte (what an unhide carries)", () => {
+	assert.equal(stubKeptText(STUB), MINE_BEFORE + MINE_SECTION);
+	assert.equal(stubKeptText(`---\nname:\nid: ${A}\n---\n\n${HIDDEN_STUB_LINE}\n`), "");
+	assert.equal(stubKeptText(NOTE), "", "a note that is no stub has nothing to carry");
+});
+
+test("★ a role or no-reason reset puts what the walk no longer names (and was known) on leftView; an upsert takes it off", () => {
+	for (const resync of ["role", "none"] as const) {
+		const plan = planHidden({ latest: [up(B)], storedKnown: [A, B, C], storedLeftView: [D], fromStart: true, resync, ownIds: new Set([A, B]) });
+		assert.deepEqual([...plan.leftView].sort(), [A, C, D].sort());
+		assert.deepEqual(plan.stubView, []);
+	}
+	const later = planHidden({ latest: [up(A)], storedLeftView: [A, C], fromStart: false, resync: null, ownIds: new Set() });
+	assert.deepEqual([...later.leftView], [C]);
+	const view = planHidden({ latest: [up(B)], storedKnown: [A, B], fromStart: true, resync: "view", ownIds: new Set([A, B]) });
+	assert.deepEqual([...view.leftView], [], "a view reset stubs; it puts nothing on leftView");
+});
+
 test("the notices: hidden and out of view, each its own sentence", () => {
 	assert.deepEqual(hiddenNotices(0, 0), []);
-	assert.deepEqual(hiddenNotices(2, 0), ["2 elements were hidden by the world's owner; their notes now hold only your own writing."]);
-	assert.deepEqual(hiddenNotices(1, 0), ["1 element was hidden by the world's owner; its note now holds only your own writing."]);
-	assert.deepEqual(hiddenNotices(0, 3), ["3 elements left your view; their notes now hold only your own writing."]);
-	assert.deepEqual(hiddenNotices(0, 1), ["1 element left your view; its note now holds only your own writing."]);
+	assert.deepEqual(hiddenNotices(2, 0), ["2 elements were hidden by the world's owner; their fields were emptied from your notes."]);
+	assert.deepEqual(hiddenNotices(1, 0), ["1 element was hidden by the world's owner; its fields were emptied from your note."]);
+	assert.deepEqual(hiddenNotices(0, 3), ["3 elements left your view; their fields were emptied from your notes."]);
+	assert.deepEqual(hiddenNotices(0, 1), ["1 element left your view; its fields were emptied from your note."]);
 });
 
 test("isHiddenId reads every world's hidden list", () => {

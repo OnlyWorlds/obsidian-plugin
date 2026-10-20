@@ -178,6 +178,14 @@ export class ExportWorldCommand {
                 for (const id of list) if (latestOp.get(id) !== 'upsert') hiddenIds.add(id);
             }
             let hiddenSkipped = this.stubIds.size;
+            // Kept by a role (or no-reason) reset: keel answers the id 404, and
+            // the note is never created again until the feed names it (Kael's
+            // read, h37 #8212).
+            const leftViewIds = new Set<string>();
+            for (const list of Object.values(this.plugin?.settings.leftView ?? {})) {
+                for (const id of list) if (!latestOp.has(id) && !hiddenIds.has(id)) leftViewIds.add(id);
+            }
+            let leftViewSkipped = 0;
 
             // Partition local elements.
             const toCreate: { type: string; element: Record<string, unknown> }[] = [];
@@ -193,6 +201,10 @@ export class ExportWorldCommand {
                     if (!id) continue; // no identity — validator should have caught it
                     if (hiddenIds.has(id)) {
                         hiddenSkipped++;
+                        continue;
+                    }
+                    if (leftViewIds.has(id)) {
+                        leftViewSkipped++;
                         continue;
                     }
                     if (serverIds.has(id)) {
@@ -226,7 +238,7 @@ export class ExportWorldCommand {
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
             // without the user's word (Kael's second read, N4).
-            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, guarded, hiddenIds);
+            const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, guarded, new Set([...hiddenIds, ...leftViewIds]));
             for (const id of leftOut.ids) {
                 const at = toCreate.findIndex(i => String(i.element.id) === id);
                 if (at >= 0) toCreate.splice(at, 1);
@@ -238,7 +250,7 @@ export class ExportWorldCommand {
             // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
             const strippedTargets = new Set<string>();
-            const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds];
+            const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds, ...leftViewIds];
             if (stripIds.length > 0) {
                 const strip = (type: string, fields: Record<string, unknown>) => {
                     const out = withoutLinks(type, fields, stripIds);
@@ -254,7 +266,8 @@ export class ExportWorldCommand {
                 for (const item of toUpdate) item.payload = strip(item.type, item.payload);
             }
             const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? this.stubNames.get(id) ?? feedName.get(id)
-                ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})` : `an element deleted there (${id})`));
+                ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})`
+                    : leftViewIds.has(id) ? `an element no longer in your view (${id})` : `an element deleted there (${id})`));
 
             // Progress feedback — the sweep can run for a minute on a big world.
             new Notice(`Uploading ${toCreate.length + toUpdate.length} elements (${toCreate.length} new, ${toUpdate.length} existing)...`);
@@ -334,6 +347,9 @@ export class ExportWorldCommand {
             }
             if (hiddenSkipped > 0) {
                 summary += ` ${hiddenSkipped} note${hiddenSkipped === 1 ? '' : 's'} hidden by the world's owner ${hiddenSkipped === 1 ? 'was' : 'were'} not sent.`;
+            }
+            if (leftViewSkipped > 0) {
+                summary += ` ${leftViewSkipped} note${leftViewSkipped === 1 ? '' : 's'} no longer in your view ${leftViewSkipped === 1 ? 'was' : 'were'} not sent.`;
             }
             new Notice(summary, 8000);
             if (leftOut.names.length > 0) {

@@ -21,6 +21,8 @@ export interface UploadOpts {
 	deleted?: string[];
 	/** The plugin's hidden list for the world (OW Infra #426). */
 	hidden?: string[];
+	/** The plugin's left-view list for the world. */
+	leftView?: string[];
 	answer?: boolean;
 }
 
@@ -45,7 +47,7 @@ export async function harnessUpload(o: UploadOpts) {
 	};
 	proto.patchWorld = async () => ({});
 	const plugin = {
-		settings: { apiKey: "", deletedOnServer: { [UPLOAD_WID]: o.deleted ?? [] } as Record<string, string[]>, hiddenOnServer: { [UPLOAD_WID]: o.hidden ?? [] } as Record<string, string[]>, syncCursors: {} },
+		settings: { apiKey: "", deletedOnServer: { [UPLOAD_WID]: o.deleted ?? [] } as Record<string, string[]>, hiddenOnServer: { [UPLOAD_WID]: o.hidden ?? [] } as Record<string, string[]>, leftView: { [UPLOAD_WID]: o.leftView ?? [] } as Record<string, string[]>, syncCursors: {} },
 		saveSettings: async () => {},
 		pinCache: { get: async () => null },
 	};

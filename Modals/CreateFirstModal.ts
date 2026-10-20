@@ -7,6 +7,8 @@ export interface CreateFirstItem {
     name: string;
     /** Left out because the world's owner hid it, not because it was deleted (OW Infra #426). */
     hidden?: boolean;
+    /** Left out because a role reset took it out of this reader's view (Kael's read, h37 #8212). */
+    leftView?: boolean;
 }
 
 /**
@@ -105,6 +107,8 @@ export function leftOutLines(leftOut: CreateFirstItem[]): string[] {
     return leftOut.map((i) =>
         i.hidden
             ? `${itemLabel(i)} is hidden by the world's owner and is left out.`
-            : `${itemLabel(i)} was deleted on onlyworlds.com and is left out.`
+            : i.leftView
+              ? `${itemLabel(i)} is no longer in your view and is left out.`
+              : `${itemLabel(i)} was deleted on onlyworlds.com and is left out.`
     );
 }

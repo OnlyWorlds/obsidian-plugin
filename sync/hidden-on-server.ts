@@ -38,6 +38,12 @@ import {
 export const HIDDEN_STUB_LINE = "Hidden by the world's owner.";
 /** What a save of a stub, or of an id on the hidden list, says. */
 export const HIDDEN_NOT_SAVED = "Hidden by the world's owner: not saved.";
+/**
+ * What a save of a note kept by a role (or no-reason) reset says: keel answers
+ * its id 404, and the note is the person's now, never created again (Kael's
+ * read, h37 #8212).
+ */
+export const LEFT_VIEW_NOT_SAVED = "No longer in your view: not saved.";
 
 /** Why keel asked for a walk from the start: `none` is a 409 that names no reason (keel with the mark off). */
 export type ResyncReason = "role" | "view" | "none";
@@ -162,6 +168,24 @@ export function isStubNote(content: string): boolean {
 	return !!fm.id && !fm.name && linesOf(body).includes(HIDDEN_STUB_LINE);
 }
 
+/**
+ * The person's writing a stub kept: its body without the stub line (and the
+ * blank line after it), every other byte as it is; "" for a note that is no
+ * stub, or a stub that kept nothing. An unhide's Download carries it into the
+ * rewritten note, below the element's fields (Kael's read, h37 #8212).
+ */
+export function stubKeptText(content: string): string {
+	if (!isStubNote(content)) return "";
+	// Each line with its own ending (no lookbehind: iOS before 16.4 lacks it).
+	const lines = splitNote(content).body.split("\n").map((l, i, all) => (i < all.length - 1 ? `${l}\n` : l)).filter((l) => l !== "");
+	const bare = (l: string) => l.replace(/\r?\n$/, "");
+	const at = lines.findIndex((l) => bare(l) === HIDDEN_STUB_LINE);
+	if (at < 0) return "";
+	const drop = at + 1 < lines.length && bare(lines[at + 1]) === "" ? 2 : 1;
+	const kept = [...lines.slice(0, at), ...lines.slice(at + drop)].join("");
+	return kept.trim() ? kept : "";
+}
+
 /** A change of the feed as this reads it. */
 export interface HiddenChange {
 	id: string;
@@ -178,6 +202,12 @@ export interface HiddenPlan {
 	stubView: string[];
 	/** The ids this device knows on the server after this walk. */
 	known: Set<string>;
+	/**
+	 * The world's left-view list after this walk: ids a role (or no-reason)
+	 * reset's walk no longer named, whose notes stay the person's and are never
+	 * sent; an id the feed names again leaves it (Kael's read, h37 #8212).
+	 */
+	leftView: Set<string>;
 }
 
 /**
@@ -196,6 +226,8 @@ export function planHidden(o: {
 	latest: Iterable<HiddenChange>;
 	storedHidden?: Iterable<string>;
 	storedKnown?: Iterable<string>;
+	/** The world's stored left-view list. */
+	storedLeftView?: Iterable<string>;
 	/** The walk read the feed from the start: its upserts are everything in view. */
 	fromStart: boolean;
 	/** The reason of the 409 that forced the walk from the start, or null. */
@@ -219,6 +251,8 @@ export function planHidden(o: {
 		if (c.op === "delete") known.delete(id);
 		else known.add(id);
 	}
+	const leftView = new Set(o.storedLeftView ?? []);
+	for (const id of latest.keys()) leftView.delete(id);
 	const stubView: string[] = [];
 	if (o.resync === "view") {
 		for (const id of o.storedKnown ?? []) {
@@ -226,13 +260,18 @@ export function planHidden(o: {
 			stubView.push(id);
 			hidden.add(id);
 		}
+	} else if (o.resync) {
+		// Kept (B12), never sent again: keel answers the id 404 now.
+		for (const id of o.storedKnown ?? []) {
+			if (!latest.has(id) && !storedHidden.has(id)) leftView.add(id);
+		}
 	}
-	return { hidden, stubHidden, stubView, known };
+	return { hidden, stubHidden, stubView, known, leftView };
 }
 
 /** The download's sentences for the notes it stubbed, each apart from the deleted count. */
 export function hiddenNotices(hidden: number, view: number): string[] {
-	const tail = (n: number) => (n === 1 ? "its note now holds only your own writing." : "their notes now hold only your own writing.");
+	const tail = (n: number) => (n === 1 ? "its fields were emptied from your note." : "their fields were emptied from your notes.");
 	const out: string[] = [];
 	if (hidden > 0) out.push(`${hidden} element${hidden === 1 ? " was" : "s were"} hidden by the world's owner; ${tail(hidden)}`);
 	if (view > 0) out.push(`${view} element${view === 1 ? "" : "s"} left your view; ${tail(view)}`);
@@ -241,10 +280,15 @@ export function hiddenNotices(hidden: number, view: number): string[] {
 
 /** What a command needs to read the hidden lists: the plugin, or a test's stand-in. */
 export interface HiddenListHost {
-	settings: { hiddenOnServer?: Record<string, string[]> };
+	settings: { hiddenOnServer?: Record<string, string[]>; leftView?: Record<string, string[]> };
 }
 
 /** True when any world's hidden list holds `id` (an element id belongs to one world). */
 export function isHiddenId(settings: { hiddenOnServer?: Record<string, string[]> }, id: string): boolean {
 	return Object.values(settings.hiddenOnServer ?? {}).some((list) => list.includes(id));
+}
+
+/** True when any world's left-view list holds `id`. */
+export function isLeftViewId(settings: { leftView?: Record<string, string[]> }, id: string): boolean {
+	return Object.values(settings.leftView ?? {}).some((list) => list.includes(id));
 }

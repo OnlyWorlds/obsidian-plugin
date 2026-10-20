@@ -52,6 +52,14 @@ export interface OnlyWorldsPluginSettings {
 	knownOnServer: Record<string, string[]>;
 
 	/**
+	 * Per world id: element ids a role (or no-reason) reset's walk no longer
+	 * named. Their notes are kept, the person's now: keel answers the id 404, and
+	 * a save or an upload never creates it again. An upsert of the id later
+	 * takes it off (Kael's read, h37 #8212).
+	 */
+	leftView: Record<string, string[]>;
+
+	/**
 	 * An OnlyWorlds account token (`ow_a_`), kept like the API key (masked in
 	 * the UI), and the username it signed in as. Empty: not signed in, and every
 	 * command works as it did before accounts (key and PIN per world).
@@ -110,6 +118,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	deletedOnServer: {},
 	hiddenOnServer: {},
 	knownOnServer: {},
+	leftView: {},
 
 	accountToken: "",
 	accountUsername: "",

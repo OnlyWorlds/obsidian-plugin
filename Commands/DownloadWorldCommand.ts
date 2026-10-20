@@ -25,7 +25,7 @@ import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-t
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 import { keptDeleteCount } from '../sync/deleted-on-server';
-import { hiddenNotices, planHidden, resyncReasonOf, stubNote, type ResyncReason } from '../sync/hidden-on-server';
+import { hiddenNotices, planHidden, resyncReasonOf, stubKeptText, stubNote, type ResyncReason } from '../sync/hidden-on-server';
 
 export class DownloadWorldCommand {
     app: App;
@@ -92,6 +92,20 @@ export class DownloadWorldCommand {
                     if (stored && !this.vaultHasElementNotes(safeWorldFolderName(worldName))) {
                         console.log('OnlyWorlds: vault has no notes for this world — ignoring sync cursor, full download.');
                         stored = undefined;
+                    }
+                    // An install from before the list (a stored cursor, no
+                    // knownOnServer entry for this world) walks the feed from
+                    // the start once, for the list alone: nothing else of that
+                    // walk is applied (Kael's read, h37 #8212). A failed read
+                    // leaves it for the next Download.
+                    let storedKnown: string[] = this.plugin?.settings.knownOnServer?.[worldId] ?? [];
+                    if (stored?.cursor && this.plugin && this.plugin.settings.knownOnServer?.[worldId] === undefined) {
+                        try {
+                            const full = await client.changesWalk();
+                            storedKnown = [...planHidden({ latest: full.changes, fromStart: true, resync: null, ownIds: new Set() }).known];
+                        } catch (e) {
+                            console.warn('OnlyWorlds: could not read the feed to fill the known list; next Download tries again.', e);
+                        }
                     }
                     let walk: { changes: V2Change[]; cursor: string | null; head: number };
                     // A walk from the start, and why: keel's 409 resync_required
@@ -195,8 +209,9 @@ export class DownloadWorldCommand {
                         else deleted.delete(change.id);
                     }
                     const storedHidden = this.plugin?.settings.hiddenOnServer?.[worldId] ?? [];
+                    const storedLeftView = this.plugin?.settings.leftView?.[worldId] ?? [];
                     const hiddenRow = [...latest.values()].some(c => c.op === 'delete' && c.reason === 'hidden');
-                    const readNotes = deleted.size > 0 || storedHidden.length > 0 || hiddenRow || resync === 'view';
+                    const readNotes = deleted.size > 0 || storedHidden.length > 0 || storedLeftView.length > 0 || hiddenRow || resync !== null;
                     const { own, all: local, files } = readNotes ? await this.localElementIds(uniqueWorldName)
                         : { own: new Set<string>(), all: new Set<string>(), files: new Map<string, TFile>() };
                     // The notice counts only deletes that left a note of their
@@ -214,7 +229,8 @@ export class DownloadWorldCommand {
                     const hidden = planHidden({
                         latest: latest.values(),
                         storedHidden,
-                        storedKnown: this.plugin?.settings.knownOnServer?.[worldId] ?? [],
+                        storedKnown,
+                        storedLeftView,
                         fromStart,
                         resync,
                         ownIds: own,
@@ -237,6 +253,12 @@ export class DownloadWorldCommand {
                         this.plugin.settings.knownOnServer = {
                             ...(this.plugin.settings.knownOnServer ?? {}),
                             [worldId]: [...hidden.known],
+                        };
+                        // A role (or no-reason) reset's kept notes: never sent
+                        // again until the feed names them (Kael's read, h37 #8212).
+                        this.plugin.settings.leftView = {
+                            ...(this.plugin.settings.leftView ?? {}),
+                            [worldId]: [...hidden.leftView].filter(id => local.has(id)),
                         };
                         await this.plugin.saveSettings();
                     }
@@ -544,6 +566,18 @@ export class DownloadWorldCommand {
             }
 
             if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                // A stub written in full again (an unhide, or back in view)
+                // keeps the person's writing it held, below the fields, byte
+                // for byte (Kael's read, h37 #8212).
+                let keepBelow = '';
+                if (existingElementPath) {
+                    const current = this.app.vault.getAbstractFileByPath(notePath);
+                    if (current instanceof TFile) {
+                        try {
+                            keepBelow = stubKeptText(await this.app.vault.read(current));
+                        } catch { /* unreadable: written as any note */ }
+                    }
+                }
                 // v2 frontmatter format (Phase B). writeElement owns the file
                 // placement (it re-finds by embedded id), preserves extension
                 // fields verbatim, normalizes link ids, and maps the body to
@@ -566,6 +600,7 @@ export class DownloadWorldCommand {
                         // the user no way to see what else it could carry —
                         // exactly the "kinda useless" problem 3.2 exists to fix.
                         scaffoldEmptyFields: true,
+                        keepBelow,
                     }
                 );
             }

@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import type { App, TFile } from "obsidian";
 import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
-import { HIDDEN_NOT_SAVED, HIDDEN_STUB_LINE } from "../sync/hidden-on-server";
+import { HIDDEN_NOT_SAVED, HIDDEN_STUB_LINE, LEFT_VIEW_NOT_SAVED } from "../sync/hidden-on-server";
 import { harnessSave, HARNESS_WID } from "./support/save-harness";
 import { harnessUpload, UPLOAD_WID } from "./support/upload-harness";
 
@@ -25,6 +25,7 @@ type Settings = {
 	deletedOnServer?: Record<string, string[]>;
 	hiddenOnServer?: Record<string, string[]>;
 	knownOnServer?: Record<string, string[]>;
+	leftView?: Record<string, string[]>;
 };
 
 const upsert = (id: string, name: string, seq: number, extra: Record<string, unknown> = {}) => ({
@@ -84,7 +85,7 @@ test("★ Download: a hidden row stubs the note, keeps the person's writing, cou
 	assert.ok(after.includes("My table's notes on him.\n\n"), "the person's writing was lost");
 	assert.ok(after.includes(HIDDEN_STUB_LINE));
 	assert.ok(!after.includes("A knight") && !after.includes("Krezk") && !after.includes("name: Zelraun"), after);
-	assert.ok(notices.includes("1 element was hidden by the world's owner; its note now holds only your own writing."), notices.join(" | "));
+	assert.ok(notices.includes("1 element was hidden by the world's owner; its fields were emptied from your note."), notices.join(" | "));
 	assert.ok(!notices.some((n) => n.includes("deleted on the server")), "the hidden note was counted as a delete");
 	assert.deepEqual(plugin.settings.hiddenOnServer?.[WID], [ZEL]);
 	assert.deepEqual(plugin.settings.deletedOnServer?.[WID], []);
@@ -137,7 +138,7 @@ test("★ Download: a 409 with reason view stubs exactly the element notes the f
 	assert.ok(zel.includes(HIDDEN_STUB_LINE) && zel.includes("My table's notes on him.") && !zel.includes("A knight"), zel);
 	assert.equal(await s.vault.read(s.mine), s.mineNote, "a note never on the server was stubbed");
 	assert.equal(await s.vault.read(s.ownFile), s.own, "a note with no element id was touched");
-	assert.ok(notices.includes("1 element left your view; its note now holds only your own writing."), notices.join(" | "));
+	assert.ok(notices.includes("1 element left your view; its fields were emptied from your note."), notices.join(" | "));
 	assert.deepEqual(s.plugin.settings.hiddenOnServer?.[WID], [ZEL]);
 });
 
@@ -226,4 +227,91 @@ test("★ Upload World never sends a stub or a hidden id, and strips links to it
 	assert.ok(r.notices.some((n) => n.includes("hidden by the world's owner")), r.notices.join(" | "));
 	assert.deepEqual(r.settings.deletedOnServer[UPLOAD_WID], [], "a hidden id went on the deleted list");
 	void HARNESS_WID;
+});
+
+// --- Kael's read of the branch (h37 #8212), ruled -----------------------------
+
+test("★ Download: an unhide carries the stub's kept writing into the new body, below the fields, byte for byte", async () => {
+	const { app, vault, plugin } = await setup();
+	await download(app, plugin, [hidden(ZEL, 3)], 3);
+	const stubbed = noteOf(app, ZEL);
+	await vault.modify(stubbed, `${await vault.read(stubbed)}\nA line I wrote in the stub.\n`);
+	await download(app, plugin, [upsert(ZEL, "Zelraun", 4, { description: "A knight of Barovia." })], 4);
+	const after = await vault.read(noteOf(app, ZEL));
+	assert.ok(after.includes("name: Zelraun") && after.includes("A knight of Barovia."), after);
+	assert.ok(!after.includes(HIDDEN_STUB_LINE), after);
+	assert.ok(after.includes("My table's notes on him.\n\nA line I wrote in the stub.\n"), after);
+	assert.ok(after.indexOf("A line I wrote") > after.indexOf("### Description"), "the kept writing is not below the fields");
+});
+
+test("★ an upgraded install (a cursor, no knownOnServer) walks the feed from the start once to fill the list, and applies nothing else from it", async () => {
+	const { app, vault, plugin, zel } = await setup();
+	delete plugin.settings.knownOnServer;
+	const before = await vault.read(zel);
+	const sinces: (string | null)[] = [];
+	setRequestUrl((r) => {
+		const url = new URL(r.url);
+		const path = url.pathname.replace(/^\/api\/v2/, "").replace(/\/$/, "");
+		if (path === "/world") return { status: 200, json: { id: WID, name: "Barovia", description: "" } };
+		if (path === "/changes") {
+			const since = url.searchParams.get("since");
+			sinces.push(since);
+			const changes = since
+				? [upsert(IRE, "Ireena", 3, { description: "Changed." })]
+				: [upsert(ZEL, "Zelraun the Renamed", 1, { description: "From the full walk." }), upsert(IRE, "Ireena", 3)];
+			return { status: 200, json: { cursor: "c3", has_more: false, head: 3, changes } };
+		}
+		return { status: 404, json: {} };
+	});
+	await new DownloadWorldCommand(app, { version: "t" }, plugin as never).downloadWithKey("ow_k_test", "1234");
+	assert.ok(sinces.includes(null) && sinces.includes("c2"), `walks: ${sinces.join(",")}`);
+	assert.deepEqual([...(plugin.settings.knownOnServer?.[WID] ?? [])].sort(), [ZEL, IRE].sort());
+	assert.equal(await vault.read(zel), before, "the fill walk's changes were applied");
+	// Filled once: the next Download walks only from its cursor.
+	sinces.length = 0;
+	await new DownloadWorldCommand(app, { version: "t" }, plugin as never).downloadWithKey("ow_k_test", "1234");
+	assert.deepEqual(sinces, ["c3"]);
+});
+
+test("★ a role reset puts a kept note's id on leftView (never a note made here); saving the kept note sends no create", async () => {
+	const s = await resyncSetup();
+	await download(s.app, s.plugin, [upsert(IRE, "Ireena", 5)], 5, { error: { code: "resync_required", message: "m", reason: "role" } });
+	assert.deepEqual(s.plugin.settings.leftView?.[WID], [ZEL]);
+	for (const manual of [true, false]) {
+		const r = await harnessSave({ notes: { "Character/Zelraun.md": plain(ZEL, "Zelraun, edited") }, save: "Character/Zelraun.md", leftView: [ZEL], manual });
+		assert.deepEqual(r.result, { ok: false, reason: LEFT_VIEW_NOT_SAVED });
+		assert.ok(!r.calls.some((c) => c.startsWith("create") || c === "bulk"), r.calls.join(","));
+		assert.deepEqual(r.sent, []);
+	}
+});
+
+test("★ the create-first walk never creates a left-view target: the link is left out and named so", async () => {
+	const r = await harnessSave({
+		notes: {
+			"Character/Ireena.md": plain(IRE, "Ireena", `friends:\n  - "[[Zelraun]]"\n`),
+			"Character/Zelraun.md": plain(ZEL, "Zelraun"),
+		},
+		save: "Character/Ireena.md",
+		server: { [IRE]: { name: "Ireena", description: "About Ireena.", friends: [] } },
+		leftView: [ZEL],
+	});
+	assert.ok(!r.calls.includes("bulk"), "the left-view note was created first");
+	assert.ok(!JSON.stringify(r.sent).includes(ZEL));
+	assert.ok(r.notices.some((n) => n.includes("no longer in your view")), r.notices.join(" | "));
+});
+
+test("★ Upload World never sends a left-view note, and strips links to it; an upsert in its walk lifts that", async () => {
+	const r = await harnessUpload({
+		notes: {
+			"Character/Zelraun.md": plain(ZEL, "Zelraun"),
+			"Character/Ireena.md": plain(IRE, "Ireena", `friends:\n  - "[[Zelraun]]"\n`),
+		},
+		changes: [upsert(IRE, "Ireena", 1)],
+		leftView: [ZEL],
+		answer: true,
+	});
+	assert.ok(!JSON.stringify(r.bulkSent).includes(ZEL) && !JSON.stringify(r.patches).includes(ZEL), "a left-view id was sent");
+	assert.ok(r.notices.some((n) => n.includes("no longer in your view")), r.notices.join(" | "));
+	const back = await harnessUpload({ notes: { "Character/Zelraun.md": plain(ZEL, "Zelraun") }, changes: [upsert(ZEL, "Zelraun", 1)], leftView: [ZEL] });
+	assert.ok(ZEL in back.patches, "an id the walk names again was not sent");
 });
