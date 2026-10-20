@@ -34,7 +34,7 @@ export const KNOWN_OF_KEY = "known_of";
 export const KNOWN_OF_LINE = "Known of: you know of this element, not all of it. A field not shown here is unknown, not empty.";
 
 /** What a save of a known-of note says (Save Element always; auto-sync once a session per note). */
-export const KNOWN_OF_NOT_SAVED = "Known of: this note is not sent. What you add to it stays in this vault; its fields follow the next Download.";
+export const KNOWN_OF_NOT_SAVED = "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download.";
 
 /**
  * What a save of a whole note kept as last known says (rule 5, a role reset
@@ -194,7 +194,7 @@ export function knownOfNotices(became: number, keptWhole: number): string[] {
 	const out: string[] = [];
 	if (became > 0) {
 		out.push(
-			`${became} element${became === 1 ? " is" : "s are"} known of: ${became === 1 ? "its note shows" : "their notes show"} only what you know, and what you add to ${became === 1 ? "it" : "them"} stays in this vault.`
+			`${became} element${became === 1 ? " is" : "s are"} known of: ${became === 1 ? "its note shows" : "their notes show"} only what you know, and what you write above ${became === 1 ? "its" : "their"} fields, or under a ### heading of your own, stays in this vault.`
 		);
 	}
 	if (keptWhole > 0) {

@@ -161,7 +161,7 @@ async function fresh() {
 	return { app, vault: app.vault, mock, plugin };
 }
 
-const KNOWN_NOTICE = "1 element is known of: its note shows only what you know, and what you add to it stays in this vault.";
+const KNOWN_NOTICE = "1 element is known of: its note shows only what you know, and what you write above its fields, or under a ### heading of your own, stays in this vault.";
 const KEPT_NOTICE = "1 element you knew in full is now known of: your note keeps what you had.";
 
 test("★ rule 1: Download writes a stub as it is: `known_of: true`, its kept keys, no unset field, the line shown", async () => {
@@ -502,4 +502,28 @@ test("★ 9: Update World Format leaves a hidden element's stub alone (the #426 
 	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Zelraun.md", `---\nname:\nid: ${ZEL}\n---\n\nMine.\n\n${HIDDEN_STUB_LINE}\n`);
 	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<{ notes: { path: string }[] }> };
 	assert.deepEqual((await cmd.buildPlan("W")).notes.map((n) => n.path), []);
+});
+
+// --- Seethe's walk of b32a7c0, step 6: the promise narrowed to what is true ----------
+
+test("★ the Save and Download notices promise exactly what survives: above the fields, or under a ### heading of your own", async () => {
+	assert.equal(KNOWN_OF_NOT_SAVED, "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download.");
+	const s = await fresh();
+	const notices = await download(s.app, s.plugin, [upsert(STRAHD_STUB(2), 2)], 2);
+	assert.ok(notices.includes("1 element is known of: its note shows only what you know, and what you write above its fields, or under a ### heading of your own, stays in this vault."), notices.join(" | "));
+});
+
+test("★ a ### section of the person's own after the last field survives a stub rewrite and a whole write", async () => {
+	const s = await fresh();
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(2), 2)], 2);
+	const file = noteOf(s.app, STRAHD);
+	await s.vault.modify(file, `${await s.vault.read(file)}\n### My notes\n\nHe owes me a favour.\n`);
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(3, { physicality: "Pale, gaunt." }), 3)], 3);
+	const stub = await s.vault.read(noteOf(s.app, STRAHD));
+	assert.ok(stub.includes("Pale, gaunt.") && stub.includes("### My notes\n\nHe owes me a favour.\n"), stub);
+	await download(s.app, s.plugin, [whole(STRAHD, "Strahd", 4, { description: "Whole now." })], 4);
+	const wholeNote = await s.vault.read(noteOf(s.app, STRAHD));
+	assert.ok(wholeNote.includes("Whole now.") && !wholeNote.includes("known_of"), wholeNote);
+	assert.ok(wholeNote.includes("### My notes\n\nHe owes me a favour.\n"), wholeNote);
+	assert.equal(wholeNote.split("### My notes").length, 2, "the section was doubled");
 });
