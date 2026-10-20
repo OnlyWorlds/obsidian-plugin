@@ -35,7 +35,7 @@ export class CreateReadmeCommand {
             }
         } catch (error) {
             console.error('Failed to fetch or update README:', error);
-            new Notice('Error: Could not fetch or update README.');
+            new Notice('Could not fetch or update the README.');
         }
     }
 }
