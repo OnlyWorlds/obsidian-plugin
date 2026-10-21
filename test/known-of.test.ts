@@ -168,7 +168,8 @@ test("★ rule 1: Download writes a stub as it is: `known_of: true`, its kept ke
 	const s = await fresh();
 	const notices = await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, { description: "A noble." }), upsert(STRAHD_STUB(2), 2)], 2);
 	const note = await s.vault.read(noteOf(s.app, STRAHD));
-	assert.ok(note.startsWith(`---\nname: Strahd\nid: ${STRAHD}\nknown_of: true\nsupertype: Vampire\nsubtype: ""\nimage_url: ""\n---\n`), note);
+	// The record of what the stub wrote goes last (h37 #9280, N1): the plugin's bookkeeping, never a field.
+	assert.ok(note.startsWith(`---\nname: Strahd\nid: ${STRAHD}\nknown_of: true\nsupertype: Vampire\nsubtype: ""\nimage_url: ""\nknown_of_written:\n  - description\n  - physicality\n---\n`), note);
 	for (const unset of ["height:", "weight:", "species:", "location:", "friends:", "charisma:", "x_", "### Background", "### Reputation", "### Mentality"]) {
 		assert.ok(!note.includes(unset), `an unset field was written: ${unset}\n${note}`);
 	}
@@ -350,7 +351,7 @@ const FOLDER_WID = "0199c000-0000-7000-8000-0000000004ee";
 test("★ rule 1, the folder export: a known-of note is written with `known_of: true` and only its keys", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n- **Name:** W\n");
-	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Strahd.md", KNOWN(STRAHD, "Strahd"));
+	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Strahd.md", KNOWN(STRAHD, "Strahd").replace("supertype: Vampire\n", "supertype: Vampire\nknown_of_written:\n  - description\n"));
 	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Ireena.md", plain(IRE, "Ireena"));
 	const plan = await (new ExportFolderCommand(app as never) as unknown as { planFiles(w: string, id: string): Promise<{ files: { rel: string; content: string }[] }> }).planFiles("W", FOLDER_WID);
 	const bodies = plan.files.filter((f) => f.rel.startsWith("elements/")).map((f) => JSON.parse(f.content) as Record<string, unknown>);
@@ -360,7 +361,7 @@ test("★ rule 1, the folder export: a known-of note is written with `known_of: 
 	assert.equal(strahd.known_of, true);
 	assert.equal(strahd.supertype, "Vampire");
 	assert.equal(strahd.description, "The lord of Barovia, edited here.");
-	for (const unset of ["subtype", "height", "species", "background", "location"]) assert.ok(!(unset in strahd), `${unset} written for a stub`);
+	for (const unset of ["subtype", "height", "species", "background", "location", "known_of_written", "x_known_of_written"]) assert.ok(!(unset in strahd), `${unset} written for a stub`);
 	assert.ok(!("known_of" in ireena) && "background" in ireena, "a whole element changed shape");
 });
 
@@ -377,12 +378,12 @@ test("★ rule 2, the folder import: a `known_of` file becomes a known-of note, 
 test("★ Copy World carries a known-of note as a stub, and Paste World writes it back as one", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n- **Name:** W\n");
-	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Strahd.md", KNOWN(STRAHD, "Strahd"));
+	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Strahd.md", KNOWN(STRAHD, "Strahd").replace("supertype: Vampire\n", "supertype: Vampire\nknown_of_written:\n  - description\n"));
 	const data = (await new CopyWorldCommand(app, {} as never, new WorldService(app)).collectWorldData("OnlyWorlds/Worlds/W")) as Record<string, Record<string, unknown>[]>;
 	const copied = data.Character.find((e) => e.id === STRAHD);
 	assert.ok(copied);
 	assert.equal(copied.known_of, true);
-	assert.ok(!("background" in copied), JSON.stringify(copied));
+	assert.ok(!("background" in copied) && !Object.keys(copied).some((k) => k.includes("known_of_written")), JSON.stringify(copied));
 
 	const target = makeApp();
 	await target.vault.seed("OnlyWorlds/Worlds/P/World.md", "- **Name:** P\n");
@@ -462,17 +463,29 @@ test("★ 4: a whole note kept after a role reset is never saved or uploaded aga
 	assert.deepEqual((s.plugin.settings.lastKnown as Record<string, string[]>)?.[WID], []);
 });
 
-test("★ 5: Manage Fields keeps a known-of note's line and the text above its first field", async () => {
+// ★ 5 (round 2) kept the line through a Manage Fields rebuild; N3 (h37 #9280)
+// refuses the rebuild outright, so a known-of note is never rebuilt at all.
+test("★ N3: Manage Fields on a known-of note is refused: the file is byte-identical and the notice says why", async () => {
 	const { app, vault } = makeApp();
 	const path = "OnlyWorlds/Worlds/W/Elements/Character/Strahd.md";
-	const content = KNOWN(STRAHD, "Strahd").replace(`${KNOWN_OF_LINE}\n\n`, `${KNOWN_OF_LINE}\n\nMet him at the gate.\n\n`);
+	// Kael's probe: the person's text with no trailing newline (`My text### Description` at 567f318).
+	const content = KNOWN(STRAHD, "Strahd").replace(`${KNOWN_OF_LINE}\n\n### Description\n\nThe lord of Barovia, edited here.\n`, `${KNOWN_OF_LINE}\n\nMy text`);
 	const file = (await vault.seed(path, content)) as unknown as TFile;
-	const cmd = new ManageFieldsCommand(app) as unknown as { applySelection(f: TFile, c: string, s: Set<string>, ch: unknown[]): Promise<void> };
-	await cmd.applySelection(file, "character", new Set(["description", "background"]), []);
-	const after = await app.vault.read(file);
-	assert.ok(after.includes(`${KNOWN_OF_LINE}\n\nMet him at the gate.\n\n### Description\n\nThe lord of Barovia, edited here.\n`), after);
-	assert.ok(after.includes("### Background"), after);
-	assert.ok(!after.split("### Description")[1].includes("Met him"), "the person's text moved into the description");
+	(app as unknown as { workspace: { getActiveFile(): TFile | null } }).workspace.getActiveFile = () => file;
+	const cmd = new ManageFieldsCommand(app) as unknown as {
+		execute(): Promise<void>;
+		addCustomField(): Promise<void>;
+		applySelection(f: TFile, c: string, s: Set<string>, ch: unknown[]): Promise<void>;
+	};
+	const REFUSED = "Known of: fields are not managed on this note. They follow the next Download.";
+	for (const run of [() => cmd.execute(), () => cmd.addCustomField(), () => cmd.applySelection(file, "character", new Set(["description", "background"]), [])]) {
+		__notices.length = 0;
+		__modals.length = 0;
+		await run();
+		assert.equal(await app.vault.read(file), content, "a known-of note was rewritten");
+		assert.deepEqual(__modals, [], "a dialog opened on a known-of note");
+		assert.ok(__notices.includes(REFUSED), __notices.join(" | "));
+	}
 });
 
 test("★ 8: Delete Element on a known-of note removes the note only, sends nothing, and says so", async () => {
@@ -507,7 +520,8 @@ test("★ 9: Update World Format leaves a hidden element's stub alone (the #426 
 // --- Seethe's walk of b32a7c0, step 6: the promise narrowed to what is true ----------
 
 test("★ the Save and Download notices promise exactly what survives: above the fields, or under a ### heading of your own", async () => {
-	assert.equal(KNOWN_OF_NOT_SAVED, "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download.");
+	// N2 (h37 #9280): what the person added is sent once the element is whole (#426's rule), and the notice says so.
+	assert.equal(KNOWN_OF_NOT_SAVED, "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download. Once the element arrives whole, what you added is part of its note, and Save sends it.");
 	const s = await fresh();
 	const notices = await download(s.app, s.plugin, [upsert(STRAHD_STUB(2), 2)], 2);
 	assert.ok(notices.includes("1 element is known of: its note shows only what you know, and what you write above its fields, or under a ### heading of your own, stays in this vault."), notices.join(" | "));
@@ -526,4 +540,61 @@ test("★ a ### section of the person's own after the last field survives a stub
 	assert.ok(wholeNote.includes("Whole now.") && !wholeNote.includes("known_of"), wholeNote);
 	assert.ok(wholeNote.includes("### My notes\n\nHe owes me a favour.\n"), wholeNote);
 	assert.equal(wholeNote.split("### My notes").length, 2, "the section was doubled");
+});
+
+// --- Kael's re-read of 567f318 (h37 #9280): N1 and N4 --------------------------------
+
+test("★ N1: what the last stub wrote and the next stub leaves out goes; what the person added stays, through a stub and a whole write", async () => {
+	const s = await fresh();
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(2, { x_looks: "Tall.", atlas_color: "red", x_rank: 3 }), 2)], 2);
+	const file = noteOf(s.app, STRAHD);
+	const v2 = await s.vault.read(file);
+	assert.ok(v2.includes("x_rank: 3") && v2.includes("atlas_color: red") && v2.includes("### Looks\n\nTall.\n"), v2);
+	await s.vault.modify(file, `${v2.replace("known_of: true\n", "known_of: true\nx_suspicion: he lies\n")}\n### My notes\n\nHe owes me a favour.\n`);
+	// Stub v3 serves none of the three: they are unknown now, not the person's.
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(3), 3)], 3);
+	const v3 = await s.vault.read(noteOf(s.app, STRAHD));
+	for (const gone of ["x_looks", "### Looks", "Tall.", "atlas_color", "x_rank"]) assert.ok(!v3.includes(gone), `${gone} outlived the stub that wrote it\n${v3}`);
+	assert.ok(v3.includes("x_suspicion: he lies") && v3.includes("### My notes\n\nHe owes me a favour.\n"), v3);
+	const read3 = await readElement(s.app, noteOf(s.app, STRAHD));
+	assert.ok(read3 && !Object.keys(read3.fields).some((k) => k.includes("known_of")), JSON.stringify(read3?.fields));
+	// The element arrives whole without x_looks: nothing of the old stub is ready to send.
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(4, { x_looks: "Tall." }), 4)], 4);
+	await download(s.app, s.plugin, [whole(STRAHD, "Strahd", 5, { description: "Whole now." })], 5);
+	const wholeNote = await s.vault.read(noteOf(s.app, STRAHD));
+	assert.ok(!wholeNote.includes("known_of") && !wholeNote.includes("x_looks") && !wholeNote.includes("### Looks"), wholeNote);
+	const parsed = await readElement(s.app, noteOf(s.app, STRAHD));
+	assert.ok(parsed && !("x_looks" in parsed.fields), JSON.stringify(parsed?.fields));
+	// N2: what the person added is part of the note now, and Save sends it (#426's rule).
+	assert.equal(parsed.fields.x_suspicion, "he lies");
+	assert.ok(String(parsed.fields.x_my_notes).includes("He owes me a favour."), JSON.stringify(parsed.fields));
+	assert.ok(!Object.keys(parsed.fields).some((k) => k.includes("known_of")), JSON.stringify(parsed.fields));
+});
+
+test("★ N4: a person's own ### Background on a known-of Character survives the next stub, and stands for the field when it arrives whole and empty", async () => {
+	const s = await fresh();
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(2), 2)], 2);
+	const file = noteOf(s.app, STRAHD);
+	await s.vault.modify(file, `${await s.vault.read(file)}\n### Background\n\nI think he was a soldier.\n`);
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(3, { physicality: "Pale, gaunt." }), 3)], 3);
+	const stub = await s.vault.read(noteOf(s.app, STRAHD));
+	assert.ok(stub.includes("Pale, gaunt.") && stub.includes("### Background\n\nI think he was a soldier.\n"), stub);
+	assert.equal(stub.split("### Background").length, 2, "the section was doubled");
+	// Whole, with no background of its own: the person's section is the field, once.
+	await download(s.app, s.plugin, [whole(STRAHD, "Strahd", 4, { description: "Whole now." })], 4);
+	const wholeNote = await s.vault.read(noteOf(s.app, STRAHD));
+	assert.ok(wholeNote.includes("### Background\n\nI think he was a soldier.\n") && !wholeNote.includes("known_of"), wholeNote);
+	assert.equal(wholeNote.split("### Background").length, 2, "the section was doubled");
+});
+
+test("N1, no record: a known-of note made by hand keeps every key and section of its own, and the next stub starts the record", async () => {
+	const s = await fresh();
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(2), 2)], 2);
+	// The note as a person writes it by hand: the mark, no record.
+	const file = noteOf(s.app, STRAHD);
+	await s.vault.modify(file, KNOWN(STRAHD, "Strahd").replace("supertype: Vampire\n", "supertype: Vampire\nx_suspicion: he lies\n").concat("\n### My notes\n\nHe owes me a favour.\n"));
+	await download(s.app, s.plugin, [upsert(STRAHD_STUB(3), 3)], 3);
+	const note = await s.vault.read(noteOf(s.app, STRAHD));
+	assert.ok(note.includes("x_suspicion: he lies") && note.includes("### My notes\n\nHe owes me a favour.\n"), note);
+	assert.ok(note.includes("known_of_written:\n  - description\n  - physicality\n"), note);
 });

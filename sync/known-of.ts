@@ -24,7 +24,7 @@
  * The kept keys are never listed here: a stub keeps every key whose value is
  * not an unset one, whatever keel decides a stub keeps.
  */
-import { bodySpans, bodyTextFields, headingToFieldKey, parseRawFrontmatterScalars, splitNote } from "../vault/element-transform";
+import { bodySpans, bodyTextFields, headingToFieldKey, isExtensionKey, parseRawFrontmatterScalars, splitNote } from "../vault/element-transform";
 import { isStubNote, stubKeptText, type ResyncReason } from "./hidden-on-server";
 
 /** The frontmatter key (and wire key) that marks a stub. */
@@ -34,7 +34,10 @@ export const KNOWN_OF_KEY = "known_of";
 export const KNOWN_OF_LINE = "Known of: you know of this element, not all of it. A field not shown here is unknown, not empty.";
 
 /** What a save of a known-of note says (Save Element always; auto-sync once a session per note). */
-export const KNOWN_OF_NOT_SAVED = "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download.";
+export const KNOWN_OF_NOT_SAVED = "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download. Once the element arrives whole, what you added is part of its note, and Save sends it.";
+
+/** What Manage Fields says on a known-of note, which it leaves as it is (h37 #9280, N3). */
+export const KNOWN_OF_NO_MANAGE = "Known of: fields are not managed on this note. They follow the next Download.";
 
 /**
  * What a save of a whole note kept as last known says (rule 5, a role reset
@@ -126,22 +129,72 @@ export function knownOfKeptText(content: string): string {
 }
 
 /**
- * The sections of a known-of note that are the person's own, byte for byte:
- * every `###` section whose heading names no text field of the type, and no
- * custom field `data` carries (`### Looks` when `x_looks` arrives). The next
- * write of the note puts them back after its fields, as stubBody keeps a
- * hidden stub's (h37 #8936, 3). "" for any other note.
+ * The Properties key a stub write records what it wrote under (h37 #9280,
+ * N1): the extension keys and the text fields (each a `###` section) it put
+ * on the note. The next write over the note drops exactly those and keeps
+ * everything else, the person's own. The writer's alone, like `known_of`:
+ * never sent, never exported, gone when the note is written whole.
  */
-export function knownOfOwnSections(content: string, category: string, data: Record<string, unknown> = {}): string {
-	if (!isKnownOfNote(content) || isStubNote(content)) return "";
+export const KNOWN_OF_WRITTEN_KEY = "known_of_written";
+
+/**
+ * What a stub write of `data` (its kept keys) puts on the note that a later
+ * write could mistake for the person's: every extension key, and every text
+ * field it shows as a section. Schema keys in the Properties are the
+ * writer's anyway, rewritten on every write.
+ */
+export function knownOfWritten(data: Record<string, unknown>, category: string): string[] {
+	const text = new Set(bodyTextFields(category));
+	return Object.keys(data).filter((k) => isExtensionKey(k) || text.has(k));
+}
+
+/** The record a note's Properties carry under KNOWN_OF_WRITTEN_KEY; null when there is none (a note written by hand, or before the record). */
+export function knownOfRecord(frontmatter: Record<string, unknown>): string[] | null {
+	const v = frontmatter[KNOWN_OF_WRITTEN_KEY];
+	return Array.isArray(v) && v.every((k) => typeof k === "string") ? v : null;
+}
+
+/** The person's own sections of a known-of note, and the text fields among them that stand for an unset field. */
+export interface KnownOfOwn {
+	/** The sections, byte for byte, in the note's order. */
+	text: string;
+	/** Text fields of the type an own section is headed with (`background` for `### Background`). */
+	fields: string[];
+}
+
+/**
+ * The sections of a known-of note that are the person's own, byte for byte.
+ * With the note's record (`written`, KNOWN_OF_WRITTEN_KEY): every `###`
+ * section the last stub did not write, whatever its name (h37 #9280, N1 and
+ * N4). With no record (a note made by hand): every `###` section whose
+ * heading names no text field of the type (round 3's rule; nothing is lost).
+ * The arriving element wins a heading it sets: an own section headed as a
+ * custom field `data` carries (`### Looks` when `x_looks` arrives) or as a
+ * text field `data` sets is dropped. The next write puts the rest back after
+ * its fields, as stubBody keeps a hidden stub's (h37 #8936, 3). Empty for
+ * any other note.
+ */
+export function knownOfOwnSections(
+	content: string,
+	category: string,
+	data: Record<string, unknown> = {},
+	written: readonly string[] | null = null
+): KnownOfOwn {
+	const out: KnownOfOwn = { text: "", fields: [] };
+	if (!isKnownOfNote(content) || isStubNote(content)) return out;
 	const body = splitNote(content).body;
 	const fields = new Set(bodyTextFields(category));
-	let out = "";
+	const wrote = written === null ? null : new Set(written.map((k) => k.toLowerCase()));
 	for (const span of bodySpans(body)) {
 		if (span.heading === null) continue;
 		const key = headingToFieldKey(span.heading);
-		if (fields.has(key) || `x_${key}` in data) continue;
-		out += body.slice(span.start, span.end);
+		if (wrote ? wrote.has(key) || wrote.has(`x_${key}`) : fields.has(key)) continue;
+		if (`x_${key}` in data) continue;
+		if (fields.has(key)) {
+			if (isSetValue(data[key])) continue;
+			out.fields.push(key);
+		}
+		out.text += body.slice(span.start, span.end);
 	}
 	return out;
 }
