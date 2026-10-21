@@ -14,9 +14,8 @@ import {
 	joinNote,
 	serializeFrontmatter,
 	appendBodySection,
-	bodySpans,
 } from '../vault/element-transform';
-import { isKnownOfNote } from '../sync/known-of';
+import { KNOWN_OF_NO_MANAGE, isKnownOfNote } from '../sync/known-of';
 
 /**
  * Base identity keys are never offered for removal: name/id ARE the element,
@@ -62,6 +61,7 @@ export class ManageFieldsCommand {
 		if (!active) return;
 		const { file, category } = active;
 		const content = await this.app.vault.read(file);
+		if (refusedForKnownOf(content)) return;
 		const body = stripFrontmatterBlock(content);
 		const parsed = parseElementBody(body, category);
 		if (refusedForFence(file, category, content, body, parsed)) return;
@@ -127,13 +127,10 @@ export class ManageFieldsCommand {
 		choices: FieldChoice[]
 	): Promise<void> {
 		const content = await this.app.vault.read(file);
+		// A dialog opened before the note became known of: still refused.
+		if (refusedForKnownOf(content)) return;
 		const fmBlock = extractFrontmatterBlock(content);
-		const whole = stripFrontmatterBlock(content);
-		// A known-of note's line and the person's text above its first field
-		// stay where they are, byte for byte, and are no field's text (h37
-		// #8936, 5).
-		const kept = isKnownOfNote(content) ? whole.slice(0, bodySpans(whole)[0].end) : '';
-		const body = whole.slice(kept.length);
+		const body = stripFrontmatterBlock(content);
 		const parsed = parseElementBody(body, category);
 		// A dialog opened before the fence was typed open: still refused.
 		if (refusedForFence(file, category, content, body, parsed)) return;
@@ -198,7 +195,7 @@ export class ManageFieldsCommand {
 		}
 		// The body ends as writeElement ends it (one newline after the last
 		// section), so the last value reads back exactly (OW Infra #166 row 16).
-		const finalContent = joinNote(serializeFrontmatter(fmOut), `${kept}${newBody}\n`);
+		const finalContent = joinNote(serializeFrontmatter(fmOut), `${newBody}\n`);
 		if (finalContent !== current) {
 			this.markSelfWrite?.(file.path);
 			await this.app.vault.modify(file, finalContent);
@@ -231,6 +228,7 @@ export class ManageFieldsCommand {
 		const active = this.activeElement();
 		if (!active) return;
 		const { file, category } = active;
+		if (refusedForKnownOf(await this.app.vault.read(file))) return;
 
 		new TextPromptModal(this.app, 'Custom field name', 'e.g. Looks', async (raw: string) => {
 			const label = (raw || '').trim();
@@ -296,6 +294,17 @@ function refusedForFence(
 	return true;
 }
 
+
+/**
+ * A known-of note is not managed: its fields are the ones keel serves, and a
+ * field added here would read as an empty one (h37 #9280, N3; the folder
+ * spec §4.4, rule 1). Says so; true when refused.
+ */
+function refusedForKnownOf(content: string): boolean {
+	if (!isKnownOfNote(content)) return false;
+	new Notice(KNOWN_OF_NO_MANAGE);
+	return true;
+}
 
 /** Parse the note's frontmatter block into an object (key order preserved). */
 function parseFrontmatterObject(content: string): Record<string, unknown> {

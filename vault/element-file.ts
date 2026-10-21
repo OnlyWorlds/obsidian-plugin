@@ -26,7 +26,18 @@ import {
 	likelyLinkField,
 	bodyTextFields,
 } from "./element-transform";
-import { KNOWN_OF_KEY, KNOWN_OF_LINE, isKnownOfNote, knownOfKept, knownOfOwnSections, noteStateOf, withoutKnownOfLine } from "../sync/known-of";
+import {
+	KNOWN_OF_KEY,
+	KNOWN_OF_LINE,
+	KNOWN_OF_WRITTEN_KEY,
+	isKnownOfNote,
+	knownOfKept,
+	knownOfOwnSections,
+	knownOfRecord,
+	knownOfWritten,
+	noteStateOf,
+	withoutKnownOfLine,
+} from "../sync/known-of";
 
 /**
  * Element file format (v2 / frontmatter).
@@ -404,9 +415,6 @@ export async function writeElement(
 	const customTextFields = Object.entries(data)
 		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string")
 		.map(([k]) => k);
-	const bodyValue = knownOf
-		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data))
-		: buildElementBody(data, cat, customTextFields);
 
 	const folder = opts.folderPath
 		? normalizePath(opts.folderPath)
@@ -470,31 +478,46 @@ export async function writeElement(
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
-	// `known_of` is the writer's alone: set on a stub, gone on a whole write.
-	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY]);
+	// `known_of` and its record are the writer's alone: set on a stub, gone on a whole write.
+	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY]);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	// A stub replacing a whole copy (a view reset) keeps none of its extension
 	// values: they are the element's, and a stub carries only what it keeps.
-	// Over a known-of note they are the person's own, and stay (h37 #8936, 3).
-	const replacesWhole = knownOf && noteStateOf(content) === "whole";
+	// Over a known-of note, what the last stub wrote goes, by its record, and
+	// what the person added stays (h37 #8936, 3; h37 #9280, N1). A known-of
+	// note with no record (made by hand) keeps every extension key: nothing on
+	// it is known to be the stub's.
+	const state = noteStateOf(content);
+	const replacesWhole = knownOf && state === "whole";
+	const written = state === "known_of" ? knownOfRecord(existingFm) : null;
 	for (const [k, v] of Object.entries(existingFm)) {
 		if (replacesWhole && isExtensionKey(k)) continue;
+		if (written?.includes(k)) continue;
 		if (!ownedKeys.has(k)) preserved[k] = v;
 	}
 	const merged: Record<string, unknown> = { ...fm };
 	for (const [k, v] of Object.entries(preserved)) {
 		if (!(k in merged)) merged[k] = v;
 	}
+	// The record goes last, under everything the person reads first.
+	if (knownOf) merged[KNOWN_OF_WRITTEN_KEY] = knownOfWritten(data, cat);
+	// The person's own sections of a known-of note follow the fields, byte for
+	// byte, whether the stub arrives again or whole (h37 #8936, 3). An own
+	// section headed as a field the element leaves unset stands for that
+	// field: the field is not written a second, empty time (N4).
+	const own = knownOfOwnSections(content, cat, data, written);
+	const bodyValue = knownOf
+		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data && !own.fields.includes(k)))
+		: own.fields.length
+			? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !own.fields.includes(k)))
+			: buildElementBody(data, cat, customTextFields);
 	const above = opts.keepAbove ?? "";
 	// The kept text, then one blank line before the first heading.
 	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";
 	// A stub with no field to show is the line and the person's writing alone.
 	let sections = bodyValue ? `${above}${gap}${bodyValue}\n` : above;
-	// The person's own sections of a known-of note follow the fields, byte for
-	// byte, whether the stub arrives again or whole (h37 #8936, 3).
-	const own = knownOfOwnSections(content, cat, data);
-	if (own) sections = `${sections}${!sections || sections.endsWith("\n\n") ? "" : sections.endsWith("\n") ? "\n" : "\n\n"}${own}`;
+	if (own.text) sections = `${sections}${!sections || sections.endsWith("\n\n") ? "" : sections.endsWith("\n") ? "\n" : "\n\n"}${own.text}`;
 	const body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {

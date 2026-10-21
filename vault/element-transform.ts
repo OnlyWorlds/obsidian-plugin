@@ -65,7 +65,9 @@ export function toolShadowHeadings(frontmatter: Record<string, unknown>): Set<st
 /** Meta keys that never belong in an outbound API payload. */
 // `known_of` marks a stub (the folder spec §4.4, OW Infra #454): never a field,
 // never adopted as `x_known_of`; keel refuses it in a write body with a 422.
-const NON_PAYLOAD_KEYS = new Set(["id", "world", "world_id", "position", "aliases", "tags", "known_of"]);
+// `known_of_written` is the stub writer's record of what it wrote (h37 #9280,
+// N1): the plugin's bookkeeping, never a field, never sent or exported.
+const NON_PAYLOAD_KEYS = new Set(["id", "world", "world_id", "position", "aliases", "tags", "known_of", "known_of_written"]);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
