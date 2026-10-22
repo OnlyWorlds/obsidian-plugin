@@ -21,7 +21,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("API key")
 			.setDesc(
-				"Your world's API key: an ow_ key from your account page at onlyworlds.com, or a classic 10-digit key. Stored locally."
+				"A write key or a read key from the world's Access page on onlyworlds.com, under Keys, or a classic 10-digit key. Stored locally."
 			)
 			.addText((text) => {
 				text.inputEl.type = "password";

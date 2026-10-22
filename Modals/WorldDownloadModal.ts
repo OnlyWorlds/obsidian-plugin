@@ -65,8 +65,9 @@ export class WorldDownloadModal extends Modal {
         }
 
         // Add description text
-        const description = contentEl.createEl('p');
-        description.innerHTML = `Enter the API key of the world you want to download, and your PIN. Use an ow_ key from your account page, or a classic 10-digit key. A read-only key (ow_r_) needs no PIN.`;
+        const description = contentEl.createEl('p', {
+            text: "Paste a write key or a read key from the world's Access page. A read key needs no PIN.",
+        });
         description.style.fontSize = '0.9em';
         description.style.marginBottom = '15px';
 

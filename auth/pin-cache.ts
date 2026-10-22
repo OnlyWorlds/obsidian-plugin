@@ -42,6 +42,13 @@ export class PinCache {
 		});
 	}
 
+	/** The PIN already in hand (the setting, else this session's), never prompting; null when there is none. */
+	peek(): string | null {
+		const persisted = this.getPersistedPin();
+		if (persisted && persisted.length === 4) return persisted;
+		return this.pin;
+	}
+
 	/**
 	 * Clear the in-memory session cache. Does not clear the persisted setting.
 	 */

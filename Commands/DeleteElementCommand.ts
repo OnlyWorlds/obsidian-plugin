@@ -2,7 +2,9 @@ import { App, Modal, Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
-import { V2ApiError } from '../client-v2';
+import { isStaleWrite, V2ApiError } from '../client-v2';
+import { readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
+import { staleDeleteMessage } from '../sync/stale-save';
 
 /** What removing a known-of note says (OW Infra #454). */
 export const KNOWN_OF_DELETED = 'Note moved to trash. It was known of, so nothing was deleted on onlyworlds.com.';
@@ -104,9 +106,19 @@ export class DeleteElementCommand {
                 return;
             }
             try {
-                await client.deleteElement(category.toLowerCase(), elementId as string);
+                // The change_seq the note was last pulled or saved at, as a save
+                // sends it (OW Obsidian #557): a delete is guarded the same way.
+                const ifMatch = await readChangeSeq(this.app, worldName, elementId);
+                await client.deleteElement(category.toLowerCase(), elementId, { ifMatch });
+                await recordChangeSeqs(this.app, worldName, { [elementId]: null });
                 new Notice(`${category} "${elementName}" deleted from onlyworlds.com.`);
             } catch (error) {
+                // Changed on the server since the note was pulled: nothing was
+                // deleted, and the note stays.
+                if (isStaleWrite(error)) {
+                    new Notice(staleDeleteMessage(category, elementName), 12000);
+                    return;
+                }
                 // Already gone server-side → proceed to trash the note anyway.
                 if (error instanceof V2ApiError && error.status === 404) {
                     new Notice(`${category} "${elementName}" did not exist on the server — removing the note.`);
