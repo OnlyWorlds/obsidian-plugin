@@ -95,7 +95,7 @@ test("★ an export of a downloaded world carries the server id, every key GET /
 	assert.equal(source.world, WID);
 	assert.ok(typeof source.at === "string" && !Number.isNaN(Date.parse(source.at)), `source.at: ${String(source.at)}`);
 	assert.deepEqual(world.producer, { tool: "onlyworlds-builder", version: "3.8.0", input: "obsidian-vault" });
-	assert.equal(world.format_version, "0.3.14");
+	assert.equal(world.format_version, "0.3.8", "0.3.9 wants exported_as, which the plugin does not ask /me for yet");
 	// the provenance this writer cannot know is absent, never guessed
 	for (const k of ["exported_as", "snapshot_of", "api", "api_key"]) assert.equal(k in world, false, `${k} written`);
 

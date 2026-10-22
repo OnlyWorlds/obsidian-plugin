@@ -72,7 +72,8 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
  * sinks refuse an existing folder), so every export stamps it, replacing any
  * value the imported world carried: the bytes are this version's.
  */
-export const FOLDER_FORMAT_VERSION = "0.3.14";
+// Not 0.3.9 yet: 0.3.9 wants `exported_as`, which this plugin's v2 key can learn from /me (3.8.1).
+export const FOLDER_FORMAT_VERSION = "0.3.8";
 
 /**
  * The producer line (spec §4.2, v0.3.14): which tool made the folder and from
@@ -296,8 +297,8 @@ export function buildWorldJson(opts: {
 	}
 	// Provenance (§4.2). A downloaded world: `source` names the server world
 	// (`at` the export's clock) and this plugin is the folder's maker; no
-	// `exported_as` (the plugin never asks /me which slice its key reads, and
-	// the row says absent, never guessed) and no `snapshot_*` (not a
+	// `exported_as` yet (the plugin does not ask /me which slice its key
+	// reads; until it does, format_version stays 0.3.8) and no `snapshot_*` (not a
 	// snapshot: the world keeps its id). An imported world keeps the lines
 	// it came with as it found them, absent ones absent (the producer row: a
 	// tool that writes a folder from another folder keeps the line).
