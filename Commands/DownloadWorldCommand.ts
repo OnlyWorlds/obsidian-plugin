@@ -17,7 +17,9 @@ import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from '../Scripts/WorldDataTemplate';
 import { WorldService, isNoteNameFor, sanitizeFileName } from '../Scripts/WorldService';
 import { Category } from '../enums';
-import { V2ApiError, V2Change, V2Client } from '../client-v2';
+import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
+import { recordServerWorldId } from '../vault/world-id-marker';
+import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { parseElementPath, writeElement } from '../vault/element-file';
@@ -182,6 +184,13 @@ export class DownloadWorldCommand {
                         // (a World.md from before 00.31.00 gains a Units section).
                         await this.syncWorldUnits(worldFilePath, worldMeta);
                     }
+
+                    // The server world this folder holds (3.8.0): its id in the
+                    // folder's id marker, and GET /world's body as served in the
+                    // folder sidecar, which the folder export reads (spec §4.1:
+                    // a downloaded folder is that world, and a capture keeps
+                    // every key the world carried).
+                    await this.recordServerWorld(uniqueWorldName, worldMeta);
 
                     // Readme + Settings notes (writeElement builds the element notes).
                     const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
@@ -458,6 +467,27 @@ export class DownloadWorldCommand {
         const worldFilePath = `${worldFolderPath}/World.md`;
         await fs.write(worldFilePath, worldContent); 
     }
+    /**
+     * Record the server world in the world's folder: the id marker takes the
+     * server id, the sidecar's `server` block the world body (never a key: v2
+     * does not echo one, and `api_key` is dropped if it ever did). Never fails
+     * the download; a failure is logged and the export then mints, saying so.
+     */
+    private async recordServerWorld(worldName: string, worldMeta: Record<string, unknown>): Promise<void> {
+        const id = typeof worldMeta.id === 'string' ? worldMeta.id : '';
+        if (!id) return;
+        try {
+            await recordServerWorldId(this.app, worldName, id);
+            const world: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(worldMeta)) if (k !== 'api_key' && k !== 'api') world[k] = v;
+            const sidecar = await readFolderSidecar(this.app, worldName);
+            sidecar.server = { server: V2_ORIGIN, world };
+            await writeFolderSidecar(this.app, worldName, sidecar);
+        } catch (error) {
+            console.error('OnlyWorlds: could not record the server world for the folder export', error);
+        }
+    }
+
     /** Write the server's world units into an existing World.md (only when they differ). */
     private async syncWorldUnits(worldFilePath: string, worldMeta: Record<string, unknown>): Promise<void> {
         const units = worldUnitsFromBody(worldMeta);

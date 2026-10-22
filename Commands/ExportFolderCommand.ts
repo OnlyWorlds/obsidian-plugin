@@ -5,7 +5,9 @@ import { bodyFieldForCategory } from "../vault/element-transform";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
-import { buildWorldJson } from "../vault/world-json";
+import { buildWorldJson, pluginProducer, serverWorldId } from "../vault/world-json";
+import { worldFileApiKey } from "../vault/world-key";
+import { LOCAL_WORLD_KEY_TOKEN } from "../vault/world-key-core";
 import {
 	worldFolderName,
 	planElementPaths,
@@ -58,16 +60,24 @@ import {
  * [Label](ow://type/uuid) where the name resolves. Extension fields round-trip
  * verbatim (R4) — carried by readElement/the transform, never touched here.
  *
- * World identity: World.md carries no world UUID, so world.json.id is the
- * persisted per-vault world id (readWorldIdMarker), minted once if absent. A
- * stable id keeps re-exports the SAME world in Atlas.
+ * World identity: World.md carries no world UUID. A downloaded world's
+ * world.json.id is the server's, recorded by Download (3.8.0); any other
+ * world's is the persisted per-vault world id (readWorldIdMarker), minted once
+ * if absent, and the report says so. A stable id keeps re-exports the SAME
+ * world in Atlas. Provenance (spec §4.2): `source` and the producer line on a
+ * downloaded world, the producer line on a world made in the vault, an
+ * imported world's lines as it came (vault/world-json.ts buildWorldJson).
  */
 export class ExportFolderCommand {
 	private app: App;
-	/** The plugin's settings, for the hidden lists (OW Infra #426); absent, only stubs are known. */
-	private host: HiddenListHost | null;
+	/**
+	 * The plugin: its settings, for the hidden lists (OW Infra #426; absent,
+	 * only stubs are known), and its manifest, for the producer line (absent,
+	 * none is written).
+	 */
+	private host: (HiddenListHost & { manifest?: { id?: string; version?: string } }) | null;
 
-	constructor(app: App, host?: HiddenListHost) {
+	constructor(app: App, host?: HiddenListHost & { manifest?: { id?: string; version?: string } }) {
 		this.app = app;
 		this.host = host ?? null;
 	}
@@ -111,8 +121,16 @@ export class ExportFolderCommand {
 				worldMd = null;
 			}
 		}
-		const kept = (await readFolderSidecar(this.app, world)).world ?? null;
-		return buildWorldJson({ worldId, worldName: world, worldMd, kept });
+		const sidecar = await readFolderSidecar(this.app, world);
+		return buildWorldJson({
+			worldId,
+			worldName: world,
+			worldMd,
+			kept: sidecar.world ?? null,
+			server: sidecar.server ?? null,
+			producer: pluginProducer(this.host?.manifest),
+			exportedAt: new Date().toISOString(),
+		});
 	}
 
 	/**
@@ -240,32 +258,55 @@ export class ExportFolderCommand {
 	}
 
 	private async exportWorld(world: string, dest: ExportDestination): Promise<void> {
-		// STABLE world identity: read the persisted per-vault world id, mint only
-		// if none exists yet. A fresh id per export would make every re-export a
-		// NEW world in Atlas and trip the import guard against its own earlier
-		// import.
-		let worldId = await readWorldIdMarker(this.app, world);
-		if (!worldId) {
-			worldId = uuidv7();
-			await writeWorldIdMarker(this.app, world, worldId);
-		}
+		const { worldId, idNote } = await this.worldIdFor(world);
 		const folderName = worldFolderName(world, worldId);
 
 		const plan = await this.planFiles(world, worldId);
 		if (!plan) return;
+		const report = { ...plan, idNote };
 
 		if (dest.kind === "external") {
-			await this.writeExternal(world, folderName, dest.dir, plan);
+			await this.writeExternal(world, folderName, dest.dir, report);
 		} else {
-			await this.writeVault(world, folderName, plan);
+			await this.writeVault(world, folderName, report);
 		}
+	}
+
+	/**
+	 * The world id an export writes (spec §4.1: a portable copy keeps the
+	 * world `id`). A downloaded world's is the server's, which Download
+	 * recorded in the folder sidecar; else the persisted per-vault id; else
+	 * one is minted and persisted, so re-exports stay the SAME world in Atlas
+	 * and the import guard does not trip on its own earlier import. A mint, or
+	 * a world holding a server key whose id no Download has recorded yet (one
+	 * downloaded before 3.8.0), gets a line in the report.
+	 */
+	private async worldIdFor(world: string): Promise<{ worldId: string; idNote: string | null }> {
+		const fromServer = serverWorldId((await readFolderSidecar(this.app, world)).server);
+		if (fromServer) return { worldId: fromServer, idNote: null };
+		let worldId = await readWorldIdMarker(this.app, world);
+		const minted = !worldId;
+		if (!worldId) {
+			worldId = uuidv7();
+			await writeWorldIdMarker(this.app, world, worldId);
+		}
+		let key: string | null = null;
+		try {
+			key = await worldFileApiKey(this.app, world);
+		} catch {
+			key = null;
+		}
+		if (key && key.trim() && key.trim().toLowerCase() !== LOCAL_WORLD_KEY_TOKEN) {
+			return { worldId, idNote: "This world's server id is not recorded yet: download the world again, then export, to keep it." };
+		}
+		return { worldId, idNote: minted ? "New world id: this world has no server id in this vault." : null };
 	}
 
 	/** Vault sink (default): unchanged behavior — vault API under OW-folder-export/. */
 	private async writeVault(
 		world: string,
 		folderName: string,
-		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number }
+		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number; idNote: string | null }
 	): Promise<void> {
 		const root = normalizePath(`OW-folder-export/${folderName}`);
 		if (this.app.vault.getAbstractFileByPath(root)) {
@@ -289,7 +330,7 @@ export class ExportFolderCommand {
 		new ExportReportModal(this.app, world, {
 			kind: "vault",
 			display: `OW-folder-export/${folderName}/`,
-		}, plan.files.length, plan.failed, plan.hidden).open();
+		}, plan.files.length, plan.failed, plan.hidden, plan.idNote).open();
 	}
 
 	/**
@@ -301,7 +342,7 @@ export class ExportFolderCommand {
 		world: string,
 		folderName: string,
 		destDir: string,
-		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number }
+		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number; idNote: string | null }
 	): Promise<void> {
 		// eslint-disable-next-line @typescript-eslint/no-var-requires
 		const fs = require("fs/promises") as typeof import("fs/promises");
@@ -348,7 +389,7 @@ export class ExportFolderCommand {
 		new ExportReportModal(this.app, world, {
 			kind: "external",
 			display: target,
-		}, plan.files.length, plan.failed, plan.hidden).open();
+		}, plan.files.length, plan.failed, plan.hidden, plan.idNote).open();
 	}
 
 	private async ensureVaultFolder(path: string): Promise<void> {
@@ -584,7 +625,9 @@ class ExportReportModal extends Modal {
 		private dest: { kind: "vault" | "external"; display: string },
 		private writtenCount: number,
 		private failed: { path: string; reason: string }[],
-		private hidden = 0
+		private hidden = 0,
+		/** The world id's line (a mint, or a server id not recorded yet; ExportFolderCommand.worldIdFor). */
+		private idNote: string | null = null
 	) {
 		super(app);
 	}
@@ -600,6 +643,7 @@ class ExportReportModal extends Modal {
 		if (this.hidden > 0) {
 			summary.createEl("li", { text: `${this.hidden} note${this.hidden === 1 ? "" : "s"} hidden by the world's owner, not exported` });
 		}
+		if (this.idNote) summary.createEl("li", { text: this.idNote });
 
 		const where = contentEl.createEl("p");
 		where.createEl("strong", { text: "Folder: " });

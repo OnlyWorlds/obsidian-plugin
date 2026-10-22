@@ -21,6 +21,8 @@ import { toV2WireKeys } from "./vault/element-transform";
  */
 
 const V2_BASE = "https://www.onlyworlds.com/api/v2";
+/** The server the v2 client speaks to, as a folder's `source.server` names it (spec §4.2). */
+export const V2_ORIGIN = new URL(V2_BASE).origin;
 
 /**
  * v1-parse output → v2 wire payload. The span-tag parsers emit link keys with

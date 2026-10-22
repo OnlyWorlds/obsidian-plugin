@@ -18,6 +18,12 @@ import { App, normalizePath } from "obsidian";
  */
 export interface FolderSidecar {
 	world?: Record<string, unknown>;
+	/**
+	 * What a Download read from the server (3.8.0): its origin and `GET
+	 * /world`'s body as served, rewritten at every Download. The folder export
+	 * of a downloaded world starts from it (vault/world-json.ts).
+	 */
+	server?: { server: string; world: Record<string, unknown> };
 	elements?: Record<string, Record<string, unknown>>;
 	order?: Record<string, string[]>;
 }

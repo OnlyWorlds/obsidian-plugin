@@ -18,6 +18,11 @@
  *     `time_range_current`; the export writes it as the schema's `time_current`
  *     (spec §5: an export is a new folder in the current dialect).
  *
+ *   - The server block of the same sidecar (3.8.0): what a Download read from
+ *     `GET /world`, as served, and the server's origin. A downloaded world's
+ *     export starts from it (every key the server served goes out, the world
+ *     keeps its server id) and names it in `source`.
+ *
  * On export, a key World.md shows is taken from World.md only when the user
  * changed its line; an unchanged line means the sidecar's value goes out
  * verbatim. So a folder that comes in and goes out untouched is byte-identical,
@@ -67,7 +72,50 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
  * sinks refuse an existing folder), so every export stamps it, replacing any
  * value the imported world carried: the bytes are this version's.
  */
-export const FOLDER_FORMAT_VERSION = "0.3.8";
+export const FOLDER_FORMAT_VERSION = "0.3.14";
+
+/**
+ * The producer line (spec §4.2, v0.3.14): which tool made the folder and from
+ * what. The plugin's export is always made from the vault's notes, so its
+ * `input` is `obsidian-vault`, a downloaded world's included (its `source`
+ * says which server world the vault holds).
+ */
+export interface FolderProducer {
+	tool: string;
+	version: string;
+	input: string;
+}
+
+export const PRODUCER_INPUT = "obsidian-vault";
+
+/** The producer line for this plugin, or null when its manifest is not known (never guessed). */
+export function pluginProducer(manifest: { id?: unknown; version?: unknown } | null | undefined): FolderProducer | null {
+	if (!manifest || typeof manifest.id !== "string" || !manifest.id || typeof manifest.version !== "string" || !manifest.version) return null;
+	return { tool: manifest.id, version: manifest.version, input: PRODUCER_INPUT };
+}
+
+/**
+ * The server world a Download recorded for this world folder (the sidecar's
+ * `server` block, folder-sidecar.ts): the server's origin and `GET /world`'s
+ * body as served. Its `id` is the world's id; its keys are what the vault
+ * holds of the world beyond World.md's lines.
+ */
+export interface ServerWorld {
+	server: string;
+	world: Record<string, unknown>;
+}
+
+/** The provenance keys a writer of this spec owns (§4.2); never taken from a server's world body. */
+const PROVENANCE_KEYS = [
+	"source", "exported_as", "producer", "format_version",
+	"snapshot_of", "snapshot_label", "snapshot_at", "snapshot_change_seq", "snapshot_torn", "snapshot_counts", "writable",
+];
+
+/** The server world's id, when it is one (a non-empty string). */
+export function serverWorldId(server: ServerWorld | null | undefined): string | null {
+	const id = server?.world?.id;
+	return typeof id === "string" && id.trim() !== "" ? id : null;
+}
 
 /**
  * The world.json keys the plugin never keeps: `api` holds a folder's sync
@@ -158,8 +206,12 @@ export function renderWorldMd(worldJson: Record<string, unknown>, worldName: str
 /**
  * The world.json an export writes.
  *
- * `kept` is the sidecar's world block (null for a world made in the vault).
- * Without it: id, name, and every World.md line that has a value. With it: the
+ * `server` is the sidecar's server block (a downloaded world): when present it
+ * stands in for `kept`, and `source` and the producer line follow it (spec
+ * §4.2). `kept` is the sidecar's world block (an imported world; null for a
+ * world made in the vault).
+ * Without either: id, name, and every World.md line that has a value, and the
+ * producer line. With one: the
  * kept world.json in its key order (`time_range_current` written as
  * `time_current`), each World.md-shown key replaced only where the user
  * changed its line. Both end with
@@ -173,9 +225,29 @@ export function buildWorldJson(opts: {
 	worldName: string;
 	worldMd: string | null;
 	kept: Record<string, unknown> | null;
+	/** The server world a Download recorded; when present it is the base, and `source` names it. */
+	server?: ServerWorld | null;
+	/** This writer's producer line (pluginProducer); null writes none. */
+	producer?: FolderProducer | null;
+	/** The export's clock, for `source.at`. */
+	exportedAt?: string;
 }): Record<string, unknown> {
-	const { worldId, worldName, worldMd, kept } = opts;
+	const { worldId, worldName, worldMd } = opts;
 	const lines = worldMd ? parseWorldMdLines(worldMd) : {};
+	const server = serverWorldId(opts.server) ? opts.server ?? null : null;
+	const producer = opts.producer ?? null;
+
+	// Which world.json the vault holds, in order: the server world a Download
+	// recorded (the folder IS that world: spec §4.1's linked-folder ruling),
+	// else what an import kept, else none (a world made in the vault).
+	let kept: Record<string, unknown> | null = opts.kept;
+	if (server) {
+		kept = {};
+		for (const [k, v] of Object.entries(server.world)) {
+			if ((WORLD_KEYS_NOT_KEPT as readonly string[]).includes(k) || k === "api_key" || PROVENANCE_KEYS.includes(k)) continue;
+			kept[k] = v;
+		}
+	}
 
 	if (!kept) {
 		const out: Record<string, unknown> = { id: worldId, name: worldName };
@@ -184,6 +256,8 @@ export function buildWorldJson(opts: {
 			if (text === undefined || text.trim() === "") continue;
 			out[line.keys[0]] = coerceWorldLine(text, line.kind);
 		}
+		// Made in the vault: this export is its maker (§4.2 producer row).
+		if (producer) out.producer = producer;
 		out.format_version = FOLDER_FORMAT_VERSION;
 		return out;
 	}
@@ -193,7 +267,8 @@ export function buildWorldJson(opts: {
 	// The folder is the name's safe form (world-name.ts), so a kept name
 	// whose safe form is this folder is still the world's own name.
 	const keptName = typeof kept.name === "string" ? kept.name : null;
-	out.name = keptName !== null && (keptName.trim() === worldName || safeWorldFolderName(keptName) === worldName) ? keptName : worldName;
+	// A downloaded world's name is the server's (its folder may be `Name (1)`).
+	out.name = keptName !== null && (server || keptName.trim() === worldName || safeWorldFolderName(keptName) === worldName) ? keptName : worldName;
 	for (const line of WORLD_MD_LINES) {
 		const text = lines[line.label];
 		if (text === undefined) continue; // no line: the kept value (or its absence) stands
@@ -218,6 +293,17 @@ export function buildWorldJson(opts: {
 			for (const k of Object.keys(out)) delete out[k];
 			Object.assign(out, renamed);
 		}
+	}
+	// Provenance (§4.2). A downloaded world: `source` names the server world
+	// (`at` the export's clock) and this plugin is the folder's maker; no
+	// `exported_as` (the plugin never asks /me which slice its key reads, and
+	// the row says absent, never guessed) and no `snapshot_*` (not a
+	// snapshot: the world keeps its id). An imported world keeps the lines
+	// it came with as it found them, absent ones absent (the producer row: a
+	// tool that writes a folder from another folder keeps the line).
+	if (server) {
+		out.source = { server: server.server, world: serverWorldId(server), at: opts.exportedAt ?? new Date().toISOString() };
+		if (producer) out.producer = producer;
 	}
 	// Every export is a birth: both sinks refuse an existing folder, so the
 	// folder is new and written now, against this writer's version. A carried
