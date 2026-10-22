@@ -185,7 +185,7 @@ test("★ a download into a counted vault renames each folder once, keeps every 
 	assert.deepEqual(notes(vault), before, "no note lost, added, renamed or changed");
 	const said = __notices.filter((n) => /renamed without the count/.test(n));
 	assert.equal(said.length, 1, __notices.join(" / "));
-	assert.match(said[0], /^2 type folders renamed without the count \(Character \(1\) is now Character\)\. Links by note name still work; links written with a folder path follow your Obsidian setting for updating links\./);
+	assert.match(said[0], /^2 type folders renamed without the count: Character \(1\) and Location \(2\) are now Character and Location\. Links by note name still work; links written with a folder path follow your Obsidian setting for updating links\./);
 
 	// The second download: renamed 0, no notice.
 	__notices.length = 0;
@@ -244,7 +244,7 @@ test("★ both spellings of one type: the counted folder's notes move into the p
 	assert.deepEqual(renames.sort(), [`${E}/Location (2)/Castle map.png -> ${E}/Location/Castle map.png`, `${E}/Location (2)/Castle.md -> ${E}/Location/Castle.md`]);
 	assert.deepEqual(trashed, [`${E}/Location (2)`], "only the empty folder goes, to the trash");
 	assert.deepEqual(vault.deletes, []);
-	assert.match(__notices.join("\n"), /1 type folder renamed without the count \(Location \(2\) is now Location\)/);
+	assert.match(__notices.join("\n"), /1 type folder renamed without the count: Location \(2\) is now Location\./);
 });
 
 test("★ a name taken in the plain folder: nothing of that folder moves, nothing is deleted, the notice names folder and note", async () => {
@@ -287,7 +287,7 @@ test("the pass leaves a folder that only looks counted, and one of no type, alon
 	await vault.seed(`${E}/Location (old)/a.md`, "mine\n");
 	await vault.seed(`${E}/Drafts (2)/b.md`, "mine\n");
 	const r = await renameCountedCategoryFolders(app, "Barovia");
-	assert.deepEqual(r, { renamed: [], stuck: [] });
+	assert.deepEqual(r, { renamed: [], stuck: [], kept: [] });
 	assert.deepEqual(renames, []);
 });
 
@@ -310,7 +310,6 @@ test("★ an emptied counted folder that still holds a hidden file on disk stays
 	await vault.seed(`${E}/Location (2)/Castle.md`, loc(CASTLE, "Castle"));
 	await vault.adapter.write(`${E}/Location (2)/.DS_Store`, "finder");
 	const r = await renameCountedCategoryFolders(app, "Barovia");
-	assert.deepEqual(r.renamed, ["Location (2)"]);
 	assert.ok(vault.contentAt(`${E}/Location/Castle.md`));
 	assert.deepEqual(trashed, [], "the disk shows a file in it: never trashed");
 	assert.ok(vault.folders.has(`${E}/Location (2)`));
@@ -362,4 +361,55 @@ test("a clash keeps its wording and is marked as one (A2)", async () => {
 	assert.equal(s.why, "clash");
 	assert.equal(s.moved, 0);
 	assert.match(plainFoldersNotice(r) ?? "", /^Not moved: Location \(2\), because Location already holds Castle\.md\. Nothing was deleted/);
+});
+
+// --- Amendment B (Seethe's real-vault walk, Kael's read) ----------------------
+
+test("★ a counted folder kept for a hidden file is not counted as renamed, is said once, and a later pass skips it in silence (B2)", async () => {
+	const { app, vault, renames, trashed } = vaultWithWorld();
+	await vault.seed(`${E}/Species/Human.md`, loc(KEEP, "Human"));
+	await vault.seed(`${E}/Species (1)/Elf.md`, loc(CASTLE, "Elf"));
+	await vault.adapter.write(`${E}/Species (1)/.DS_Store`, "finder");
+	const r = await renameCountedCategoryFolders(app, "Barovia");
+	assert.deepEqual(r.renamed, []);
+	assert.deepEqual(r.stuck, []);
+	assert.deepEqual((r as unknown as { kept: unknown }).kept, [{ folder: "Species (1)", file: ".DS_Store" }]);
+	assert.ok(vault.contentAt(`${E}/Species/Elf.md`));
+	assert.deepEqual(trashed, []);
+	assert.equal(plainFoldersNotice(r), "Species (1) kept: it holds .DS_Store, which Obsidian does not show.");
+
+	const again = await renameCountedCategoryFolders(app, "Barovia");
+	assert.deepEqual(again, { renamed: [], stuck: [], kept: [] });
+	assert.equal(plainFoldersNotice(again), null);
+	assert.equal(renames.length, 1);
+	assert.equal(vault.dotfiles.get(`${E}/Species (1)/.DS_Store`), "finder");
+});
+
+test("★ the renamed line names the folders: all of them up to four (B3)", async () => {
+	const { app, vault } = vaultWithWorld();
+	for (const f of ["Character (3)", "Location (2)", "Species (1)"]) await vault.seed(`${E}/${f}/a.md`, "x\n");
+	const notice = plainFoldersNotice(await renameCountedCategoryFolders(app, "Barovia")) ?? "";
+	assert.match(notice, /^3 type folders renamed without the count: Character \(3\), Location \(2\) and Species \(1\) are now Character, Location and Species\. /);
+});
+
+test("the renamed line past four names the first three and how many more (B3)", async () => {
+	const { app, vault } = vaultWithWorld();
+	for (const f of ["Ability (1)", "Character (3)", "Location (2)", "Species (1)", "Zone (4)"]) await vault.seed(`${E}/${f}/a.md`, "x\n");
+	const notice = plainFoldersNotice(await renameCountedCategoryFolders(app, "Barovia")) ?? "";
+	assert.match(notice, /^5 type folders renamed without the count: Ability \(1\), Character \(3\), Location \(2\) and 2 more are now Ability, Character, Location and 2 more\. /);
+});
+
+const START = "Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update or Just once answers it for the rest.";
+
+test("★ before the pass renames anything, one notice says Obsidian may ask about links; none when nothing is counted (B1)", async () => {
+	const counted = await countedVault();
+	await download(counted.app, []);
+	const i = __notices.indexOf(START);
+	assert.ok(i >= 0, __notices.join(" / "));
+	assert.ok(i < __notices.findIndex((n) => /renamed without the count/.test(n)));
+	assert.equal(__notices.filter((n) => n === START).length, 1);
+
+	__notices.length = 0;
+	await download(counted.app, []);
+	assert.equal(__notices.filter((n) => n === START).length, 0, "the second download finds nothing counted");
 });

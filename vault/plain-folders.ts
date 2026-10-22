@@ -43,6 +43,22 @@ export interface PlainFoldersResult {
 	/** The counted folders now gone into their plain names (renamed, or merged into one). */
 	renamed: string[];
 	stuck: StuckFolder[];
+	/** Counted folders whose notes all moved, kept because the disk still shows something in them (`file`, the first such name: a hidden file Obsidian does not list). */
+	kept: { folder: string; file: string }[];
+}
+
+/** The Notice shown before the pass renames anything (OW Obsidian #560, amendment B: Obsidian's Update links prompt otherwise holds the download with nothing said). */
+export const RENAME_START_NOTICE =
+	"Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update or Just once answers it for the rest.";
+
+/** The disk's own listing of a folder (hidden files included), or null when it cannot be read. */
+async function diskListing(app: App, path: string): Promise<string[] | null> {
+	try {
+		const listed = await app.vault.adapter.list(path);
+		return [...listed.files, ...listed.folders];
+	} catch {
+		return null;
+	}
 }
 
 const TYPES = new Set(Object.keys(Category).filter((k) => isNaN(Number(k))));
@@ -52,15 +68,35 @@ async function occupied(app: App, path: string): Promise<boolean> {
 	return app.vault.getAbstractFileByPath(path) !== null || (await app.vault.adapter.exists(path));
 }
 
-/** Rename the counted type folders of `OnlyWorlds/Worlds/<worldFolder>/Elements` to `<Type>`. */
-export async function renameCountedCategoryFolders(app: App, worldFolder: string): Promise<PlainFoldersResult> {
-	const result: PlainFoldersResult = { renamed: [], stuck: [] };
+/**
+ * Rename the counted type folders of `OnlyWorlds/Worlds/<worldFolder>/Elements`
+ * to `<Type>`. `onStart` is called once, before the first rename, and only
+ * when there is a folder to work on.
+ */
+export async function renameCountedCategoryFolders(
+	app: App,
+	worldFolder: string,
+	opts: { onStart?: () => void } = {}
+): Promise<PlainFoldersResult> {
+	const result: PlainFoldersResult = { renamed: [], stuck: [], kept: [] };
 	const elements = app.vault.getAbstractFileByPath(normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`));
 	if (!(elements instanceof TFolder)) return result;
 
-	const counted = elements.children
-		.filter((c): c is TFolder => c instanceof TFolder && isCountedCategoryFolder(c.name) && TYPES.has(categoryFolderType(c.name)))
-		.sort((a, b) => a.name.localeCompare(b.name));
+	const counted: TFolder[] = [];
+	for (const c of elements.children) {
+		if (!(c instanceof TFolder) || !isCountedCategoryFolder(c.name) || !TYPES.has(categoryFolderType(c.name))) continue;
+		// A folder an earlier pass kept beside its plain folder: the vault lists
+		// nothing in it and the disk does (a hidden file, nothing of the
+		// plugin's). Skipped in silence: not renamed, not stuck, not kept again.
+		const plain = app.vault.getAbstractFileByPath(normalizePath(`${elements.path}/${categoryFolderType(c.name)}`));
+		if (plain instanceof TFolder && c.children.length === 0) {
+			const onDisk = await diskListing(app, c.path);
+			if (onDisk === null || onDisk.length > 0) continue;
+		}
+		counted.push(c);
+	}
+	counted.sort((a, b) => a.name.localeCompare(b.name));
+	if (counted.length > 0) opts.onStart?.();
 
 	for (const folder of counted) {
 		const name = folder.name;
@@ -127,9 +163,14 @@ export async function renameCountedCategoryFolders(app: App, worldFolder: string
 		// the vault does not list), to the trash the person chose. Anything left
 		// on disk keeps it where it is: every reader and the Bases file see both
 		// spellings.
+		const onDisk = await diskListing(app, folder.path);
+		if (onDisk === null || onDisk.length > 0) {
+			const first = onDisk?.[0];
+			result.kept.push({ folder: name, file: first ? (first.split("/").pop() ?? first) : "a file Obsidian does not list" });
+			continue;
+		}
 		try {
-			const onDisk = await app.vault.adapter.list(folder.path);
-			if (onDisk.files.length === 0 && onDisk.folders.length === 0) await app.fileManager.trashFile(folder);
+			await app.fileManager.trashFile(folder);
 		} catch (error) {
 			console.info(`OnlyWorlds: left the emptied folder ${name} in place`, error);
 		}
@@ -143,9 +184,11 @@ export function plainFoldersNotice(result: PlainFoldersResult): string | null {
 	const lines: string[] = [];
 	const n = result.renamed.length;
 	if (n > 0) {
-		const first = result.renamed[0];
+		const shown = n <= 4 ? result.renamed : result.renamed.slice(0, 3);
+		const from = andList(shown, n - shown.length);
+		const to = andList(shown.map(categoryFolderType), n - shown.length);
 		lines.push(
-			`${n} type folder${n === 1 ? "" : "s"} renamed without the count (${first} is now ${categoryFolderType(first)}). ` +
+			`${n} type folder${n === 1 ? "" : "s"} renamed without the count: ${from} ${n === 1 ? "is" : "are"} now ${to}. ` +
 				`Links by note name still work; links written with a folder path follow your Obsidian setting for updating links.`
 		);
 	}
@@ -164,5 +207,12 @@ export function plainFoldersNotice(result: PlainFoldersResult): string | null {
 				`Nothing was deleted; rename or move one of them by hand, then download again.`
 		);
 	}
+	for (const k of result.kept) lines.push(`${k.folder} kept: it holds ${k.file}, which Obsidian does not show.`);
 	return lines.length > 0 ? lines.join("\n") : null;
+}
+
+/** `A`, `A and B`, `A, B and C`, or `A, B, C and 2 more`. */
+function andList(names: string[], more: number): string {
+	const items = more > 0 ? [...names, `${more} more`] : names;
+	return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }

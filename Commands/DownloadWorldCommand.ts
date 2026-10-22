@@ -27,7 +27,7 @@ import { parseElementPath, writeElement } from '../vault/element-file';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
-import { plainFoldersNotice, renameCountedCategoryFolders } from '../vault/plain-folders';
+import { RENAME_START_NOTICE, plainFoldersNotice, renameCountedCategoryFolders } from '../vault/plain-folders';
 import { keptDeleteCount } from '../sync/deleted-on-server';
 import { hiddenNotices, planHidden, resyncReasonOf, stubNote, type ResyncReason } from '../sync/hidden-on-server';
 import { isKnownOfElement, knownOfKeptText, knownOfNotices, knownOfWrite, nextLastKnown, noteStateOf, type NoteState } from '../sync/known-of';
@@ -181,7 +181,11 @@ export class DownloadWorldCommand {
                     // `Location` through Obsidian's rename, so links are kept,
                     // before any note is written. A folder whose notes cannot
                     // move whole is left as it is and named in the notice.
-                    const plainFolders = plainFoldersNotice(await renameCountedCategoryFolders(this.app, uniqueWorldName));
+                    // Said first, when there is a folder to rename: Obsidian's
+                    // Update links prompt may hold the download (Seethe's walk).
+                    const plainFolders = plainFoldersNotice(await renameCountedCategoryFolders(this.app, uniqueWorldName, {
+                        onStart: () => new Notice(RENAME_START_NOTICE, 15000),
+                    }));
                     if (plainFolders) new Notice(plainFolders, 15000);
     
                     // Generate world file
