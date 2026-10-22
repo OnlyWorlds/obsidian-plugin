@@ -399,7 +399,7 @@ test("the renamed line past four names the first three and how many more (B3)", 
 	assert.match(notice, /^5 type folders renamed without the count: Ability \(1\), Character \(3\), Location \(2\) and 2 more are now Ability, Character, Location and 2 more\. /);
 });
 
-const START = "Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update or Just once answers it for the rest.";
+const START = "Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update answers it for the rest and turns on Obsidian's automatic link updating for this vault.";
 
 test("★ before the pass renames anything, one notice says Obsidian may ask about links; none when nothing is counted (B1)", async () => {
 	const counted = await countedVault();

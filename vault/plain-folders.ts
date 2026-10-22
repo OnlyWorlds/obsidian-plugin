@@ -49,7 +49,7 @@ export interface PlainFoldersResult {
 
 /** The Notice shown before the pass renames anything (OW Obsidian #560, amendment B: Obsidian's Update links prompt otherwise holds the download with nothing said). */
 export const RENAME_START_NOTICE =
-	"Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update or Just once answers it for the rest.";
+	"Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update answers it for the rest and turns on Obsidian's automatic link updating for this vault.";
 
 /** The disk's own listing of a folder (hidden files included), or null when it cannot be read. */
 async function diskListing(app: App, path: string): Promise<string[] | null> {
