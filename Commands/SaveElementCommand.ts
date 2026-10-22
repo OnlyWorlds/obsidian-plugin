@@ -122,6 +122,9 @@ const knownOfShown = new Set<string>();
  */
 const staleShown = new Set<string>();
 
+/** Per note path, the save running now: the next save of that note waits for it (Kael, h69 #10539). */
+const saveChains = new Map<string, Promise<void>>();
+
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
 // next Save Element renames the note, even when nothing else changed and
@@ -304,6 +307,23 @@ export class SaveElementCommand {
      * (one id hit ten times, seven never — OW Infra #166 row 4).
      */
     async execute(activeFile: TFile | null, opts: { manual?: boolean } = {}): Promise<SaveResult> {
+        // One save of a note at a time (Kael, h69 #10539): a second save of a
+        // note whose PATCH is still in flight (the person's Save element over
+        // auto-sync's, or the next pause's) waits for it, then reads the
+        // change_seq it recorded. Otherwise both read the same number and the
+        // second is refused as stale over the person's own write.
+        const key = activeFile instanceof TFile ? activeFile.path : '';
+        const run = (saveChains.get(key) ?? Promise.resolve()).then(() => this.saveOne(activeFile, opts));
+        const tail = run.then(() => undefined, () => undefined);
+        saveChains.set(key, tail);
+        try {
+            return await run;
+        } finally {
+            if (saveChains.get(key) === tail) saveChains.delete(key);
+        }
+    }
+
+    private async saveOne(activeFile: TFile | null, opts: { manual?: boolean }): Promise<SaveResult> {
         // The Save Element command passes manual; auto-sync never does. Only a
         // manual save creates link targets first (row 8; Kael's read, blocker).
         const manual = opts.manual === true;

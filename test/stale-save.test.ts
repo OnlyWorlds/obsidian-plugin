@@ -240,6 +240,40 @@ test("★ auto-sync goes through the same path: a stale note's notice shows once
 	assert.equal((await save(app, plugin, file, true)).notices.filter((n) => n.includes(STALE)).length, 1);
 });
 
+test("★ two saves of one note never race each other: the second waits for the first, reads its change_seq, and is not told its own write is stale (Kael, h69 #10539)", async () => {
+	const ID = "019e0000-0000-7000-8000-0000000005aa";
+	const { app, vault, keel, plugin } = await setup({ [ID]: 44 });
+	keel.put(ID, { name: "Hero", description: "A" }, 44);
+	const path = `${W}/Elements/Character/Hero.md`;
+	const file = (await vault.seed(path, note(ID, "Hero", "A1"))) as unknown as TFile;
+	// keel applies the PATCH at once; its answer reaches the plugin a while later, as over a network.
+	class SlowClient extends V2Client {
+		async update(...args: Parameters<V2Client["update"]>) {
+			const answer = await super.update(...args);
+			for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+			return answer;
+		}
+	}
+	plugin.buildV2Client = async () => new SlowClient("ow_k_test", "1234");
+	__notices.length = 0;
+	// Auto-sync's PATCH of A1 is in flight when the next save of the same note starts (the person's Save element, or the next pause).
+	let second: Promise<unknown> | null = null;
+	keel.beforePatch = () => {
+		vault.files.get(path)!.content = note(ID, "Hero", "A2");
+		second = new SaveElementCommand(app, plugin as never).execute(file, { manual: true });
+	};
+	const first = await new SaveElementCommand(app, plugin as never).execute(file, { manual: false });
+	assert.ok(second, "the second save did not start");
+	const r2 = (await second) as { ok: boolean };
+	assert.equal(first.ok, true, JSON.stringify(first));
+	assert.equal(r2.ok, true, JSON.stringify(r2));
+	assert.deepEqual(__notices.filter((n) => n.includes(STALE)), [], "no stale notice about the person's own write");
+	const patches = __requests.filter((r) => r.method === "PATCH");
+	assert.deepEqual(patches.map(ifMatchOf), ['"44"', '"45"'], "the second save sends the first one's answer");
+	assert.equal(keel.els.get(ID)!.description, "A2");
+	assert.equal(seqIndex(vault)[ID], 46);
+});
+
 /** Run Delete element on `file` through its typed-name dialog. */
 async function deleteNote(app: App, plugin: unknown, file: TFile) {
 	(app as unknown as { workspace: { getActiveFile: () => TFile } }).workspace.getActiveFile = () => file;
