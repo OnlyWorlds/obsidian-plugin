@@ -6,7 +6,7 @@ import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from 
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
-import { staleSaveMessage } from '../sync/stale-save';
+import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
@@ -121,6 +121,9 @@ const knownOfShown = new Set<string>();
  * element that lands clears it, so a later conflict is said again.
  */
 const staleShown = new Set<string>();
+
+/** Element ids whose unguarded first save (no recorded change_seq) has been said this session (Seethe, h69 #10546). */
+const unguardedShown = new Set<string>();
 
 /** Per note path, the save running now: the next save of that note waits for it (Kael, h69 #10539). */
 const saveChains = new Map<string, Promise<void>>();
@@ -634,6 +637,11 @@ export class SaveElementCommand {
             // The answer's change_seq guards the next save; an answer without
             // one clears the old number, which is no longer the element's.
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved));
+            // Sent without the check (no number recorded yet): said once per element.
+            if (knownSeq === null && !unguardedShown.has(elementUuid)) {
+                unguardedShown.add(elementUuid);
+                new Notice(unguardedSaveMessage(category, String(label)), 12000);
+            }
             // Only the manual Save renames: auto-sync fires at every pause while
             // a name is typed, and each rename can rewrite every linking note
             // (Kael's read, 7). Auto-sync records the rename it did not make,

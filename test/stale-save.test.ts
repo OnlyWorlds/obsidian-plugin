@@ -195,6 +195,30 @@ test("★ a note with no recorded change_seq (a vault from before 3.8.1) saves o
 	assert.equal(notices.filter((n) => n.includes(STALE)).length, 1);
 });
 
+test("★ the unguarded first save of a note with no recorded change_seq says so, once per element (Seethe's walk, h69 #10546)", async () => {
+	const ID = "019e0000-0000-7000-8000-0000000005ab";
+	const UNGUARDED = "saved without checking for newer changes";
+	const { app, vault, keel, plugin } = await setup();
+	keel.put(ID, { name: "Hero", description: "A" }, 44);
+	keel.otherWriter(ID, { description: "B, the site's newer text" });
+	const path = `${W}/Elements/Character/Hero.md`;
+	const file = (await vault.seed(path, note(ID, "Hero", "A, older"))) as unknown as TFile;
+	const first = await save(app, plugin, file, false);
+	assert.equal(first.result.ok, true);
+	const said = first.notices.filter((n) => n.includes(UNGUARDED));
+	assert.equal(said.length, 1, JSON.stringify(first.notices));
+	assert.match(said[0], /Character "Hero"/);
+	assert.match(said[0], /From now on its saves are checked/);
+	assert.equal(seqIndex(vault)[ID], 46, "the landed save records the number as before");
+	// Guarded now: the next save is checked and says nothing of the kind.
+	vault.files.get(path)!.content = note(ID, "Hero", "A, older, edited");
+	setRequestUrl(keel.handle);
+	const next = await save(app, plugin, file, false);
+	assert.equal(next.result.ok, true);
+	assert.equal(ifMatchOf(writes().find((r) => r.method === "PATCH")!), '"46"');
+	assert.deepEqual(next.notices.filter((n) => n.includes(UNGUARDED)), []);
+});
+
 test("a note never saved (made in the vault) is created, and its next save is guarded", async () => {
 	const ID = "019e0000-0000-7000-8000-0000000005a5";
 	const { app, vault, keel, plugin } = await setup();

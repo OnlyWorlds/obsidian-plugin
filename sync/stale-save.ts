@@ -15,6 +15,16 @@ export function staleSaveMessage(category: string, label: string): string {
 		"Your edit is still in the note. Download world brings the current copy and replaces the note's fields: copy your edit first to keep it.";
 }
 
+/**
+ * The first save of a note with no recorded change_seq (a vault from before
+ * 3.8.1): sent without If-Match, so a newer change on onlyworlds.com was not
+ * checked for; said once per element (Seethe's walk, h69 #10546).
+ */
+export function unguardedSaveMessage(category: string, label: string): string {
+	return `This note had no recorded version from onlyworlds.com, so ${category} "${label}" was saved without checking for newer changes there. ` +
+		"From now on its saves are checked.";
+}
+
 /** Delete element: the element changed since the note was pulled, so it was not deleted. */
 export function staleDeleteMessage(category: string, label: string): string {
 	return `${category} "${label}" changed on onlyworlds.com since this note was pulled, so it was not deleted. ` +
