@@ -376,7 +376,7 @@ test("★ a counted folder kept for a hidden file is not counted as renamed, is 
 	assert.deepEqual((r as unknown as { kept: unknown }).kept, [{ folder: "Species (1)", file: ".DS_Store" }]);
 	assert.ok(vault.contentAt(`${E}/Species/Elf.md`));
 	assert.deepEqual(trashed, []);
-	assert.equal(plainFoldersNotice(r), "Species (1) kept: it holds .DS_Store, which Obsidian does not show.");
+	assert.equal(plainFoldersNotice(r), "Species (1)'s notes moved into Species; the folder stays because it holds .DS_Store, which Obsidian does not show.");
 
 	const again = await renameCountedCategoryFolders(app, "Barovia");
 	assert.deepEqual(again, { renamed: [], stuck: [], kept: [] });

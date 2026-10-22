@@ -43,7 +43,7 @@ export interface PlainFoldersResult {
 	/** The counted folders now gone into their plain names (renamed, or merged into one). */
 	renamed: string[];
 	stuck: StuckFolder[];
-	/** Counted folders whose notes all moved, kept because the disk still shows something in them (`file`, the first such name: a hidden file Obsidian does not list). */
+	/** Counted folders whose notes all moved, kept because the disk still shows something in them (`file`, the first such name: a hidden file Obsidian does not list; "" when the disk listing could not be read). */
 	kept: { folder: string; file: string }[];
 }
 
@@ -166,7 +166,7 @@ export async function renameCountedCategoryFolders(
 		const onDisk = await diskListing(app, folder.path);
 		if (onDisk === null || onDisk.length > 0) {
 			const first = onDisk?.[0];
-			result.kept.push({ folder: name, file: first ? (first.split("/").pop() ?? first) : "a file Obsidian does not list" });
+			result.kept.push({ folder: name, file: first ? (first.split("/").pop() ?? first) : "" });
 			continue;
 		}
 		try {
@@ -207,7 +207,10 @@ export function plainFoldersNotice(result: PlainFoldersResult): string | null {
 				`Nothing was deleted; rename or move one of them by hand, then download again.`
 		);
 	}
-	for (const k of result.kept) lines.push(`${k.folder} kept: it holds ${k.file}, which Obsidian does not show.`);
+	for (const k of result.kept) {
+		const why = k.file ? `it holds ${k.file}, which Obsidian does not show` : "its contents could not be read";
+		lines.push(`${k.folder}'s notes moved into ${categoryFolderType(k.folder)}; the folder stays because ${why}.`);
+	}
 	return lines.length > 0 ? lines.join("\n") : null;
 }
 
