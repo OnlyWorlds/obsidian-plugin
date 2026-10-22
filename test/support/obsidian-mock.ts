@@ -9,7 +9,7 @@
  * What is emulated, and how faithfully:
  *   - Vault: a path -> content map. create / modify / read / createFolder /
  *     delete (a file, or an empty folder only; recorded in `deletes`),
- *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write}.
+ *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write,list}.
  *     `create` refuses an existing path, as Obsidian does.
  *   - metadataCache.getFileCache: parses the frontmatter synchronously from the
  *     current content (an always-warm cache) — UNLESS `coldCache` is set, in
@@ -190,6 +190,15 @@ export class MockVault {
 		return [...this.dotfiles.keys(), ...this.files.keys(), ...this.folders.keys()].some((k) => k.toLowerCase() === low);
 	}
 	adapter = {
+		/** The disk's direct children of a folder, hidden files included (the vault lists none of those). */
+		list: async (p: string): Promise<{ files: string[]; folders: string[] }> => {
+			p = normalizePath(p);
+			const under = (k: string) => k.startsWith(p + "/") && !k.slice(p.length + 1).includes("/");
+			return {
+				files: [...this.files.keys(), ...this.dotfiles.keys()].filter(under),
+				folders: [...this.folders.keys()].filter(under),
+			};
+		},
 		exists: async (p: string, sensitive?: boolean) => {
 			p = normalizePath(p);
 			if (sensitive) return this.dotfiles.has(p) || this.files.has(p) || this.folders.has(p);

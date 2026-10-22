@@ -9,8 +9,11 @@
  * the folder at every new note. Download renames such a folder once
  * (vault/plain-folders.ts); until then every reader still finds it.
  *
- * ★ This file is the one place that knows the old spelling. Everything that
- * finds, matches or names a category folder asks here.
+ * ★ This file is the one place in the code that knows the old spelling.
+ * Everything that finds, matches or names a category folder asks here. The one
+ * other place is the Bases file's folder filter (vault/bases-file.ts), a text
+ * Obsidian evaluates: it matches `<Type> (` too, kept so a folder the rename
+ * pass had to leave stays visible in the views.
  */
 
 /** The count an older plugin put after a type folder's name: `Location (2)`. */

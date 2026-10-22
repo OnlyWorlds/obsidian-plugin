@@ -17,7 +17,7 @@ import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
 import { ExportWorldCommand } from "../Commands/ExportWorldCommand";
 import { WorldService } from "../Scripts/WorldService";
 import { readElement } from "../vault/element-file";
-import { renameCountedCategoryFolders } from "../vault/plain-folders";
+import { plainFoldersNotice, renameCountedCategoryFolders } from "../vault/plain-folders";
 import { categoryFolderType, isCategoryFolderOf } from "../vault/category-folder";
 import type { App as ObsidianApp, TFile } from "obsidian";
 
@@ -185,7 +185,7 @@ test("★ a download into a counted vault renames each folder once, keeps every 
 	assert.deepEqual(notes(vault), before, "no note lost, added, renamed or changed");
 	const said = __notices.filter((n) => /renamed without the count/.test(n));
 	assert.equal(said.length, 1, __notices.join(" / "));
-	assert.match(said[0], /^2 type folders renamed without the count \(Character \(1\) is now Character\)\. Links in your notes were kept\./);
+	assert.match(said[0], /^2 type folders renamed without the count \(Character \(1\) is now Character\)\. Links by note name still work; links written with a folder path follow your Obsidian setting for updating links\./);
 
 	// The second download: renamed 0, no notice.
 	__notices.length = 0;
@@ -300,4 +300,66 @@ test("a file in the way of the plain name: the counted folder stays, said, never
 	assert.equal(r.stuck.length, 1);
 	assert.deepEqual(renames, []);
 	assert.equal(vault.contentAt(`${E}/Location`), "a file someone named Location\n");
+});
+
+// --- Amendment A (Kael's cold read of ada0e81) -------------------------------
+
+test("★ an emptied counted folder that still holds a hidden file on disk stays where it is (A1)", async () => {
+	const { app, vault, trashed } = vaultWithWorld();
+	await vault.seed(`${E}/Location/Keep.md`, loc(KEEP, "Keep"));
+	await vault.seed(`${E}/Location (2)/Castle.md`, loc(CASTLE, "Castle"));
+	await vault.adapter.write(`${E}/Location (2)/.DS_Store`, "finder");
+	const r = await renameCountedCategoryFolders(app, "Barovia");
+	assert.deepEqual(r.renamed, ["Location (2)"]);
+	assert.ok(vault.contentAt(`${E}/Location/Castle.md`));
+	assert.deepEqual(trashed, [], "the disk shows a file in it: never trashed");
+	assert.ok(vault.folders.has(`${E}/Location (2)`));
+	assert.equal(vault.dotfiles.get(`${E}/Location (2)/.DS_Store`), "finder");
+});
+
+test("an emptied counted folder the disk shows empty goes to the trash (A1)", async () => {
+	const { app, vault, trashed } = vaultWithWorld();
+	await vault.seed(`${E}/Location/Keep.md`, loc(KEEP, "Keep"));
+	await vault.seed(`${E}/Location (2)/Castle.md`, loc(CASTLE, "Castle"));
+	await renameCountedCategoryFolders(app, "Barovia");
+	assert.deepEqual(trashed, [`${E}/Location (2)`]);
+});
+
+test("★ Obsidian refusing a move part way: the entry says error and how many moved, the notice says so, nothing is lost (A2)", async () => {
+	const { app, vault, renames, trashed } = vaultWithWorld();
+	await vault.seed(`${E}/Location/Keep.md`, loc(KEEP, "Keep"));
+	await vault.seed(`${E}/Location (2)/Castle.md`, loc(CASTLE, "Castle"));
+	await vault.seed(`${E}/Location (2)/Vallaki.md`, loc(OTHER_CASTLE, "Vallaki"));
+	const fm = (app as unknown as { fileManager: { renameFile(f: { path: string }, to: string): Promise<void> } }).fileManager;
+	const real = fm.renameFile;
+	fm.renameFile = async (f, to) => {
+		if (f.path.endsWith("/Vallaki.md")) throw new Error("Obsidian said no");
+		return real(f, to);
+	};
+	const before = notes(vault);
+	const r = await renameCountedCategoryFolders(app, "Barovia");
+	assert.deepEqual(r.renamed, []);
+	assert.equal(r.stuck.length, 1);
+	const s = r.stuck[0] as unknown as { why: string; moved: number; note: string };
+	assert.equal(s.why, "error");
+	assert.equal(s.moved, 1);
+	assert.equal(s.note, "Vallaki.md");
+	assert.deepEqual(notes(vault), before);
+	assert.deepEqual(trashed, []);
+	assert.equal(renames.length, 1);
+	assert.equal(
+		plainFoldersNotice(r),
+		"1 of 2 notes moved from Location (2) into Location, then Obsidian refused Vallaki.md. Nothing was deleted; download again after moving the rest by hand."
+	);
+});
+
+test("a clash keeps its wording and is marked as one (A2)", async () => {
+	const { app, vault } = vaultWithWorld();
+	await vault.seed(`${E}/Location/Castle.md`, loc(OTHER_CASTLE, "Castle"));
+	await vault.seed(`${E}/Location (2)/Castle.md`, loc(CASTLE, "Castle"));
+	const r = await renameCountedCategoryFolders(app, "Barovia");
+	const s = r.stuck[0] as unknown as { why: string; moved: number };
+	assert.equal(s.why, "clash");
+	assert.equal(s.moved, 0);
+	assert.match(plainFoldersNotice(r) ?? "", /^Not moved: Location \(2\), because Location already holds Castle\.md\. Nothing was deleted/);
 });
