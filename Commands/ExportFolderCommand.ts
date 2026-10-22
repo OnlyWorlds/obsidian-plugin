@@ -69,6 +69,12 @@ import {
  * downloaded world, the producer line on a world made in the vault, an
  * imported world's lines as it came (vault/world-json.ts buildWorldJson).
  */
+/** The plugin as the export uses it: its hidden lists, its manifest, and the PIN it holds for saves. */
+type ExportHost = HiddenListHost & {
+	manifest?: { id?: string; version?: string };
+	pinCache?: { peek(): string | null };
+};
+
 export class ExportFolderCommand {
 	private app: App;
 	/**
@@ -76,9 +82,9 @@ export class ExportFolderCommand {
 	 * only stubs are known), and its manifest, for the producer line (absent,
 	 * none is written).
 	 */
-	private host: (HiddenListHost & { manifest?: { id?: string; version?: string } }) | null;
+	private host: ExportHost | null;
 
-	constructor(app: App, host?: HiddenListHost & { manifest?: { id?: string; version?: string } }) {
+	constructor(app: App, host?: ExportHost) {
 		this.app = app;
 		this.host = host ?? null;
 	}
@@ -141,9 +147,11 @@ export class ExportFolderCommand {
 
 	/**
 	 * The slice a downloaded world's key reads (spec §4.2 `exported_as`, OW
-	 * Obsidian #557): one GET /me with the key this world's World.md holds,
-	 * sent with no PIN (a read: an `ow_` key needs none, and a member key's
-	 * wrong PIN would be refused). Null, and nothing said, when the world has
+	 * Obsidian #557): one GET /me with the key this world's World.md holds.
+	 * An `ow_` key reads with no PIN (and a member key's wrong PIN would be
+	 * refused); a classic 10-digit key on a world with a PIN is refused a read
+	 * without it, so it sends the PIN the plugin already holds for saves,
+	 * never prompting for one (Kael, h69 #10539). Null, and nothing said, when the world has
 	 * no key (a folder opened with none, a local world), when /me does not
 	 * answer, or when it answers for another world: absent, never guessed.
 	 * A guest's Character is named from this world's notes, else by one read
@@ -164,7 +172,8 @@ export class ExportFolderCommand {
 		}
 		if (!key || key.toLowerCase() === LOCAL_WORLD_KEY_TOKEN) return null;
 		try {
-			const client = new V2Client(key, "");
+			const pin = key.startsWith("ow_") ? "" : this.host?.pinCache?.peek() ?? "";
+			const client = new V2Client(key, pin);
 			const me = await client.me();
 			if ((me.world as { id?: unknown } | undefined)?.id !== serverId) return null;
 			const id = typeof me.character === "string" ? me.character : null;

@@ -256,3 +256,22 @@ test("★ without a key, an export writes no exported_as, asks nothing and says 
 	assert.equal("exported_as" in native.world, false);
 	assert.deepEqual(seen, []);
 });
+
+test("★ a classic 10-digit key on a world with a PIN: the /me read sends the PIN the plugin holds, so the line is written (Kael, h69 #10539)", async () => {
+	const { app, vault } = makeApp();
+	serveWithMe(ME({ kind: "owner", role: "owner" }));
+	const host = plugin();
+	await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("1234567890", "4321");
+	// keel refuses a classic key's read on a private world without its PIN.
+	const pins: string[] = [];
+	setRequestUrl((r) => {
+		const path = new URL(r.url).pathname.replace(/^\/api\/v2/, "").replace(/\/$/, "");
+		if (path !== "/me") return { status: 404, json: {} };
+		pins.push(r.headers["API-Pin"] ?? "");
+		return r.headers["API-Pin"] === "4321" ? { status: 200, json: ME({ kind: "owner", role: "owner" }) } : { status: 401, json: { error: { code: "unauthorized" } } };
+	});
+	const withPin = { ...host, pinCache: { peek: () => "4321" } };
+	const { world } = await exportWorld(app, vault, "Moppetopia", withPin);
+	assert.deepEqual(pins, ["4321"]);
+	assert.deepEqual(world.exported_as, { kind: "owner", role: "owner", character: null });
+});
