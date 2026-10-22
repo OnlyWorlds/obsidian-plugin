@@ -18,6 +18,76 @@ export function sanitizeFileName(name: string): string {
         .trim() || 'unnamed';
 }
 
+/** How many `Name (N).md` twins a name gets before the id form takes over. */
+export const NUMBERED_TWIN_CAP = 100;
+
+/** True when an element's name gives no file name: empty or whitespace. */
+export function isNamelessName(name: unknown): boolean {
+    return typeof name !== 'string' || name.trim() === '';
+}
+
+/**
+ * The id's mark in a file name: its last 8 hex characters, the uuid tail the
+ * folder spec's §3.2 uses for the same job. Not the first 8: a uuidv7 starts
+ * with its millisecond clock, so elements made in the same minute share it
+ * (Moppetopia's 131 nameless Markers have 10 distinct first-8 prefixes and 131
+ * distinct tails).
+ */
+export function idMark(elementId: string): string {
+    const hex = String(elementId).replace(/[^0-9a-zA-Z]/g, '');
+    return (hex.length >= 8 ? hex.slice(-8) : hex).toLowerCase();
+}
+
+/** The element type a category folder names: `Marker (131)` is Marker. */
+export function categoryOfFolder(categoryPath: string): string {
+    const leaf = categoryPath.replace(/\/+$/, '').split('/').pop() ?? '';
+    return leaf.replace(/ \(\d+\)$/, '');
+}
+
+/**
+ * The note names an element may carry, first choice first, never the clock:
+ *   - a name: `Name`, then `Name (1)` to `Name (100)`, then `Name <id tail>`,
+ *     then `Name <full id>`;
+ *   - no name: `<Type> <id tail>`, then `<Type> <full id>`.
+ * The same element gets the same name on every download (the id decides it).
+ */
+export function noteNameCandidates(elementName: unknown, elementId: string, type: string): string[] {
+    const id = String(elementId);
+    if (isNamelessName(elementName)) {
+        const typeName = sanitizeFileName(type || 'Element');
+        return [`${typeName} ${idMark(id)}`, `${typeName} ${sanitizeFileName(id)}`];
+    }
+    const safeName = sanitizeFileName(String(elementName));
+    const out = [safeName];
+    for (let n = 1; n <= NUMBERED_TWIN_CAP; n++) out.push(`${safeName} (${n})`);
+    out.push(`${safeName} ${idMark(id)}`, `${safeName} ${sanitizeFileName(id)}`);
+    return out;
+}
+
+/**
+ * True when `basename` is one of the names this element may carry, so a
+ * re-download keeps the note where it is. A name's twins `Name (N)` stay
+ * accepted at any N (a vault from before the cap).
+ */
+export function isNoteNameFor(basename: string, elementName: unknown, elementId: string, type: string): boolean {
+    const id = String(elementId);
+    if (isNamelessName(elementName)) {
+        return noteNameCandidates(elementName, id, type).includes(basename);
+    }
+    const safeName = sanitizeFileName(String(elementName));
+    if (basename === safeName) return true;
+    if (basename.startsWith(`${safeName} (`) && /^ \(\d+\)$/.test(basename.slice(safeName.length))) return true;
+    return basename === `${safeName} ${idMark(id)}` || basename === `${safeName} ${sanitizeFileName(id)}`;
+}
+
+/** The element id a note's text carries: frontmatter `id:`, else the legacy bold line. */
+function noteIdInText(content: string): string | null {
+    const fm = /^id:[ \t]*["']?([^\s"']+)/m.exec(content.replace(/^\s+/, ''));
+    if (fm) return fm[1];
+    const legacy = /^- \*\*ID:\*\* (.+)$/m.exec(content);
+    return legacy ? legacy[1].trim() : null;
+}
+
 export class WorldService {
     private app: App;
     private defaultWorldName: string = 'DefaultWorld'; // Default world name as a fallback
@@ -239,58 +309,38 @@ export class WorldService {
      * writing, so two same-name elements in one pull get `Twin.md` and
      * `Twin (1).md` instead of both planning `Twin.md` (OW Infra #166 row 2).
      */
+    /**
+     * The note file name for an element, from noteNameCandidates: the first
+     * name that is free, or that already holds this element (its id read from
+     * the file, frontmatter or legacy line). A nameless element is
+     * `<Type> <id tail>.md` (the type from the category folder), and a name
+     * past its 100 numbered twins is `Name <id tail>.md`: never the clock, so
+     * two elements never share a file and a re-download finds the same one.
+     */
     async generateUniqueFileName(categoryPath: string, elementName: string, elementId: string, taken?: Set<string>): Promise<string> {
         const fs = this.app.vault.adapter;
-        const safeName = sanitizeFileName(elementName);
         const isTaken = (path: string) => taken?.has(path.toLowerCase()) ?? false;
+        const candidates = noteNameCandidates(elementName, elementId, categoryOfFolder(categoryPath));
 
-        // First, try the base name
-        const baseName = `${safeName}.md`;
-        const basePath = normalizePath(`${categoryPath}/${baseName}`);
-        
-        // Check if file exists with this name
-        if (!isTaken(basePath) && !await fs.exists(basePath)) {
-            return baseName; // Use base name if available
+        for (const base of candidates) {
+            const fileName = `${base}.md`;
+            const path = normalizePath(`${categoryPath}/${fileName}`);
+            if (isTaken(path)) continue;
+            if (!await fs.exists(path)) return fileName;
+            try {
+                if (noteIdInText(await fs.read(path)) === elementId) return fileName; // this element's own note
+            } catch {
+                // unreadable: someone else's, try the next name
+            }
         }
-        
-        // If base name exists, check if it's the same element (by ID)
-        if (!isTaken(basePath)) try {
-            const existingContent = await fs.read(basePath);
-            const idMatch = existingContent.match(/^- \*\*ID:\*\* (.+)$/m);
-            if (idMatch && idMatch[1].trim() === elementId) {
-                return baseName; // Same element, use same filename
-            }
-        } catch (error) {
-            // If can't read existing file, continue with numbering
-        }
-        
-        // Base name exists and is different element, find next available number
-        let counter = 1;
-        while (true) {
-            const numberedName = `${safeName} (${counter}).md`;
-            const numberedPath = normalizePath(`${categoryPath}/${numberedName}`);
-            
-            if (!isTaken(numberedPath) && !await fs.exists(numberedPath)) {
-                return numberedName; // Found available numbered name
-            }
-            
-            // Check if existing numbered file is the same element
-            if (!isTaken(numberedPath)) try {
-                const existingContent = await fs.read(numberedPath);
-                const idMatch = existingContent.match(/^- \*\*ID:\*\* (.+)$/m);
-                if (idMatch && idMatch[1].trim() === elementId) {
-                    return numberedName; // Same element, use this filename
-                }
-            } catch (error) {
-                // If can't read, continue to next number
-            }
-            
-            counter++;
-            
-            // Safety check to prevent infinite loop
-            if (counter > 100) {
-                return `${safeName} (${Date.now()}).md`;
-            }
+
+        // Every candidate held by another note (the full id form included,
+        // which only a hand-made note could take): number the full id form.
+        const last = candidates[candidates.length - 1];
+        for (let n = 1; ; n++) {
+            const fileName = `${last} (${n}).md`;
+            const path = normalizePath(`${categoryPath}/${fileName}`);
+            if (!isTaken(path) && !await fs.exists(path)) return fileName;
         }
     }
 

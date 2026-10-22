@@ -15,7 +15,7 @@ import { LOCAL_WORLD_KEY_TOKEN, isReadKey, worldFileApiKey, writeWorldFileApiKey
 import { safeWorldFolderName } from '../vault/world-name';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from '../Scripts/WorldDataTemplate';
-import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
+import { WorldService, isNoteNameFor, sanitizeFileName } from '../Scripts/WorldService';
 import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client } from '../client-v2';
 import type OnlyWorldsPlugin from '../main';
@@ -567,11 +567,14 @@ export class DownloadWorldCommand {
                 let renameFrom: string | null = null;
 
                 if (existingElementPath) {
-                    // Element already exists, check if filename needs to be updated
-                    const currentFileName = existingElementPath.split('/').pop()?.replace('.md', '') || '';
-                    const expectedFileName = element.name;
+                    // Element already exists (found by its id): it keeps its
+                    // note while the file carries a name this element may
+                    // have (WorldService.isNoteNameFor: its name, a twin's
+                    // `Name (N)`, the id forms). A nameless note from before
+                    // 3.8.0 (`unnamed (N)`) moves once to `<Type> <id tail>`.
+                    const currentFileName = (existingElementPath.split('/').pop() ?? '').replace(/\.md$/i, '');
 
-                    if (currentFileName !== expectedFileName && !currentFileName.startsWith(expectedFileName + ' (')) {
+                    if (!isNoteNameFor(currentFileName, element.name, String(element.id), category)) {
                         // Name has changed: the note moves to a fresh unique name (pass 2 renames it)
                         const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id, planned);
                         notePath = `${categoryDirectory}/${newFileName}`;

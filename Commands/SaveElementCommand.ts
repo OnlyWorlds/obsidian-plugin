@@ -2,7 +2,7 @@ import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { likelyMisnamedMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
-import { sanitizeFileName, WorldService } from '../Scripts/WorldService';
+import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { toV2Payload, V2ApiError } from '../client-v2';
 import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/element-transform';
@@ -592,7 +592,7 @@ export class SaveElementCommand {
                 renameNote = renamed ? ` Note renamed to "${renamed}".` : '';
             } else if (manual) {
                 renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
-            } else if (typeof changed.name === 'string' && this.wouldRename(activeFile, changed.name)) {
+            } else if (typeof changed.name === 'string' && this.wouldRename(activeFile, changed.name, elementUuid)) {
                 await this.setPendingRename(worldName, elementUuid, true);
                 renameNote = KEEPS_OLD_NAME;
             }
@@ -747,7 +747,7 @@ export class SaveElementCommand {
      * failing a save that landed.
      */
     private async renameToName(file: TFile, name: string, id: string): Promise<string | null> {
-        if (!this.wouldRename(file, name)) return null;
+        if (!this.wouldRename(file, name, id)) return null;
         const base = sanitizeFileName(name);
         const current = file.basename;
         const folder = file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf('/'));
@@ -782,11 +782,15 @@ export class SaveElementCommand {
     }
 
     /** True when renameToName would rename `file` for `name`: the setting is on and the file does not carry the name yet. */
-    private wouldRename(file: TFile, name: string): boolean {
+    private wouldRename(file: TFile, name: string, id: string): boolean {
         if (this.plugin.settings.renameNoteOnNameChange === false) return false;
         const base = sanitizeFileName(name);
         const current = file.basename;
-        return !(current === base || (current.startsWith(`${base} (`) && /\(\d+\)$/.test(current)));
+        if (current === base || (current.startsWith(`${base} (`) && /\(\d+\)$/.test(current))) return false;
+        // The id forms a name past its numbered twins, or no name, gets
+        // (WorldService.noteNameCandidates) are the element's own name too.
+        const folder = file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf('/'));
+        return !isNoteNameFor(current, name, id, categoryOfFolder(folder));
     }
 
     /**
