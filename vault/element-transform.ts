@@ -1128,6 +1128,19 @@ function linkValueToId(value: unknown, opts: ReadLinkOptions, fieldTarget?: stri
 	return null;
 }
 
+/**
+ * True when a link field's value holds something no link can be: a number, a
+ * boolean, an object without a string `id`, at any depth of a list. Empty
+ * values (null, "", whitespace, []) and strings (a wikilink or an id) are link
+ * values; a stub object `{id}` is one too (normalizeLinkValue reads it).
+ */
+export function holdsNonLinkValue(value: unknown): boolean {
+	if (value == null || typeof value === "string") return false;
+	if (Array.isArray(value)) return value.some(holdsNonLinkValue);
+	if (typeof value === "object") return typeof (value as Record<string, unknown>).id !== "string";
+	return true;
+}
+
 export function frontmatterToPayloadFields(
 	frontmatter: Record<string, unknown>,
 	category: string,
@@ -1178,6 +1191,12 @@ export function frontmatterToPayloadFields(
 			opts.adopted?.push({ from: key, to: adoptedKey });
 			continue;
 		}
+		// A value that is no link at all (another plugin's `location: [12.3,
+		// 45.6]`, a number, an object with no id) is LEFT OUT, never read as
+		// "no link": sent as null or [] it cleared the element's real link on
+		// the server (Boss's save-path walk, h69 #10369). An empty value still
+		// clears, as before.
+		if ((field.type === "single_link" || field.type === "multi_link") && holdsNonLinkValue(value)) continue;
 		if (field.type === "single_link") {
 			// Normalize first (collapses stub objects / arrays / empties to a single
 			// value), then resolve the wikilink-or-id to a bare id.

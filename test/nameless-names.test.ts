@@ -8,6 +8,12 @@
  * `<Type> <id tail>.md`, the tail the last 8 hex of its id, the same on every
  * download; a name past `Name (100)` falls to `Name <id tail>.md`; never the
  * clock. Run against the REAL Download through the in-memory vault.
+ *
+ * ★ The TAIL, never the first 8 (Skeld's ruling, 2026-10-22): measured on
+ * Moppetopia's capture, its 131 nameless Markers have 10 distinct first-8
+ * prefixes and 131 distinct last-8 tails. A uuidv7 starts with its
+ * millisecond clock, so elements made in the same minute share a prefix; the
+ * folder spec's §3.2 takes the tail for the same reason. Do not switch it back.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
