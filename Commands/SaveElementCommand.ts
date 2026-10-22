@@ -4,7 +4,9 @@ import { likelyMisnamedMessage, readElement, unclosedFenceMessage } from '../vau
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { toV2Payload, V2ApiError } from '../client-v2';
+import { isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
+import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
+import { staleSaveMessage } from '../sync/stale-save';
 import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
@@ -112,6 +114,13 @@ const leftViewShown = new Set<string>();
 
 /** Note paths whose known-of notice auto-sync has shown this session (OW Infra #454). */
 const knownOfShown = new Set<string>();
+
+/**
+ * Element ids whose stale-save notice auto-sync has shown this session (OW
+ * Obsidian #557): once per element, not at every pause; a save of that
+ * element that lands clears it, so a later conflict is said again.
+ */
+const staleShown = new Set<string>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
@@ -418,6 +427,13 @@ export class SaveElementCommand {
         // extension namespaces the note may not carry) untouched, instead of a
         // wholesale overwrite from the local parse. A GET 404 means the element
         // was never pushed — create it (the server preserves client-supplied ids).
+        //
+        // The change_seq this note was last pulled or saved at (OW Obsidian
+        // #557): sent as If-Match, so a note pulled before another writer's
+        // change is refused (412) instead of reverting it. None recorded (a
+        // vault from before 3.8.1, a note never saved): saved as before, once,
+        // and the answer's change_seq is recorded for the next save.
+        const knownSeq = await readChangeSeq(this.app, worldName, elementUuid);
         let current: Record<string, unknown> | null = null;
         try {
             current = await client.get(type, elementUuid);
@@ -513,12 +529,15 @@ export class SaveElementCommand {
                             { type, id: elementUuid, name: String(label), payload: sendPayload },
                         ]);
                         if (together.refused) return this.fail(`Could not create ${category}: ${together.refused}`, 12000);
+                        // /bulk answers no change_seq: any number kept for these ids is not theirs now.
+                        await this.recordSeqs(worldName, [...firsts.map((f) => f.id), elementUuid], null);
                         if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                         const extra = createFirstNotes(together.replaced, plan);
                         new Notice(`${createdFirstMessage(firsts)} ${category} created.${extra}`, extra ? 15000 : 8000);
                         return { ok: true, outcome: 'created' };
                     }
-                    await client.create(type, { id: elementUuid, ...sendPayload });
+                    const created = await client.create(type, { id: elementUuid, ...sendPayload });
+                    await this.recordSeqs(worldName, [elementUuid], changeSeqOf(created));
                     if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
@@ -538,10 +557,19 @@ export class SaveElementCommand {
         // holds `\### x` as typed) keeps the server's value (the keeper's
         // amendment to items 1 and 3).
         const changed = keepServerEscapes(diffPayload(payload, current ?? {}), current ?? {});
+        // The note holds what the server holds: it is current at the server's change_seq.
+        const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
+            if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq);
             const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'unchanged' };
+        }
+        // The element moved past the change_seq this note was pulled or saved
+        // at: the If-Match below would be refused (412), so nothing is sent,
+        // the create-first walk included (OW Obsidian #557, ruling 2).
+        if (knownSeq !== null && serverSeq !== null && serverSeq !== knownSeq) {
+            return this.staleRefusal(elementUuid, category, String(label), manual);
         }
 
         try {
@@ -570,6 +598,7 @@ export class SaveElementCommand {
                 : changed;
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
+                if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq);
                 const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
                 return { ok: true, outcome: 'unchanged' };
@@ -577,10 +606,14 @@ export class SaveElementCommand {
             if (firsts.length > 0) {
                 const together = await this.createTogether(client, strippedFirsts(plan));
                 if (together.refused) return this.fail(`${category} "${label}" not saved: ${together.refused}`, 12000);
+                await this.recordSeqs(worldName, firsts.map((f) => f.id), null);
                 firstExtra = createFirstNotes(together.replaced, plan);
                 firstNote = `${createdFirstMessage(firsts)}${firstExtra} `;
             }
-            await client.update(type, elementUuid, toSend);
+            const saved = await client.update(type, elementUuid, toSend, { ifMatch: knownSeq });
+            // The answer's change_seq guards the next save; an answer without
+            // one clears the old number, which is no longer the element's.
+            await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved));
             // Only the manual Save renames: auto-sync fires at every pause while
             // a name is typed, and each rename can rewrite every linking note
             // (Kael's read, 7). Auto-sync records the rename it did not make,
@@ -599,6 +632,9 @@ export class SaveElementCommand {
             new Notice(`${firstNote}${category} saved.${renameNote}`, firstExtra ? 15000 : firstNote || renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'updated' };
         } catch (error) {
+            // keel's 412: the element moved between the read above and the
+            // PATCH. Nothing was written; nothing is retried or merged.
+            if (isStaleWrite(error)) return this.staleRefusal(elementUuid, category, String(label), manual);
             console.error('Error during v2 update call:', error);
             const msg = error instanceof Error ? error.message : 'Unknown error';
             return this.fail(`Could not save ${category}: ${msg}${missingLinkHint(error, manual)}`, 10000);
@@ -895,6 +931,28 @@ export class SaveElementCommand {
         if (!manual) knownOfShown.add(file.path);
         new Notice(reason, 8000);
         return local;
+    }
+
+    /**
+     * A save from a note pulled before another writer's change (OW Obsidian
+     * #557): nothing sent, the note untouched, one notice. Save element says it
+     * each time; auto-sync once a session per element.
+     */
+    private staleRefusal(id: string, category: string, label: string, manual: boolean): SaveResult {
+        const reason = staleSaveMessage(category, label);
+        if (!manual && staleShown.has(id)) return { ok: false, reason };
+        if (!manual) staleShown.add(id);
+        return this.fail(reason, 15000);
+    }
+
+    /** Record `seq` (null clears) as the change_seq of each id's note; a save that landed clears its stale notice. */
+    private async recordSeqs(worldName: string, ids: string[], seq: number | null): Promise<void> {
+        const entries: Record<string, number | null> = {};
+        for (const id of ids) {
+            entries[id] = seq;
+            staleShown.delete(id);
+        }
+        await recordChangeSeqs(this.app, worldName, entries);
     }
 
     /** A save of a hidden element: refused and said; auto-sync says it once a session per note. */

@@ -5,7 +5,9 @@ import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { toV2Payload, V2ApiError, V2Client } from '../client-v2';
+import { isStaleWrite, toV2Payload, V2ApiError, V2Client } from '../client-v2';
+import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
+import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { readElement, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
@@ -325,20 +327,34 @@ export class ExportWorldCommand {
             }
 
             // Updates, per element; collect failures instead of aborting the sweep.
+            // Each PATCH carries the change_seq its note was last pulled or
+            // saved at as If-Match (OW Obsidian #557): an element another
+            // writer changed since is refused (412), not reverted, and named.
+            const knownSeqs = await readChangeSeqIndex(this.app, worldFolder);
+            // /bulk answers no change_seq: a number kept for a created id is not its own.
+            const seqs: Record<string, number | null> = {};
+            for (const id of landed) seqs[id] = null;
+            const stale: string[] = [];
             let updated = 0;
             const progressEvery = 50;
             for (const item of toUpdate) {
+                const name = item.payload.name ? String(item.payload.name) : item.id;
                 try {
-                    await client.update(item.type, item.id, item.payload);
+                    const saved = await client.update(item.type, item.id, item.payload, { ifMatch: knownSeqs[item.id] ?? null });
+                    seqs[item.id] = changeSeqOf(saved);
                     updated++;
                     if (updated % progressEvery === 0) {
                         new Notice(`Uploading... ${updated}/${toUpdate.length}`);
                     }
                 } catch (e) {
-                    const name = item.payload.name ? String(item.payload.name) : item.id;
+                    if (isStaleWrite(e)) {
+                        stale.push(`${item.type.charAt(0).toUpperCase()}${item.type.slice(1)} "${name}"`);
+                        continue;
+                    }
                     failures.push(`${item.type} "${name}": ${e instanceof Error ? e.message : String(e)}`);
                 }
             }
+            await recordChangeSeqs(this.app, worldFolder, seqs);
 
             // The world's own units (standard 00.31.00): sent only when World.md
             // changed them. Never aborts the sweep: the elements already landed.
@@ -373,6 +389,7 @@ export class ExportWorldCommand {
                 summary += ` ${knownOfSkipped} known-of note${knownOfSkipped === 1 ? ' was' : 's were'} not sent.`;
             }
             new Notice(summary, 8000);
+            if (stale.length > 0) new Notice(staleUploadMessage(stale), 15000);
             if (leftOut.names.length > 0) {
                 new Notice(`Left out, deleted on onlyworlds.com: ${leftOut.names.join(', ')}. Their notes are kept.`, 12000);
             }

@@ -20,6 +20,7 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
+import { asChangeSeq, changeSeqOf, recordChangeSeqs } from '../vault/change-seq-index';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { parseElementPath, writeElement } from '../vault/element-file';
@@ -199,6 +200,17 @@ export class DownloadWorldCommand {
                     // Generate element notes in the correct category folders under Elements
                     // (Phase B: frontmatter via writeElement — no Handlebars templates)
                     const knownOf = await this.generateElementNotes(elementsFolderPath, worldData, overwrite, { resync });
+
+                    // Each note this pull wrote now holds the server's copy at
+                    // its feed row's change_seq: the number a save sends as
+                    // If-Match (OW Obsidian #557). A delete row clears its id's.
+                    const seqs: Record<string, number | null> = {};
+                    for (const id of knownOf.landed) {
+                        const row = latest.get(id);
+                        seqs[id] = row ? asChangeSeq(row.change_seq) ?? changeSeqOf(row.element) : null;
+                    }
+                    for (const change of latest.values()) if (change.op === 'delete') seqs[change.id] = null;
+                    await recordChangeSeqs(this.app, uniqueWorldName, seqs);
 
                     // Update all category folder names with counts
                     await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
@@ -514,7 +526,7 @@ export class DownloadWorldCommand {
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[] }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[] }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
@@ -628,7 +640,8 @@ export class DownloadWorldCommand {
         // metadataCache is NOT consulted — its staleness mid-bulk-write IS the bug.
         const idToName = await this.buildIdToNameMap(worldName, plans);
 
-        // Pass 2 — rename and write.
+        // Pass 2 — rename and write. `landed`: the ids whose note this pull wrote.
+        const landed: string[] = [];
         for (const plan of plans) {
             const { category, categoryDirectory, element, existingElementPath } = plan;
             let notePath = plan.notePath;
@@ -648,6 +661,7 @@ export class DownloadWorldCommand {
             }
 
             if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                landed.push(String((element as { id?: unknown }).id));
                 // A stub written in full again (an unhide, or back in view)
                 // keeps the person's writing it held, above the first field, byte
                 // for byte (Kael's read, h37 #8212); so does a known-of note,
@@ -689,7 +703,7 @@ export class DownloadWorldCommand {
                 );
             }
         }
-        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)) };
+        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed };
     }
 
     /**

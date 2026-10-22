@@ -82,6 +82,16 @@ export class V2ApiError extends Error {
     }
 }
 
+/** The `If-Match` header for a change_seq, quoted as an entity tag; none for a seq that is not a whole number. */
+function ifMatchHeader(seq: number | null | undefined): Record<string, string> | undefined {
+    return typeof seq === "number" && Number.isInteger(seq) && seq >= 0 ? { "If-Match": `"${seq}"` } : undefined;
+}
+
+/** True when keel refused a write because the element moved past the If-Match change_seq (412 precondition_failed). */
+export function isStaleWrite(error: unknown): boolean {
+    return error instanceof V2ApiError && error.status === 412;
+}
+
 export class V2Client {
     private headers: Record<string, string>;
 
@@ -97,7 +107,8 @@ export class V2Client {
         method: string,
         path: string,
         params?: Record<string, string | number | undefined>,
-        body?: unknown
+        body?: unknown,
+        extraHeaders?: Record<string, string>
     ): Promise<T> {
         const url = new URL(`${V2_BASE}${path}`);
         if (params) {
@@ -111,7 +122,7 @@ export class V2Client {
         const req: RequestUrlParam = {
             url: url.toString(),
             method,
-            headers: this.headers,
+            headers: extraHeaders ? { ...this.headers, ...extraHeaders } : this.headers,
             throw: false,
         };
         if (body !== undefined && ["POST", "PATCH", "PUT"].includes(method)) {
@@ -167,13 +178,32 @@ export class V2Client {
         return this.request("POST", `/${type}`, undefined, payload);
     }
 
-    /** PATCH — send only the fields you parsed; the server merges. */
-    async update(type: string, id: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-        return this.request("PATCH", `/${type}/${id}`, undefined, payload);
+    /**
+     * PATCH — send only the fields you parsed; the server merges. With
+     * `ifMatch` (the change_seq the note was last pulled or saved at), keel
+     * applies it only if the element has not moved since, else answers 412
+     * `precondition_failed` and writes nothing (Keel #210; OW Obsidian #557).
+     */
+    async update(
+        type: string,
+        id: string,
+        payload: Record<string, unknown>,
+        opts?: { ifMatch?: number | null }
+    ): Promise<Record<string, unknown>> {
+        return this.request("PATCH", `/${type}/${id}`, undefined, payload, ifMatchHeader(opts?.ifMatch));
     }
 
-    async deleteElement(type: string, id: string): Promise<void> {
-        await this.request("DELETE", `/${type}/${id}`);
+    /** DELETE, with `If-Match` as update sends it when the note's change_seq is known. */
+    async deleteElement(type: string, id: string, opts?: { ifMatch?: number | null }): Promise<void> {
+        await this.request("DELETE", `/${type}/${id}`, undefined, undefined, ifMatchHeader(opts?.ifMatch));
+    }
+
+    /**
+     * GET /me: who this key is in its world (`kind`, `role`, `membership`,
+     * `character` as an id or null). A read: an `ow_` key needs no PIN.
+     */
+    async me(): Promise<Record<string, unknown>> {
+        return this.request("GET", "/me");
     }
 
     /**

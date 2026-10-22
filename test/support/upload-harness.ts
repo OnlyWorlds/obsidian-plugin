@@ -6,7 +6,7 @@
 import { makeApp, __notices, __modals } from "./obsidian-mock";
 import { WorldService } from "../../Scripts/WorldService";
 import { ExportWorldCommand } from "../../Commands/ExportWorldCommand";
-import { V2Client } from "../../client-v2";
+import { V2ApiError, V2Client } from "../../client-v2";
 
 export const UPLOAD_WID = "019a0000-0000-7000-8000-0000000000ee";
 
@@ -26,6 +26,12 @@ export interface UploadOpts {
 	/** The plugin's last-known list for the world (OW Infra #454). */
 	lastKnown?: string[];
 	answer?: boolean;
+	/** The world's change_seq index (`.ow-seq.json`, OW Obsidian #557). */
+	seqs?: Record<string, number>;
+	/** Ids whose PATCH keel refuses with 412 (changed since the note was pulled). */
+	stale?: string[];
+	/** The change_seq a PATCH answers with, per id. */
+	answerSeq?: (id: string) => number | undefined;
 }
 
 export async function harnessUpload(o: UploadOpts) {
@@ -43,9 +49,14 @@ export async function harnessUpload(o: UploadOpts) {
 		bulkSent.push(...items.map((i) => i.element));
 		return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
 	};
-	proto.update = async (_t: string, id: string, b: Record<string, unknown>) => {
+	if (o.seqs) await vault.adapter.write("OnlyWorlds/Worlds/W/.ow-seq.json", JSON.stringify(o.seqs));
+	const ifMatch: Record<string, number | null | undefined> = {};
+	proto.update = async (_t: string, id: string, b: Record<string, unknown>, opts?: { ifMatch?: number | null }) => {
+		ifMatch[id] = opts?.ifMatch;
+		if (o.stale?.includes(id)) throw new V2ApiError(412, "precondition_failed", "The element has changed since change_seq 4 (now 5).", null);
 		patches[id] = b;
-		return {};
+		const seq = o.answerSeq?.(id);
+		return seq === undefined ? {} : { id, change_seq: seq };
 	};
 	proto.patchWorld = async () => ({});
 	const plugin = {
@@ -73,5 +84,6 @@ export async function harnessUpload(o: UploadOpts) {
 	} finally {
 		for (const [k, v] of Object.entries(saved)) proto[k] = v;
 	}
-	return { bulkSent, patches, notices: [...__notices], settings: plugin.settings };
+	const seqFile = vault.dotfiles.get("OnlyWorlds/Worlds/W/.ow-seq.json");
+	return { bulkSent, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
 }
