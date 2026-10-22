@@ -26,7 +26,7 @@ A local-only world's `World.md` reads `API Key: local`. Nothing is sent anywhere
 2. Run **Create world** and choose **Create with account** (your email and PIN). The plugin creates the world on onlyworlds.com and writes its API key into `World.md`.
 3. Push edits with **Save element**, **Upload world**, or auto-sync (below).
 
-**A world you already have online:** run **Download world** and enter the world's API key (from your [account page](https://www.onlyworlds.com/account/)) and your PIN. A read-only key (`ow_r_`) needs no PIN, which suits a world someone shared with you. Classic 10-digit keys and `ow_` keys both work.
+**A world you already have online:** run **Download world** and paste a write key or a read key from the world's Access page on onlyworlds.com, under Keys, with your PIN. A read key needs no PIN, which suits a world someone shared with you. Classic 10-digit keys work too.
 
 **Taking a local world online:** run **Create world**, enter your email and PIN, pick the world under **Or take a local world online**, and press **Take online**. The plugin creates the world on your account, writes the key into `World.md`, and uploads the elements, keeping their ids and links. (By hand: replace `local` in `World.md` with the key of a world you made on the site, then run **Upload world**.)
 
@@ -82,6 +82,10 @@ When Save element changes an element's name, its note is renamed to match, throu
 A link to a note that is in the vault but not on the server yet: Save element lists those elements and asks first (Create or Cancel), then creates them together with the note, and says so ("Created Location "Vallaki" first."). The same goes for that element's own links to new notes. It creates at most 50 this way; past that it creates nothing and asks you to run Upload world. Auto-sync never creates them: the server refuses that save, and the notice says to run Save element.
 
 An element deleted on onlyworlds.com is never brought back without your word, even though Download keeps its note. Save element asks "create it again?", auto-sync refuses, and Upload world asks once for all of them. A link to a deleted element is left out of the save, and the note keeps it.
+
+Another writer's change is never undone by a save. The plugin remembers which version of each element a note was last downloaded or saved at (in `.ow-seq.json` beside `World.md`, never in the note). When someone changed the element on onlyworlds.com since then, Save element, auto-sync, Upload world and Delete element send nothing for that note and say so, auto-sync once per element per session. Your edit stays in the note. Download world brings the current copy and replaces the note's fields, so copy your edit first to keep it.
+
+**Upgrading from 3.8.0 or earlier:** a note not downloaded or saved since the upgrade saves once as before, and from its next save on it is guarded.
 
 **Download world** pulls the other way. The first run fetches the whole world; later runs fetch only what changed. For each element that changed on the server, it rewrites that note's fields and body from the server's copy, so unsaved local edits in that note are replaced. Properties the plugin doesn't manage are kept. Elements deleted on the server keep their notes; the plugin tells you how many. An element the world's owner hides from you, or one that leaves your view, keeps its note, but its fields are emptied from it; anything outside them (text above the first field, sections that are not fields) stays, under the line "Hidden by the world's owner.", and Save element and Upload world leave the note out. If the owner shows it to you again, the next Download writes the fields back and keeps what you wrote, above them. To keep your own notes through a hide, write them above the first field: text under a field's heading is part of that field. A hide made before you installed this version leaves your copy of that note as it was.
 
