@@ -9,6 +9,7 @@ import { readElement, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
+import { isInCategoryFolder } from '../vault/category-folder';
 
 export class CopyWorldCommand {
     app: App;
@@ -146,8 +147,9 @@ export class CopyWorldCommand {
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                const categoryDirectory = normalizePath(`${worldFolder}/Elements/${category}`);
-                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
+                // The type's notes in either folder spelling (`Location`, an older `Location (2)`).
+                const elementsPath = normalizePath(`${worldFolder}/Elements`);
+                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, category));
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     const fileContent = await fs.read(file.path);
@@ -310,8 +312,8 @@ export class CopyWorldCommand {
     }
     
     private async findElementIdByNameInCategory(elementName: string, elementType: string, worldName: string): Promise<string | null> {
-        const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${elementType}`);
-        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
+        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`);
+        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, elementType));
         
         for (const file of files) {
             try {
@@ -462,11 +464,13 @@ export class CopyWorldCommand {
     private async findElementIdByName(noteName: string, worldName: string): Promise<string | null> {
         // console.log(`Searching for element: ${noteName} in world: ${worldName}`);
         
-        // Search across all categories for a file with this name
+        // Search across all categories for a file with this name, in each
+        // type's folders (plain, or an older counted one: OW Obsidian #560)
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                const possiblePath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements/${category}/${noteName}.md`);
+              for (const folder of await this.worldService.findCategoryFolders(worldName, String(category))) {
+                const possiblePath = normalizePath(`${folder.path}/${noteName}.md`);
                 const file = this.app.vault.getAbstractFileByPath(possiblePath);
                 
                 if (file && file instanceof TFile) {
@@ -483,6 +487,7 @@ export class CopyWorldCommand {
                         continue;
                     }
                 }
+              }
             }
         }
         console.warn(`Could not find element with name: ${noteName} in any category`);

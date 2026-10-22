@@ -147,10 +147,6 @@ export class RenameWorldCommand {
             // The world's Bases file moved with the folder, but its filters still
             // name the old one (OW Infra #188): rewrite the plugin's own file.
             await moveWorldBasesFileAfterRename(this.app, oldWorldName, newWorldName, this.plugin ?? undefined);
-            // Each type folder's count, `Character (4)`, counted again under
-            // the new name: a recount queued for the old name finds no folder
-            // once it has moved (round C, 12).
-            await new WorldService(this.app).updateAllCategoryFolderNames(newWorldName);
         } else {
             new Notice('World folder does not exist.');
         }

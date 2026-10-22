@@ -2,7 +2,8 @@
  * Validate World walks the category folders as the vault really names them, and
  * checks what it counts.
  *
- * Download and the counts rename every category folder to "Location (2)"; the
+ * Up to 3.8.1 Download and the counts renamed every category folder to
+ * "Location (2)" (a vault not downloaded since may still hold one); the
  * validator looked for "Location" exactly, skipped every folder and reported
  * "Total elements scanned: 0" on a world of real notes (Seethe's walk of the
  * journey's Obsidian chapter, h57 #4846, on 3.3.1). Then, with the folders

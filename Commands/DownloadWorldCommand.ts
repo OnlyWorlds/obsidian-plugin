@@ -27,6 +27,7 @@ import { parseElementPath, writeElement } from '../vault/element-file';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
+import { plainFoldersNotice, renameCountedCategoryFolders } from '../vault/plain-folders';
 import { keptDeleteCount } from '../sync/deleted-on-server';
 import { hiddenNotices, planHidden, resyncReasonOf, stubNote, type ResyncReason } from '../sync/hidden-on-server';
 import { isKnownOfElement, knownOfKeptText, knownOfNotices, knownOfWrite, nextLastKnown, noteStateOf, type NoteState } from '../sync/known-of';
@@ -174,6 +175,14 @@ export class DownloadWorldCommand {
                     // Ensure the World and Elements folders exist
                     await this.createFolderIfNeeded(worldFolderPath);
                     await this.createFolderIfNeeded(elementsFolderPath);
+
+                    // The type folders lose their count, once (OW Obsidian #560:
+                    // the profile's `<Type>/<Name>.md`): `Location (2)` becomes
+                    // `Location` through Obsidian's rename, so links are kept,
+                    // before any note is written. A folder whose notes cannot
+                    // move whole is left as it is and named in the notice.
+                    const plainFolders = plainFoldersNotice(await renameCountedCategoryFolders(this.app, uniqueWorldName));
+                    if (plainFolders) new Notice(plainFolders, 15000);
     
                     // Generate world file
                     const worldFilePath = `${worldFolderPath}/World.md`;
@@ -211,9 +220,6 @@ export class DownloadWorldCommand {
                     }
                     for (const change of latest.values()) if (change.op === 'delete') seqs[change.id] = null;
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
-
-                    // Update all category folder names with counts
-                    await this.worldService.updateAllCategoryFolderNames(uniqueWorldName);
 
                     // The ids the feed reported deleted, old and new: a save never
                     // recreates them as link targets; a later upsert of an id
@@ -566,21 +572,28 @@ export class DownloadWorldCommand {
 
             const elements = data[category];
 
-            // Find existing category folder or create new one
-            const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
+            // The type's folder, `<Type>` (made when the world has none). A new
+            // note lands there; a note this element already has is found by id
+            // in every folder of the type, so one left in a counted folder the
+            // rename could not merge is updated where it is, never doubled.
+            const typeFolders = await this.worldService.findCategoryFolders(worldName, category);
             let categoryDirectory: string;
 
-            if (existingFolder) {
-                categoryDirectory = existingFolder.path;
+            if (typeFolders.length > 0) {
+                categoryDirectory = typeFolders[0].path;
             } else {
-                // Create folder with base name initially (count will be added later)
                 categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
                 await this.createFolderIfNeeded(categoryDirectory);
             }
+            const searchFolders = typeFolders.length > 0 ? typeFolders.map((f) => f.path) : [categoryDirectory];
 
             for (const element of elements) {
                 // First check if an element with this ID already exists
-                const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
+                let existingElementPath: string | null = null;
+                for (const folder of searchFolders) {
+                    existingElementPath = await this.findElementByIdInCategory(folder, element.id);
+                    if (existingElementPath) break;
+                }
                 // A known-of stub (the folder spec §4.4, OW Infra #454): written
                 // as it is over no note, a known-of note or a hidden stub; over
                 // a whole note only after a view reset, else that note is kept
@@ -643,7 +656,7 @@ export class DownloadWorldCommand {
         // Pass 2 — rename and write. `landed`: the ids whose note this pull wrote.
         const landed: string[] = [];
         for (const plan of plans) {
-            const { category, categoryDirectory, element, existingElementPath } = plan;
+            const { category, element, existingElementPath } = plan;
             let notePath = plan.notePath;
 
             if (plan.renameFrom) {
@@ -688,7 +701,9 @@ export class DownloadWorldCommand {
                     element,
                     {
                         markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
-                        folderPath: categoryDirectory,
+                        // The folder the note is in (a kept note may sit in a
+                        // counted folder the rename left), never another.
+                        folderPath: notePath.slice(0, notePath.lastIndexOf('/')),
                         fileName: notePath.split('/').pop(),
                         idToName,
                         // A downloaded note carries the SAME full field set as a

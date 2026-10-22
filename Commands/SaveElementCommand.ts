@@ -1,8 +1,9 @@
-import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
+import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { likelyMisnamedMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
+import { categoryFolderType } from '../vault/category-folder';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -1082,9 +1083,9 @@ export class SaveElementCommand {
         const pattern = /^OnlyWorlds\/Worlds\/([^\/]+)\/Elements\/([^\/]+)\/.+\.md$/i;
         const match = filePath.match(pattern);
         if (match && match[1] && match[2]) {
-            // Strip count suffix from category name (e.g., "Character (3)" -> "Character")
+            // The type its folder holds ("Character", or an older "Character (3)")
             const rawCategory = match[2];
-            const baseCategoryName = rawCategory.replace(/\s*\(\d+\)$/, '');
+            const baseCategoryName = categoryFolderType(rawCategory);
          //   console.log(`[SaveElementCommand] Extracted category: "${rawCategory}" -> base: "${baseCategoryName}"`);
             return { worldName: match[1], category: baseCategoryName };
         }
@@ -1238,15 +1239,16 @@ export class SaveElementCommand {
                 continue;
             }
 
-            // Find the actual category folder (which might have count suffix)
-            const actualCategoryFolder = await this.findCategoryFolderByBaseName(worldName, linkedCategory);
-            if (!actualCategoryFolder) {
+            // The type's folders (plain, or an older counted one, or both).
+            const categoryFolders = (await new WorldService(this.app).findCategoryFolders(worldName, linkedCategory)).map((f) => f.path);
+            if (categoryFolders.length === 0) {
                 console.warn(`      Cannot find category folder for: ${linkedCategory}`);
                 continue;
             }
             
             // Wikilink text is the filename form; sanitize for the path lookup.
-            const linkedFilePath = normalizePath(`${actualCategoryFolder}/${sanitizeFileName(noteName)}.md`);
+            const candidates = categoryFolders.map((folder) => normalizePath(`${folder}/${sanitizeFileName(noteName)}.md`));
+            const linkedFilePath = candidates.find((p) => this.app.vault.getAbstractFileByPath(p) instanceof TFile) ?? candidates[0];
         //    console.log(`      Looking for linked file at: ${linkedFilePath}`);
 
             try {
@@ -1296,30 +1298,6 @@ export class SaveElementCommand {
             data.api_key = match[1].trim();
         }
         return Object.keys(data).length > 0 ? data : null; // Return null if no key found
-    }
-
-    // Helper method to find category folder by base name (handles count suffixes)
-    async findCategoryFolderByBaseName(worldName: string, baseCategoryName: string): Promise<string | null> {
-        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`);
-        const elementsFolder = this.app.vault.getAbstractFileByPath(elementsPath);
-        
-        if (!(elementsFolder instanceof TFolder)) {
-            console.warn(`Elements folder not found or not a folder: ${elementsPath}`);
-            return null;
-        }
-        
-        for (const child of elementsFolder.children) {
-            if (child instanceof TFolder) {
-                // Check if folder name starts with the base category name
-                if (child.name === baseCategoryName || child.name.startsWith(`${baseCategoryName} (`)) {
-                //    console.log(`[SaveElementCommand] Found category folder: ${child.path}`);
-                    return child.path;
-                }
-            }
-        }
-        
-        console.warn(`[SaveElementCommand] Category folder not found for: ${baseCategoryName}`);
-        return null;
     }
 
 }

@@ -7,7 +7,8 @@
  * from here directly for `makeApp` and the parser switch.
  *
  * What is emulated, and how faithfully:
- *   - Vault: a path -> content map. create / modify / read / createFolder,
+ *   - Vault: a path -> content map. create / modify / read / createFolder /
+ *     delete (a file, or an empty folder only; recorded in `deletes`),
  *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write}.
  *     `create` refuses an existing path, as Obsidian does.
  *   - metadataCache.getFileCache: parses the frontmatter synchronously from the
@@ -28,7 +29,8 @@
  *     creates a file the vault then lists); a dot-path stays a hidden file.
  *   - vault.getName() is "Test Vault"; workspace.getLeaf().openFile records the
  *     path in `opened`; fileManager.renameFile and
- *     workspace.openLinkText only record or do nothing, unless a test sets
+ *     workspace.openLinkText only record or do nothing (fileManager.trashFile
+ *     records in `trashed` and removes a file or an empty folder), unless a test sets
  *     `realRenames` on the app: then renameFile also moves the file or the
  *     folder with everything under it, as Obsidian does.
  *   - `vault.caseInsensitive` (off by default) makes the disk behave like
@@ -307,6 +309,23 @@ export class MockVault {
 			reparent(f, np);
 		}
 	}
+	/**
+	 * Delete a file, or an EMPTY folder (Obsidian's delete without `force`
+	 * refuses a folder with children; this mock refuses any non-empty folder).
+	 * Every call is recorded in `deletes`.
+	 */
+	deletes: string[] = [];
+	async delete(f: TAbstractFile, force?: boolean): Promise<void> {
+		this.deletes.push(f.path);
+		if (f instanceof TFolder) {
+			if (f.children.length > 0 && !force) throw new Error("delete: folder not empty " + f.path);
+			if (f.children.length > 0) throw new Error("delete: the mock never force-deletes " + f.path);
+			this.folders.delete(f.path);
+		} else {
+			this.files.delete(f.path);
+		}
+		f.parent?.children.splice(f.parent.children.indexOf(f), 1);
+	}
 	/** Test helper: the raw content at a path (undefined if absent). */
 	contentAt(p: string): string | undefined {
 		return this.files.get(normalizePath(p))?.content;
@@ -364,12 +383,20 @@ export class App {
 		}),
 	};
 	renames: string[] = [];
+	/** Paths trashFile was called on, in order. */
+	trashed: string[] = [];
 	/** When true, renameFile moves what it renames (see the header). */
 	realRenames = false;
 	fileManager = {
 		renameFile: async (f: TAbstractFile, to: string): Promise<void> => {
 			this.renames.push(`${f.path} -> ${to}`);
 			if (this.realRenames) this.vault.move(f.path, to);
+		},
+		/** Records the path, then removes it as vault.delete does (an empty folder only). */
+		trashFile: async (f: TAbstractFile): Promise<void> => {
+			this.trashed.push(f.path);
+			await this.vault.delete(f);
+			this.vault.deletes.pop();
 		},
 	};
 }

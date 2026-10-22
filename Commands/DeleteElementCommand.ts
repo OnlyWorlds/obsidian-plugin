@@ -1,6 +1,7 @@
 import { App, Modal, Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { readElement } from '../vault/element-file';
+import { categoryFolderType } from '../vault/category-folder';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { isStaleWrite, V2ApiError } from '../client-v2';
 import { readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -138,7 +139,7 @@ export class DeleteElementCommand {
         const pattern = /^OnlyWorlds\/Worlds\/([^\/]+)\/Elements\/([^\/]+)\/.+\.md$/i;
         const match = filePath.match(pattern);
         if (match && match[1] && match[2]) {
-            return { worldName: match[1], category: match[2].replace(/\s*\(\d+\)$/, '') };
+            return { worldName: match[1], category: categoryFolderType(match[2]) };
         }
         return null;
     }

@@ -154,8 +154,12 @@ OnlyWorlds/
 └── Worlds/<World name>/
     ├── World.md
     ├── <World name>.base
-    └── Elements/<Type> (<count>)/<Element name>.md
+    └── Elements/<Type>/<Element name>.md
 ```
+
+Each element is one note at `<Type>/<Element name>.md`, such as `Elements/Location/Vallaki.md`, with no count in any folder name.
+
+**Upgrading from 3.8.1 or earlier:** the type folders used to carry a count, such as `Location (2)`. The next Download renames each one once to its plain name, through Obsidian, so the links in your notes are kept, and says how many it renamed. If a vault holds both `Location` and `Location (2)`, the notes move into `Location` one by one; when a note's name is already taken there, nothing in that folder moves, nothing is deleted, and the notice names the note for you to rename or move by hand.
 
 The plugin talks to the OnlyWorlds API at `https://www.onlyworlds.com/api/v2/`, sending the world's key and your PIN as headers.
 

@@ -1,5 +1,5 @@
 import { ValidateResultModal } from '../Modals/ValidateResultModal';
-import { App, normalizePath, PluginManifest, TFile, TFolder } from 'obsidian';
+import { App, normalizePath, PluginManifest, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
 import { parseRawFrontmatterScalars } from '../vault/element-transform';
 import { Category } from '../enums'; // Ensure this import is correct
@@ -72,17 +72,14 @@ export class ValidateWorldCommand {
             const category = Category[categoryKey];
             if (!isNaN(Number(category))) continue; // Skip if category is not a string
 
-            // Category folders carry their count ("Location (2)"), so the folder is
-            // found by its base name, as download and the counts do; an exact path
-            // skipped every folder and validated nothing (Seethe, h57 #4846, 3.3.1).
-            const categoryFolder = await this.worldService.findCategoryFolderByBaseName(
-                worldFolderName, category);
+            // A type's folder is `Location`, or `Location (2)` in a vault from
+            // 3.8.1 or earlier that no Download has renamed yet, or both: every one is
+            // read (an exact path once skipped every counted folder and
+            // validated nothing: Seethe, h57 #4846, 3.3.1).
+            const categoryFolders = await this.worldService.findCategoryFolders(worldFolderName, category);
 
-            if (!(categoryFolder instanceof TFolder)) {
-                continue; // Skip to the next category if the folder is not found
-            }
-
-            for (const file of categoryFolder.children) {
+            const files = ([] as TAbstractFile[]).concat(...categoryFolders.map((folder) => folder.children));
+            for (const file of files) {
                 if (file instanceof TFile && file.extension === 'md') {
                     this.elementCount++;
                     const content = await this.app.vault.read(file);

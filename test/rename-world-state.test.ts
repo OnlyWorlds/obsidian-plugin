@@ -1,8 +1,8 @@
 /**
  * Round C, item 12: Rename World left the old folder's name in the once-only
- * Notice list (basesKeptNoticed) and the type folders' counts, `Character
- * (4)`, as they were. The old name is cleared, and the counts are counted
- * again under the new name.
+ * Notice list (basesKeptNoticed). The old name is cleared. The type folders
+ * carry no count since OW Obsidian #560: an old `Character (4)` moves with the
+ * world as it is, and the next Download renames it.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS } from "../settings/settings";
 
 const note = (id: string, name: string) => `---\nname: ${name}\nid: ${id}\n---\n\n### Description\n\n${name}.\n`;
 
-test("★ Rename World clears the old name from the once-only Notice list and recounts the type folders", async () => {
+test("★ Rename World clears the old name from the once-only Notice list and leaves the type folders' names alone (no count since OW Obsidian #560)", async () => {
 	const { app, vault } = makeApp();
 	(app as unknown as { realRenames: boolean }).realRenames = true;
 	await vault.seed("OnlyWorlds/Worlds/Old/World.md", "- **Name:** Old\n");
@@ -24,10 +24,11 @@ test("★ Rename World clears the old name from the once-only Notice list and re
 		saveSettings: async () => {},
 	};
 	await new RenameWorldCommand(app, { version: "t" }, plugin as never).renameWorldFolder("Old", "New");
-	await new Promise((r) => setTimeout(r, 400)); // the folder recount is debounced
+	await new Promise((r) => setTimeout(r, 400)); // long enough for the old debounced recount, which is gone
 	assert.deepEqual(plugin.settings.basesKeptNoticed, ["Other"]);
 	const paths = [...vault.files.keys()].filter((p) => p.endsWith("/Ireena.md"));
-	assert.deepEqual(paths, ["OnlyWorlds/Worlds/New/Elements/Character (2)/Ireena.md"]);
+	// The counted folder moves with the world as it is; the next Download renames it to `Character`.
+	assert.deepEqual(paths, ["OnlyWorlds/Worlds/New/Elements/Character (4)/Ireena.md"]);
 });
 
 test("Rename World moves the renames auto-sync left for Save Element to the new folder name (Kael's fixes read, low 5)", async () => {

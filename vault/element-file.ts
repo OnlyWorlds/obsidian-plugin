@@ -1,5 +1,6 @@
 import { App, TFile, TFolder, normalizePath, parseYaml } from "obsidian";
 import { sanitizeFileName } from "../Scripts/WorldService";
+import { categoryFolderType, elementPathParts, isInCategoryFolder } from "./category-folder";
 import {
 	frontmatterToPayloadFields,
 	apiDataToFrontmatter,
@@ -154,11 +155,8 @@ export function noteFence(
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
 export function parseElementPath(path: string): { worldName: string; category: string } | null {
-	const m = /^OnlyWorlds\/Worlds\/([^/]+)\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
-	if (!m) return null;
-	const rawCat = m[2];
-	const baseCat = rawCat.replace(/\s*\(\d+\)$/, "");
-	return { worldName: m[1], category: baseCat };
+	const parts = elementPathParts(path);
+	return parts ? { worldName: parts.worldName, category: parts.type } : null;
 }
 
 export { normalizeCategory };
@@ -600,10 +598,8 @@ async function findNoteById(
 	folderName: string,
 	id: string
 ): Promise<TFile | null> {
-	const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
-	const files = app.vault
-		.getMarkdownFiles()
-		.filter((f) => f.path.startsWith(prefix + "/") || f.path.startsWith(prefix + " ("));
+	const elements = `OnlyWorlds/Worlds/${worldName}/Elements`;
+	const files = app.vault.getMarkdownFiles().filter((f) => isInCategoryFolder(f.path, elements, folderName));
 	for (const f of files) {
 		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
 		if (fm && fm.id === id) return f;
@@ -702,7 +698,7 @@ export function buildWikilinkResolver(
 		const out: TFile[] = [];
 		for (const folder of elements.children) {
 			if (!(folder instanceof TFolder)) continue;
-			const folderType = normalizeCategory(folder.name.replace(/\s*\(\d+\)$/, ""));
+			const folderType = normalizeCategory(categoryFolderType(folder.name));
 			if (target !== "any" && folderType !== target) continue;
 			for (const f of folder.children) {
 				if (f instanceof TFile && f.extension === "md" && f.basename.toLowerCase() === want) out.push(f);

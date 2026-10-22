@@ -18,6 +18,7 @@ import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
 import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
+import { isInCategoryFolder } from '../vault/category-folder';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -455,8 +456,9 @@ export class ExportWorldCommand {
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements/${category}`);
-                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
+                // The type's notes in either folder spelling (`Location`, an older `Location (2)`).
+                const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`);
+                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, category));
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     // Phase B: frontmatter notes read via the shared element reader
@@ -693,8 +695,8 @@ export class ExportWorldCommand {
     }
     
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
-        const categoryDirectory = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements/${elementType}`);
-        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && file.path.startsWith(categoryDirectory));
+        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`);
+        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, elementType));
         
         for (const file of files) {
             try {

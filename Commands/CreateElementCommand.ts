@@ -24,8 +24,8 @@ export class CreateElementCommand {
         // halves from FIELD_SCHEMA, so an empty note IS the field reference.
         const topWorld = worldName || await this.worldService.getActiveWorldName();
         try {
-            // Resolve the (possibly count-suffixed) category folder + a collision-free
-            // filename, so we write into the same folder the vault already uses.
+            // The type's folder as the vault has it (plain, or an older counted
+            // one not yet renamed by a Download) + a collision-free filename.
             const existingFolder = await this.worldService.findCategoryFolderByBaseName(topWorld, category);
             const folderPath = existingFolder
                 ? existingFolder.path
@@ -37,7 +37,6 @@ export class CreateElementCommand {
                 scaffoldEmptyFields: true,
             });
             new Notice(`New ${category.toLowerCase()} created: ${name}`);
-            await this.worldService.updateCategoryFolderName(topWorld, category);
             if (openFile) {
                 await this.openNoteInNewPane(file);
             }

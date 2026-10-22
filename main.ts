@@ -288,17 +288,11 @@ export default class OnlyWorldsPlugin extends Plugin {
   });
 
 
-    // Update Category Counts command removed - handled automatically by other operations
+    // Type folders carry no count since OW Obsidian #560 (the profile's
+    // `<Type>/<Name>.md`); Download renames an older vault's once.
 
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', leaf => this.noteLinker.handleLeafChange(leaf))
-  );
-
-    // Listen for file deletions to update category counts
-    this.registerEvent(
-      this.app.vault.on('delete', (file) => {
-          if (file instanceof TFile) this.handleFileDelete(file);
-      })
   );
 
   this.addCommand({
@@ -382,32 +376,6 @@ parseSettingsForDefaultCategory(content: string): string | null {
     const match = content.match(/^- \*\*Individual Element Creation Commands:\*\* (\w+)/m);
     return match ? match[1].toLowerCase() === 'yes' : false;
 }
-
-  async handleFileDelete(file: TFile) {
-    // Check if deleted file is an element file in a world
-    if (file.extension === 'md' && file.path.includes('OnlyWorlds/Worlds/') && file.path.includes('/Elements/')) {
-      try {
-        // Extract world name and category from path
-        const pathParts = file.path.split('/');
-        const worldsIndex = pathParts.indexOf('Worlds');
-        if (worldsIndex >= 0 && pathParts.length > worldsIndex + 3) {
-          const worldName = pathParts[worldsIndex + 1];
-          const categoryFolderName = pathParts[worldsIndex + 3];
-          
-          // Extract base category name (remove count if present)
-          const categoryMatch = categoryFolderName.match(/^([^(]+)(\s*\(\d+\))?$/);
-          if (categoryMatch) {
-            const baseCategory = categoryMatch[1].trim();
-            
-            // Update the category folder count
-            await this.worldService.updateCategoryFolderName(worldName, baseCategory);
-          }
-        }
-      } catch (error) {
-        console.error('Error updating category count after file deletion:', error);
-      }
-    }
-  }
 
   registerIndividualCreationCommands() {
       Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {

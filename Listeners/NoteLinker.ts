@@ -4,6 +4,7 @@ import { ElementSelectionModal } from '../Modals/ElementSelectionModal';
 import { FieldSelectionModal, LinkFieldChoice } from '../Modals/FieldSelectionModal';
 import { getCategorySchema, normalizeCategory, toWikilink, wikilinkTarget } from '../vault/element-transform';
 import { sanitizeFileName } from 'Scripts/WorldService';
+import { categoryFolderType, isInCategoryFolder } from '../vault/category-folder';
 
 /**
  * NoteLinker (Phase B — frontmatter).
@@ -46,7 +47,7 @@ export class NoteLinker {
 	private categoryForPath(path: string): string | null {
 		const m = /^OnlyWorlds\/Worlds\/([^/]+)\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
 		if (!m) return null;
-		return normalizeCategory(m[2].replace(/\s*\(\d+\)$/, ''));
+		return normalizeCategory(categoryFolderType(m[2]));
 	}
 
 	/** The link fields (single/multi) for a category, derived from FIELD_SCHEMA. */
@@ -200,10 +201,10 @@ export class NoteLinker {
 		selfId?: string
 	): Promise<{ name: string; id: string }[]> {
 		const folder = capitalize(target);
-		const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/${folder}`;
+		const elements = `OnlyWorlds/Worlds/${worldName}/Elements`;
 		const files = this.app.vault
 			.getMarkdownFiles()
-			.filter((f) => f.path.startsWith(prefix + '/') || f.path.startsWith(prefix + ' ('));
+			.filter((f) => isInCategoryFolder(f.path, elements, folder));
 		const out: { name: string; id: string }[] = [];
 		for (const f of files) {
 			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;

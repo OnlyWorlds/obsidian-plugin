@@ -1,6 +1,6 @@
 import { App, TFolder, TFile, normalizePath } from 'obsidian';
-import { Category } from '../enums';
 import { safeWorldFolderName } from '../vault/world-name';
+import { categoryFolderType, isCategoryFolderOf } from '../vault/category-folder';
 
 /**
  * Element names are exact on the API and inside notes; FILENAMES are
@@ -38,10 +38,10 @@ export function idMark(elementId: string): string {
     return (hex.length >= 8 ? hex.slice(-8) : hex).toLowerCase();
 }
 
-/** The element type a category folder names: `Marker (131)` is Marker. */
+/** The element type a category folder's path names: `.../Marker` is Marker, and so is an older `.../Marker (131)`. */
 export function categoryOfFolder(categoryPath: string): string {
     const leaf = categoryPath.replace(/\/+$/, '').split('/').pop() ?? '';
-    return leaf.replace(/ \(\d+\)$/, '');
+    return categoryFolderType(leaf);
 }
 
 /**
@@ -91,7 +91,6 @@ function noteIdInText(content: string): string | null {
 export class WorldService {
     private app: App;
     private defaultWorldName: string = 'DefaultWorld'; // Default world name as a fallback
-    private folderRenameDebounce: Map<string, NodeJS.Timeout> = new Map();
 
     constructor(app: App) {
         this.app = app;
@@ -206,101 +205,28 @@ export class WorldService {
         return false;
     }
 
-    async countElementsInCategory(worldName: string, category: string): Promise<number> {
-        // Find the category folder by base name (handles both "Character" and "Character (3)" formats)
-        const categoryFolder = await this.findCategoryFolderByBaseName(worldName, category);
-        
-        if (!categoryFolder) {
-            return 0;
-        }
-        
-        // Count .md files in the category folder
-        const mdFiles = categoryFolder.children.filter(child => 
-            child instanceof TFile && child.extension === 'md'
-        );
-        
-        return mdFiles.length;
-    }
-
-    async getCategoryFolderNameWithCount(worldName: string, category: string): Promise<string> {
-        const count = await this.countElementsInCategory(worldName, category);
-        return `${category} (${count})`;
-    }
-
-    async getAllCategoryFolderNamesWithCounts(worldName: string): Promise<Record<string, string>> {
-        const categoryNames: Record<string, string> = {};
-        
-        for (const category in Category) {
-            if (!isNaN(Number(category))) continue; // Skip numeric enum values
-            
-            const folderNameWithCount = await this.getCategoryFolderNameWithCount(worldName, category);
-            categoryNames[category] = folderNameWithCount;
-        }
-        
-        return categoryNames;
-    }
-
+    /**
+     * A type's category folder in this world: `Elements/<Type>`, the profile's
+     * address (OW Obsidian #560); else a folder of the old spelling (3.8.1 and earlier),
+     * `<Type> (<count>)`, which Download renames once. Null when the world has
+     * neither.
+     */
     async findCategoryFolderByBaseName(worldName: string, baseCategoryName: string): Promise<TFolder | null> {
+        return (await this.findCategoryFolders(worldName, baseCategoryName))[0] ?? null;
+    }
+
+    /**
+     * Every folder of this world that holds a type's notes, the plain one first,
+     * then any of the old counted spelling by name: a vault that held both
+     * (`Location` beside `Location (2)`) is read whole until Download merges it.
+     */
+    async findCategoryFolders(worldName: string, baseCategoryName: string): Promise<TFolder[]> {
         const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`);
         const elementsFolder = this.app.vault.getAbstractFileByPath(elementsPath);
-        
-        if (!(elementsFolder instanceof TFolder)) {
-            return null;
-        }
-        
-        for (const child of elementsFolder.children) {
-            if (child instanceof TFolder) {
-                // Check if folder name starts with the base category name
-                if (child.name === baseCategoryName || child.name.startsWith(`${baseCategoryName} (`)) {
-                    return child;
-                }
-            }
-        }
-        
-        return null;
-    }
-
-    async updateCategoryFolderName(worldName: string, category: string): Promise<void> {
-        const debounceKey = `${worldName}-${category}`;
-        
-        // Clear any existing debounce timer for this world/category
-        if (this.folderRenameDebounce.has(debounceKey)) {
-            clearTimeout(this.folderRenameDebounce.get(debounceKey)!);
-        }
-        
-        // Set a new debounce timer
-        const timeoutId = setTimeout(async () => {
-            try {
-                const existingFolder = await this.findCategoryFolderByBaseName(worldName, category);
-                
-                if (existingFolder) {
-                    const newName = await this.getCategoryFolderNameWithCount(worldName, category);
-                    
-                    // Only rename if the name is different
-                    if (existingFolder.name !== newName) {
-                        try {
-                            const newPath = `${existingFolder.parent?.path}/${newName}`;
-                            await this.app.fileManager.renameFile(existingFolder, newPath);
-                        } catch (error) {
-                            console.error(`Error renaming category folder from ${existingFolder.name} to ${newName}:`, error);
-                        }
-                    }
-                }
-            } finally {
-                // Remove the debounce timer after completion
-                this.folderRenameDebounce.delete(debounceKey);
-            }
-        }, 300); // 300ms debounce delay
-        
-        this.folderRenameDebounce.set(debounceKey, timeoutId);
-    }
-
-    async updateAllCategoryFolderNames(worldName: string): Promise<void> {
-        for (const category in Category) {
-            if (!isNaN(Number(category))) continue; // Skip numeric enum values
-            
-            await this.updateCategoryFolderName(worldName, category);
-        }
+        if (!(elementsFolder instanceof TFolder)) return [];
+        return elementsFolder.children
+            .filter((child): child is TFolder => child instanceof TFolder && isCategoryFolderOf(child.name, baseCategoryName))
+            .sort((a, b) => (a.name === baseCategoryName ? -1 : b.name === baseCategoryName ? 1 : a.name.localeCompare(b.name)));
     }
 
     /**

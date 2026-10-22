@@ -62,9 +62,6 @@ export class PasteWorldCommand {
             // Generate element notes in the correct category folders under Elements
             await this.generateElementNotes(elementsFolderPath, worldDataJson, false);
 
-            // Update all category folder names with counts
-            await this.worldService.updateAllCategoryFolderNames(targetWorldName);
-
             if (existingWorldName) {
                 new Notice(`Updated existing world: ${targetWorldName}`);
             } else {
@@ -121,11 +118,15 @@ export class PasteWorldCommand {
             if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
 
             const elements = data[category];
-            const existingFolder = await this.worldService.findCategoryFolderByBaseName(worldName, category);
-            const categoryDirectory = existingFolder
-                ? existingFolder.path
+            // The type's folders, plain first (an older vault may hold a counted
+            // one too, OW Obsidian #560): a new note goes in the first, a note
+            // this element has is found in any of them and written where it is.
+            const typeFolders = await this.worldService.findCategoryFolders(worldName, category);
+            const categoryDirectory = typeFolders.length > 0
+                ? typeFolders[0].path
                 : normalizePath(`${worldFolderPath}/${category}`);
-            if (!existingFolder) await this.createFolderIfNeeded(categoryDirectory);
+            if (typeFolders.length === 0) await this.createFolderIfNeeded(categoryDirectory);
+            const searchFolders = typeFolders.length > 0 ? typeFolders.map((f) => f.path) : [categoryDirectory];
 
             for (const element of elements) {
                 if (!element || typeof element.id !== 'string') continue;
@@ -135,7 +136,11 @@ export class PasteWorldCommand {
                 if (this.host && isHiddenId(this.host.settings, element.id)) continue;
 
                 // Reuse an existing note for this id, else mint a unique filename.
-                const existingElementPath = await this.findElementByIdInCategory(categoryDirectory, element.id);
+                let existingElementPath: string | null = null;
+                for (const folder of searchFolders) {
+                    existingElementPath = await this.findElementByIdInCategory(folder, element.id);
+                    if (existingElementPath) break;
+                }
                 if (existingElementPath && (await this.isStub(existingElementPath))) continue;
                 // A known-of stub (the folder spec §4.4, OW Infra #454) is
                 // written as one, never over a whole note (no reset brought it:
@@ -160,7 +165,10 @@ export class PasteWorldCommand {
                     category,
                     element.id,
                     element,
-                    { folderPath: categoryDirectory, fileName, idToName, keepAbove, knownOf: write === 'stub' }
+                    {
+                        folderPath: existingElementPath ? existingElementPath.slice(0, existingElementPath.lastIndexOf('/')) : categoryDirectory,
+                        fileName, idToName, keepAbove, knownOf: write === 'stub',
+                    }
                 );
             }
         }

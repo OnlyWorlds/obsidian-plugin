@@ -7,6 +7,7 @@ import {
 	apiDataToFrontmatter,
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
+import { categoryFolderType } from '../vault/category-folder';
 
 interface MigrationResult {
 	converted: string[];
@@ -71,7 +72,7 @@ export class MigrateWorldCommand {
 	private categoryForPath(path: string): string | null {
 		const m = /^OnlyWorlds\/Worlds\/[^/]+\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
 		if (!m) return null;
-		return normalizeCategory(m[1].replace(/\s*\(\d+\)$/, ''));
+		return normalizeCategory(categoryFolderType(m[1]));
 	}
 
 	// A cache-independent span id/name scrape for building the resolver, since a
