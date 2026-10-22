@@ -5,7 +5,8 @@ import { bodyFieldForCategory } from "../vault/element-transform";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
-import { buildWorldJson, pluginProducer, serverWorldId } from "../vault/world-json";
+import { buildWorldJson, exportedAsFromMe, pluginProducer, serverWorldId, type ExportedAs, type ServerWorld } from "../vault/world-json";
+import { V2Client } from "../client-v2";
 import { worldFileApiKey } from "../vault/world-key";
 import { LOCAL_WORLD_KEY_TOKEN } from "../vault/world-key-core";
 import {
@@ -109,7 +110,11 @@ export class ExportFolderCommand {
 	 * import kept in the folder sidecar, so every key the world carries goes out
 	 * (vault/world-json.ts buildWorldJson says which source wins).
 	 */
-	private async buildWorldJson(world: string, worldId: string): Promise<Record<string, unknown>> {
+	private async buildWorldJson(
+		world: string,
+		worldId: string,
+		characterName: (id: string) => string | null = () => null
+	): Promise<Record<string, unknown>> {
 		let worldMd: string | null = null;
 		const file = this.app.vault.getAbstractFileByPath(
 			normalizePath(`OnlyWorlds/Worlds/${world}/World.md`)
@@ -130,7 +135,53 @@ export class ExportFolderCommand {
 			server: sidecar.server ?? null,
 			producer: pluginProducer(this.host?.manifest),
 			exportedAt: new Date().toISOString(),
+			exportedAs: await this.exportedAs(world, sidecar.server ?? null, characterName),
 		});
+	}
+
+	/**
+	 * The slice a downloaded world's key reads (spec §4.2 `exported_as`, OW
+	 * Obsidian #557): one GET /me with the key this world's World.md holds,
+	 * sent with no PIN (a read: an `ow_` key needs none, and a member key's
+	 * wrong PIN would be refused). Null, and nothing said, when the world has
+	 * no key (a folder opened with none, a local world), when /me does not
+	 * answer, or when it answers for another world: absent, never guessed.
+	 * A guest's Character is named from this world's notes, else by one read
+	 * of that Character.
+	 */
+	private async exportedAs(
+		world: string,
+		server: ServerWorld | null,
+		characterName: (id: string) => string | null
+	): Promise<ExportedAs | null> {
+		const serverId = serverWorldId(server);
+		if (!serverId) return null;
+		let key: string | null = null;
+		try {
+			key = (await worldFileApiKey(this.app, world))?.trim() ?? null;
+		} catch {
+			key = null;
+		}
+		if (!key || key.toLowerCase() === LOCAL_WORLD_KEY_TOKEN) return null;
+		try {
+			const client = new V2Client(key, "");
+			const me = await client.me();
+			if ((me.world as { id?: unknown } | undefined)?.id !== serverId) return null;
+			const id = typeof me.character === "string" ? me.character : null;
+			let fetched: string | null = null;
+			if (id && characterName(id) === null) {
+				try {
+					const c = await client.get("character", id);
+					fetched = typeof c.name === "string" ? c.name : null;
+				} catch {
+					fetched = null;
+				}
+			}
+			return exportedAsFromMe(me, (cid) => characterName(cid) ?? (cid === id ? fetched : null));
+		} catch (error) {
+			console.warn("OnlyWorlds: /me did not answer; the export carries no exported_as.", error);
+			return null;
+		}
 	}
 
 	/**
@@ -215,7 +266,12 @@ export class ExportFolderCommand {
 		const sidecar = await readFolderSidecar(this.app, world);
 		const carriedById = sidecar.elements ?? {};
 		const orderById = sidecar.order ?? {};
-		const worldJson = await this.buildWorldJson(world, worldId);
+		// A guest's Character, for `exported_as`, named as its note names it.
+		const characters = new Map<string, string>();
+		for (const el of elements) {
+			if (el.type.toLowerCase() === "character" && typeof el.payload.name === "string") characters.set(String(el.payload.id), el.payload.name);
+		}
+		const worldJson = await this.buildWorldJson(world, worldId, (id) => characters.get(id) ?? null);
 		const planned: { rel: string; content: string }[] = [
 			{ rel: "world.json", content: JSON.stringify(worldJson, null, 2) + "\n" },
 		];

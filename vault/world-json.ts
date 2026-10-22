@@ -72,8 +72,43 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
  * sinks refuse an existing folder), so every export stamps it, replacing any
  * value the imported world carried: the bytes are this version's.
  */
-// Not 0.3.9 yet: 0.3.9 wants `exported_as`, which this plugin's v2 key can learn from /me (3.8.1).
-export const FOLDER_FORMAT_VERSION = "0.3.8";
+// 0.3.14 since 3.8.1: `exported_as` from /me (0.3.9) was the one writer rule
+// from 0.3.8 to 0.3.14 the export did not meet; `source` and `producer` came in
+// 3.8.0, a known-of note goes out as its stub (0.3.10), the plugin re-keys no
+// id (0.3.11), writes no `records/` (0.3.12) and no `.owworld` (0.3.13).
+export const FOLDER_FORMAT_VERSION = "0.3.14";
+
+/**
+ * The `exported_as` line (spec §4.2, v0.3.9): which slice of the world this
+ * folder is, as the key that read it answers GET /me.
+ */
+export interface ExportedAs {
+	kind: "owner" | "member" | "character" | "public";
+	role: string | null;
+	character: { id: string; name: string } | null;
+}
+
+/**
+ * GET /me's answer mapped as spec §4.2 spells it (Kael's table, h50 #7909):
+ * the owner (an owner-minted or classic key) → owner, role owner, no
+ * character; a co-builder or contributor → member with its role, no
+ * character; a guest of any kind (person, agent seat, player) → character,
+ * with the Character it reads as. `characterName` names that Character; null
+ * when nothing in hand names it, and then no line is written (absent, never
+ * guessed), as for an answer this mapping does not know.
+ */
+export function exportedAsFromMe(me: Record<string, unknown>, characterName: (id: string) => string | null): ExportedAs | null {
+	const role = typeof me.role === "string" ? me.role : null;
+	if (me.kind === "owner" || role === "owner") return { kind: "owner", role: "owner", character: null };
+	if (role === "co_builder" || role === "contributor") return { kind: "member", role, character: null };
+	if (role === "guest") {
+		const id = typeof me.character === "string" && me.character ? me.character : null;
+		if (!id) return { kind: "character", role, character: null };
+		const name = characterName(id);
+		return name === null ? null : { kind: "character", role, character: { id, name } };
+	}
+	return null;
+}
 
 /**
  * The producer line (spec §4.2, v0.3.14): which tool made the folder and from
@@ -232,6 +267,8 @@ export function buildWorldJson(opts: {
 	producer?: FolderProducer | null;
 	/** The export's clock, for `source.at`. */
 	exportedAt?: string;
+	/** Which slice the world's key reads (exportedAsFromMe), for a downloaded world; null or absent writes none. */
+	exportedAs?: ExportedAs | null;
 }): Record<string, unknown> {
 	const { worldId, worldName, worldMd } = opts;
 	const lines = worldMd ? parseWorldMdLines(worldMd) : {};
@@ -296,14 +333,15 @@ export function buildWorldJson(opts: {
 		}
 	}
 	// Provenance (§4.2). A downloaded world: `source` names the server world
-	// (`at` the export's clock) and this plugin is the folder's maker; no
-	// `exported_as` yet (the plugin does not ask /me which slice its key
-	// reads; until it does, format_version stays 0.3.8) and no `snapshot_*` (not a
-	// snapshot: the world keeps its id). An imported world keeps the lines
-	// it came with as it found them, absent ones absent (the producer row: a
-	// tool that writes a folder from another folder keeps the line).
+	// (`at` the export's clock), `exported_as` the slice its key reads (from
+	// GET /me; absent when no key or no answer says it, never guessed), and
+	// this plugin is the folder's maker; no `snapshot_*` (not a snapshot: the
+	// world keeps its id). An imported world keeps the lines it came with as
+	// it found them, absent ones absent (the producer row: a tool that writes
+	// a folder from another folder keeps the line).
 	if (server) {
 		out.source = { server: server.server, world: serverWorldId(server), at: opts.exportedAt ?? new Date().toISOString() };
+		if (opts.exportedAs) out.exported_as = opts.exportedAs;
 		if (producer) out.producer = producer;
 	}
 	// Every export is a birth: both sinks refuse an existing folder, so the

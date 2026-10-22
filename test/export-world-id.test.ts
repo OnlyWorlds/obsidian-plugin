@@ -95,7 +95,7 @@ test("★ an export of a downloaded world carries the server id, every key GET /
 	assert.equal(source.world, WID);
 	assert.ok(typeof source.at === "string" && !Number.isNaN(Date.parse(source.at)), `source.at: ${String(source.at)}`);
 	assert.deepEqual(world.producer, { tool: "onlyworlds-builder", version: "3.8.0", input: "obsidian-vault" });
-	assert.equal(world.format_version, "0.3.8", "0.3.9 wants exported_as, which the plugin does not ask /me for yet");
+	assert.equal(world.format_version, "0.3.14");
 	// the provenance this writer cannot know is absent, never guessed
 	for (const k of ["exported_as", "snapshot_of", "api", "api_key"]) assert.equal(k in world, false, `${k} written`);
 
@@ -161,4 +161,98 @@ test("★ a world made in the vault mints its id, and the export's report says s
 	const again = await exportWorld(app, vault, "Native", plugin());
 	assert.equal(again.world.id, world.id);
 	assert.equal(again.idNote, null);
+});
+
+// --- exported_as from GET /me (3.8.1, OW Obsidian #557 Fix 3; spec §4.2, v0.3.9) ----
+
+const CHAR_ID = "019e0000-0000-7000-8000-0000000000c7";
+
+/** keel for Moppetopia with a /me answer and a Character in the feed; every request recorded. */
+function serveWithMe(me: Record<string, unknown> | null) {
+	const seen: string[] = [];
+	setRequestUrl((r) => {
+		const path = new URL(r.url).pathname.replace(/^\/api\/v2/, "").replace(/\/$/, "");
+		seen.push(`${r.method} ${path}`);
+		if (path === "/world") return { status: 200, json: WORLD };
+		if (path === "/me") return me ? { status: 200, json: me } : { status: 404, json: {} };
+		if (path === "/changes") {
+			return {
+				status: 200,
+				json: {
+					cursor: "c1", has_more: false, head: 2,
+					changes: [
+						{ op: "upsert", type: "pin", id: PIN_ID, change_seq: 1, updated_at: "x", element: { id: PIN_ID, name: "Crumblefields" } },
+						{ op: "upsert", type: "character", id: CHAR_ID, change_seq: 2, updated_at: "x", element: { id: CHAR_ID, name: "Ireena" } },
+					],
+				},
+			};
+		}
+		return { status: 404, json: {} };
+	});
+	return seen;
+}
+
+const ME = (fields: Record<string, unknown>) => ({ world: { id: WID, name: "Moppetopia" }, scope: "write", membership: null, character: null, ...fields });
+
+test("★ an export with a key carries exported_as from GET /me: the owner's whole world", async () => {
+	const { app, vault } = makeApp();
+	const seen = serveWithMe(ME({ kind: "owner", role: "owner" }));
+	const host = plugin();
+	await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("ow_k_test", "");
+	const { world } = await exportWorld(app, vault, "Moppetopia", host);
+	assert.deepEqual(world.exported_as, { kind: "owner", role: "owner", character: null });
+	assert.equal(seen.filter((s) => s === "GET /me").length, 1, "one /me");
+	assert.equal(world.format_version, "0.3.14");
+	assert.deepEqual(Object.keys(world).slice(-4), ["source", "exported_as", "producer", "format_version"]);
+});
+
+test("★ exported_as: a co-builder is a member with its role; a guest is the Character it reads as, named as its note names it", async () => {
+	for (const [me, expected] of [
+		[ME({ kind: "person", role: "co_builder", membership: "m1" }), { kind: "member", role: "co_builder", character: null }],
+		[ME({ kind: "person", role: "contributor", membership: "m2" }), { kind: "member", role: "contributor", character: null }],
+		[ME({ kind: "player", role: "guest", membership: "m3", character: CHAR_ID, scope: "read" }), { kind: "character", role: "guest", character: { id: CHAR_ID, name: "Ireena" } }],
+		[ME({ kind: "agent", role: "guest", membership: "m4", character: null }), { kind: "character", role: "guest", character: null }],
+	] as const) {
+		const { app, vault } = makeApp();
+		serveWithMe(me as Record<string, unknown>);
+		const host = plugin();
+		await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("ow_k_test", "");
+		const { world } = await exportWorld(app, vault, "Moppetopia", host);
+		assert.deepEqual(world.exported_as, expected, JSON.stringify(me));
+	}
+});
+
+test("exported_as: an answer the spec does not map, or for another world, writes none (never guessed)", async () => {
+	for (const me of [ME({ kind: "person", role: "steward" }), { ...ME({ kind: "owner", role: "owner" }), world: { id: MINTED, name: "Other" } }]) {
+		const { app, vault } = makeApp();
+		serveWithMe(me);
+		const host = plugin();
+		await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("ow_k_test", "");
+		const { world } = await exportWorld(app, vault, "Moppetopia", host);
+		assert.equal("exported_as" in world, false, JSON.stringify(me));
+	}
+});
+
+test("★ without a key, an export writes no exported_as, asks nothing and says nothing", async () => {
+	const { app, vault } = makeApp();
+	const seen = serveWithMe(ME({ kind: "owner", role: "owner" }));
+	const host = plugin();
+	await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("ow_k_test", "");
+	// The key leaves World.md: a folder opened with none.
+	const md = "OnlyWorlds/Worlds/Moppetopia/World.md";
+	vault.files.get(md)!.content = (vault.contentAt(md) ?? "").replace(/^- \*\*API Key:\*\*.*$/m, "- **API Key:** ");
+	seen.length = 0;
+	const { world, idNote } = await exportWorld(app, vault, "Moppetopia", host);
+	assert.equal("exported_as" in world, false);
+	assert.deepEqual(seen.filter((s) => s === "GET /me"), [], "no /me without a key");
+	assert.equal(idNote, null);
+	assert.equal(world.format_version, "0.3.14");
+	// A world made in the vault (a local world) asks nothing either.
+	const local = makeApp();
+	await local.vault.seed("OnlyWorlds/Worlds/Native/World.md", "# World Overview: Native\n\n- **API Key:** local\n");
+	await local.vault.seed("OnlyWorlds/Worlds/Native/Elements/Character/Ireena.md", `---\nname: Ireena\nid: ${CHAR_ID}\n---\n`);
+	seen.length = 0;
+	const native = await exportWorld(local.app, local.vault, "Native", plugin());
+	assert.equal("exported_as" in native.world, false);
+	assert.deepEqual(seen, []);
 });
