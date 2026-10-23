@@ -8,7 +8,7 @@ import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { diffPayload, getCategorySchema, keepServerEscapes } from '../vault/element-transform';
+import { carriesServerFields, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -562,6 +562,7 @@ export class SaveElementCommand {
                     }
                     const created = await client.create(type, { id: elementUuid, ...sendPayload });
                     await this.recordSeqs(worldName, [elementUuid], changeSeqOf(created));
+                    await this.refreshServerFields(activeFile, created);
                     if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
@@ -585,6 +586,7 @@ export class SaveElementCommand {
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
             if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq);
+            await this.refreshServerFields(activeFile, current);
             const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'unchanged' };
@@ -623,6 +625,7 @@ export class SaveElementCommand {
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
                 if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq);
+                await this.refreshServerFields(activeFile, current);
                 const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
                 return { ok: true, outcome: 'unchanged' };
@@ -638,6 +641,9 @@ export class SaveElementCommand {
             // The answer's change_seq guards the next save; an answer without
             // one clears the old number, which is no longer the element's.
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved));
+            // The note's seven server keys follow the answer (Seethe's walk of
+            // PR 11, h69 #11009); the guard above reads its own record.
+            await this.refreshServerFields(activeFile, saved);
             // Sent without the check (no number recorded yet): said once per element.
             if (knownSeq === null && !unguardedShown.has(elementUuid)) {
                 unguardedShown.add(elementUuid);
@@ -1052,6 +1058,29 @@ export class SaveElementCommand {
         // is the word that nothing was written.
         if (refused.length === 0 && body?.errors === true) refused.push('the batch was refused as a whole, nothing was written');
         return { refused: refused.length > 0 ? refused.join('; ') : null, replaced };
+    }
+
+    /**
+     * Rewrite the note's seven server keys from the element `body` the server
+     * answered with (a PATCH's or a create's answer, or the copy read before a
+     * save with nothing to send), by Download's rule: nulls left out, written
+     * last, never sent (withServerFieldLines). Only those lines change; a
+     * hand-typed one takes the server's value. An answer that carries none of
+     * them (/bulk's) leaves the note alone. Marked as the plugin's own write,
+     * so auto-sync does not save it again. Never fails the save: a write that
+     * fails is logged, and the next Download writes them.
+     */
+    private async refreshServerFields(file: TFile, body: unknown): Promise<void> {
+        if (!carriesServerFields(body)) return;
+        try {
+            const content = await this.app.vault.read(file);
+            const next = withServerFieldLines(content, body);
+            if (next === content) return;
+            this.plugin.autoSync?.markSelfWrite(file.path);
+            await this.app.vault.modify(file, next);
+        } catch (error) {
+            console.error(`OnlyWorlds: could not refresh the server fields of ${file.path}`, error);
+        }
     }
 
     /** Show the reason (the Notice the user always got) and report the failure. */
