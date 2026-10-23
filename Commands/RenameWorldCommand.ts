@@ -52,8 +52,9 @@ export class RenameWorldCommand {
         modal.open();
     }
 
-    // PATCH the world name via the SDK (WorldResource.update → PATCH /world/),
-    // using THIS world's own key. A local-only rename is stated plainly, never
+    // PATCH the world name (v2 PATCH /world, the client Upload world's units
+    // already use; the SDK's v1 client left with 4.0, 3.10), using THIS
+    // world's own key. A local-only rename is stated plainly, never
     // dressed up as a synced success.
     private async pushRenameToApi(newWorldName: string, newFolder: string): Promise<void> {
         if (!this.plugin) {
@@ -78,14 +79,14 @@ export class RenameWorldCommand {
             return;
         }
 
-        const client = await this.plugin.buildClient(resolved.apiKey);
+        const client = await this.plugin.buildV2Client(resolved.apiKey);
         if (!client) {
             new Notice('World renamed in your vault. Not synced: PIN not provided.');
             return;
         }
 
         try {
-            await client.worlds.update({ name: newWorldName });
+            await client.patchWorld({ name: newWorldName });
             new Notice(`World renamed on onlyworlds.com${resolved.ownWorld ? '' : ' (using your default key)'}.`);
         } catch (error) {
             console.error('Failed to push world rename to API:', error);

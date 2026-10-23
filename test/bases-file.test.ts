@@ -22,9 +22,9 @@ const SCHEMA: BasesSchema = {
 		subtype: { type: "text" },
 		image_url: { type: "text" },
 		physicality: { type: "text" },
-		height: { type: "number" },
+		height: { type: "integer" },
 		species: { type: "multi_link" },
-		birth_date: { type: "number" },
+		birth_date: { type: "integer" },
 		birthplace: { type: "single_link" },
 	},
 	Law: {
@@ -158,7 +158,7 @@ test("a type with no image field gets a cards view with no image key", () => {
 
 test(`a type's columns stop at ${MAX_TYPE_COLUMNS} of its fields, in schema order; text fields (the note body) are never columns`, () => {
 	const wide: Record<string, { type: string }> = { name: { type: "text" }, supertype: { type: "text" }, subtype: { type: "text" } };
-	for (let i = 1; i <= 12; i++) wide[`stat_${i}`] = { type: i % 3 === 0 ? "text" : "number" };
+	for (let i = 1; i <= 12; i++) wide[`stat_${i}`] = { type: i % 3 === 0 ? "text" : "integer" };
 	const text = buildBasesFile({ ...HYPERION, schema: { Creature: wide } });
 	const doc = jsYaml.load(text) as { views: Array<{ name: string; order: string[] }> };
 	const table = doc.views.find((v) => v.name === "Creatures");

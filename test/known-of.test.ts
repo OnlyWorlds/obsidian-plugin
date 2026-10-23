@@ -169,7 +169,8 @@ test("★ rule 1: Download writes a stub as it is: `known_of: true`, its kept ke
 	const notices = await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, { description: "A noble." }), upsert(STRAHD_STUB(2), 2)], 2);
 	const note = await s.vault.read(noteOf(s.app, STRAHD));
 	// The record of what the stub wrote goes last (h37 #9280, N1): the plugin's bookkeeping, never a field.
-	assert.ok(note.startsWith(`---\nname: Strahd\nid: ${STRAHD}\nknown_of: true\nsupertype: Vampire\nsubtype: ""\nimage_url: ""\nknown_of_written:\n  - description\n  - physicality\n---\n`), note);
+	// The server's keys the stub carries come before it, as on every note (3.10, OW Obsidian #564).
+	assert.ok(note.startsWith(`---\nname: Strahd\nid: ${STRAHD}\nknown_of: true\nsupertype: Vampire\nsubtype: ""\nimage_url: ""\ncreated_at: "2026-10-20T10:00:00Z"\nupdated_at: "2026-10-20T10:00:00Z"\nchange_seq: 2\nknown_of_written:\n  - description\n  - physicality\n---\n`), note);
 	for (const unset of ["height:", "weight:", "species:", "location:", "friends:", "charisma:", "x_", "### Background", "### Reputation", "### Mentality"]) {
 		assert.ok(!note.includes(unset), `an unset field was written: ${unset}\n${note}`);
 	}

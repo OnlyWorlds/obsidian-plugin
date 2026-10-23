@@ -32,7 +32,25 @@
  * `[[name]]`. On import the reverse; an ow:// whose uuid does not resolve is
  * KEPT VERBATIM (never destroy a reference).
  */
-import { getCategorySchema, isExtensionKey, type SchemaField } from "./element-transform";
+import { getCategorySchema, isExtensionKey, SERVER_FIELDS, type SchemaField } from "./element-transform";
+
+/**
+ * The server's keys a note carries (SERVER_FIELDS), as a folder body writes
+ * them (3.10, OW Obsidian #564): keel serves all seven on every element, and
+ * a note leaves out only the null ones (R3), so for a whole note that carries
+ * any of them, each one it lacks goes out `null`, as the server serves it
+ * (spec §5: a writer that read a field writes it as the server serves it).
+ * A note that carries none (made in the vault, or downloaded before 3.10)
+ * gets none: nothing is minted. A known-of stub keeps only what it carries
+ * (§4.4 rule 1: what it leaves out is unknown, never null).
+ */
+export function folderServerFields(fromNote: Record<string, unknown>, knownOf = false): Record<string, unknown> {
+	if (Object.keys(fromNote).length === 0) return {};
+	if (knownOf) return { ...fromNote };
+	const out: Record<string, unknown> = {};
+	for (const key of SERVER_FIELDS) out[key] = key in fromNote ? fromNote[key] : null;
+	return out;
+}
 
 /**
  * The four types the legacy `spatial/<type>/` layout held. Export no longer
@@ -46,8 +64,9 @@ export const SPATIAL_TYPES = new Set(["map", "pin", "zone", "marker"]);
  * not `id`, `name` or `type`, not a schema field of the element's type and not
  * an extension key. In practice the server's and Atlas's own fields
  * (`created_at`, `updated_at`, `change_seq`, `created_by`, `local_updated_at`,
- * `server_updated_at`, `image_media_id`). The note would drop them (and must:
- * an upload must never send them), so the import keeps them in the folder
+ * `server_updated_at`, `image_media_id`). The import's note leaves them out
+ * (an upload must never send them; a Download writes the server's seven into
+ * its notes since 3.10, never sent either), so the import keeps them in the folder
  * sidecar and the export writes them back as received (spec §4.1: a writer MUST
  * NOT drop data it has, MUST NOT synthesize a timestamp it does not have;
  * §4.2/§5: server fields kept as received). OW Infra #166 row 6.

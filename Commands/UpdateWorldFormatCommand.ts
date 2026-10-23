@@ -207,7 +207,7 @@ export class UpdateWorldFormatCommand {
 						continue;
 					}
 					if (!(key in target)) {
-						target[key] = def.type === 'multi_link' ? [] : def.type === 'number' ? null : '';
+						target[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
 					}
 				}
 			});

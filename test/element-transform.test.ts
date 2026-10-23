@@ -224,8 +224,9 @@ test("parseSpanNote extracts id, name, typed fields, and wikilinks", () => {
 	assert.deepEqual(byKey.species.linkNames, ["Human"]);
 	assert.equal(byKey.traits.kind, "multi_link");
 	assert.deepEqual(byKey.traits.linkNames, ["Brave", "Kind"]);
-	assert.equal(byKey.height.kind, "number");
-	assert.equal(byKey.STR.kind, "number");
+	// A span's `Number` tooltip reads as FIELD_SCHEMA's word for it, `integer` since SDK 4.0 (3.10).
+	assert.equal(byKey.height.kind, "integer");
+	assert.equal(byKey.STR.kind, "integer");
 	assert.equal(byKey.description.kind, "text");
 });
 

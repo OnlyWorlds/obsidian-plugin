@@ -20,6 +20,7 @@ import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { DeleteElementCommand } from "../Commands/DeleteElementCommand";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { V2Client } from "../client-v2";
+import { SERVER_FIELDS } from "../vault/element-transform";
 
 const WID = "019e0000-0000-7000-8000-0000000005e7";
 const W = "OnlyWorlds/Worlds/W";
@@ -350,14 +351,21 @@ test("★ Download records each written note's change_seq beside the world, and 
 	assert.deepEqual(seqIndex(vault), { [A]: 3, [B]: 7 });
 	const notePath = [...vault.files.keys()].find((p) => p.startsWith(`${W}/Elements/`) && p.endsWith("/Beta.md"))!;
 	assert.ok(notePath, "no note for Beta");
-	assert.ok(!/change_seq/.test(vault.contentAt(notePath) ?? ""), "change_seq never enters the note (keel 422s it in a write body)");
+	// Since 3.10 the note carries the server's change_seq, read-only (OW
+	// Obsidian #564): the guard still reads its own record, and the save
+	// sends none of the server's keys (keel 422s them in a write body).
+	assert.match(vault.contentAt(notePath) ?? "", /\nchange_seq: 7\n/, "the note carries the server's change_seq");
 	const before = vault.contentAt(notePath) ?? "";
 	vault.files.get(notePath)!.content = before.replace("### Description\n\nb\n", "### Description\n\nb, edited\n");
 	assert.notEqual(vault.contentAt(notePath), before, "the edit did not land in the note");
 	setRequestUrl(keel.handle);
 	const { result } = await save(app, plugin, vault.files.get(notePath)!.file as unknown as TFile);
 	assert.equal(result.ok, true, JSON.stringify(result));
-	assert.equal(ifMatchOf(writes().find((r) => r.method === "PATCH")!), '"7"');
+	const patch = writes().find((r) => r.method === "PATCH")!;
+	assert.equal(ifMatchOf(patch), '"7"');
+	const sent = JSON.parse(String(patch.body)) as Record<string, unknown>;
+	assert.equal(sent.description, "b, edited");
+	for (const k of SERVER_FIELDS) assert.ok(!(k in sent) && !(`x_${k}` in sent), `${k} was sent`);
 });
 
 test("the v2 client sends If-Match only for a whole change_seq, quoted", async () => {
