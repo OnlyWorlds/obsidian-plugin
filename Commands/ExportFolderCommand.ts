@@ -12,6 +12,7 @@ import {
 	planRecords,
 	recordsOption,
 	recordsReportLines,
+	recordsSwitchDesc,
 	type RecordsOption,
 	type RecordsPlan,
 } from "../vault/records";
@@ -667,13 +668,7 @@ class DestinationPickModal extends Modal {
 		if (option) {
 			new Setting(contentEl)
 				.setName(option.kind === "private" ? INCLUDE_PRIVATE_RECORDS : INCLUDE_EVERY_RECORD)
-				.setDesc(
-					option.kind === "private"
-						? `This world's records mark ${option.producers.join(", ")} as private. ` +
-								"Off, they stay out of the folder; RECORDS.json still lists them."
-						: "This world's RECORDS.json could not be read, so which records are private is not known. " +
-								"Off, no producer's records go out; RECORDS.json goes out unchanged."
-				)
+				.setDesc(recordsSwitchDesc(option))
 				.addToggle((t) => t.setValue(false).onChange((v) => (this.includePrivate = v)));
 		}
 

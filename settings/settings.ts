@@ -9,7 +9,9 @@ export interface OnlyWorldsPluginSettings {
 	apiKey: string;
 	apiPin: string;
 	defaultWorld: string;
-	defaultEmail: string;
+	// `defaultEmail` went with the email-and-PIN create (3.11, OW Obsidian
+	// #577); an older data.json that still holds it loads as before (the key
+	// is carried along by loadSettings' Object.assign and read by nothing).
 	defaultCategory: string;
 	individualElementCommands: boolean;
 
@@ -113,7 +115,6 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	apiKey: "",
 	apiPin: "",
 	defaultWorld: "",
-	defaultEmail: "",
 	defaultCategory: "Character",
 	individualElementCommands: false,
 

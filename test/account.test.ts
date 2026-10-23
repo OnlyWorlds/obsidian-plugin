@@ -753,6 +753,14 @@ test("requestUrlFetch refuses a body that is not a string, and sends nothing (Am
 	assert.equal(__requests.length, 0);
 });
 
+test("the Default email setting is gone; an older data.json that still holds it loads as before (Amendment B)", () => {
+	assert.equal("defaultEmail" in DEFAULT_SETTINGS, false);
+	// main.ts loadSettings: Object.assign({}, DEFAULT_SETTINGS, data)
+	const loaded = Object.assign({}, DEFAULT_SETTINGS, { defaultEmail: "a@b.c", defaultWorld: "Hyperion" });
+	assert.equal(loaded.defaultWorld, "Hyperion");
+	assert.equal(loaded.defaultCategory, DEFAULT_SETTINGS.defaultCategory);
+});
+
 // --- the key-and-PIN download stays as it is ------------------------------------
 
 test("Download World with a pasted key and PIN: the modal's path, unchanged (key and PIN as typed)", async () => {

@@ -32,7 +32,9 @@ import {
 	readRecordsManifest,
 	recordsOption,
 	recordsReportLines,
+	recordsSwitchDesc,
 	type RecordFile,
+	type RecordsOption,
 } from "../vault/records";
 
 const WID = "0199b000-0000-7000-8000-0000000000aa";
@@ -136,10 +138,10 @@ test("planRecords: a private producer is matched to its directory after OW-18's 
 	];
 	const plan = planRecords(files, false);
 	assert.deepEqual(plan.files.map((f) => f.rel), ["records/RECORDS.json", "records/lab/ledger.bin"]);
-	assert.deepEqual(plan.leftOut, ["fold"]);
+	assert.deepEqual(plan.leftOut, ["FOLD"], "named as the manifest spells it");
 	assert.equal(plan.files[0].data, files[0].data, "the manifest is passed through as the same bytes");
 	assert.deepEqual(planRecords(files, true).files.map((f) => f.rel), files.map((f) => f.rel));
-	assert.deepEqual(recordsOption(files), { kind: "private", producers: ["fold"] });
+	assert.deepEqual(recordsOption(files), { kind: "private", producers: ["FOLD"] });
 });
 
 test("recordsOption: the switch is asked for private producers the folder holds, for an unreadable manifest beside producer directories, and for nothing else (Amendment A)", () => {
@@ -152,10 +154,35 @@ test("recordsOption: the switch is asked for private producers the folder holds,
 	assert.equal(INCLUDE_PRIVATE_RECORDS, "Include private records");
 });
 
+const KEEPER: RecordFile[] = [
+	{ rel: "records/RECORDS.json", data: enc('[{"producer":"Vault Keeper","private":true},{"producer":"Fold","private":true},{"producer":"lab"}]') },
+	{ rel: "records/vault keeper/notes.md", data: enc("x") },
+	{ rel: "records/fold/.head", data: enc("1") },
+	{ rel: "records/lab/ledger.bin", data: LEDGER },
+];
+
+test("★ the report's private line names each producer as the manifest spells it, never the folded directory name (Amendment B)", () => {
+	const lines = recordsReportLines(planRecords(KEEPER, false));
+	assert.equal(lines[1], "Private records left out: Fold, Vault Keeper. RECORDS.json still lists them; turn on Include private records to carry them.");
+});
+
+test("★ the switch's sentence names each private producer as the manifest spells it, never the folded directory name (Amendment B)", () => {
+	const option = recordsOption(KEEPER);
+	assert.deepEqual(option, { kind: "private", producers: ["Fold", "Vault Keeper"] });
+	assert.equal(
+		recordsSwitchDesc(option as RecordsOption),
+		"This world's records mark Fold, Vault Keeper as private. Off, they stay out of the folder; RECORDS.json still lists them."
+	);
+	assert.equal(
+		recordsSwitchDesc({ kind: "unreadable" }),
+		"This world's RECORDS.json could not be read, so which records are private is not known. Off, no producer's records go out; RECORDS.json goes out unchanged."
+	);
+});
+
 test("the report's records lines: carried, left out, no manifest, unreadable manifest off and on", () => {
 	assert.deepEqual(recordsReportLines(null), []);
 	const left = recordsReportLines(planRecords([{ rel: "records/RECORDS.json", data: MANIFEST_TWO }, { rel: "records/fold/a", data: enc("x") }], false));
-	assert.match(left[1], /^Private records left out: fold\. RECORDS\.json still lists them; turn on Include private records to carry them\.$/);
+	assert.match(left[1], /^Private records left out: Fold\. RECORDS\.json still lists them; turn on Include private records to carry them\.$/);
 	assert.match(recordsReportLines(planRecords([{ rel: "records/lab/a", data: enc("x") }], false))[1], /^records\/ has no RECORDS\.json, so every record went out: nothing can be private without one\.$/);
 	const unreadable = [{ rel: "records/RECORDS.json", data: enc("{") }, { rel: "records/lab/a", data: enc("x") }];
 	assert.deepEqual(recordsReportLines(planRecords(unreadable, false)), [
@@ -195,7 +222,7 @@ test("★ export: asked, both producers go out byte for byte; by default the pri
 	assertSameBytes(recordsOf(plain.files), want, "default");
 	assert.deepEqual(plain.lines, [
 		"4 record files carried in records/, byte for byte",
-		"Private records left out: fold. RECORDS.json still lists them; turn on Include private records to carry them.",
+		"Private records left out: Fold. RECORDS.json still lists them; turn on Include private records to carry them.",
 	]);
 	// the elements and world.json are the export's as before
 	assert.ok(plain.files.has("world.json"));

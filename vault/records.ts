@@ -86,7 +86,11 @@ export function readRecordsManifest(manifest: Uint8Array | null): ManifestReadin
 export interface RecordsPlan {
 	/** The files that travel, byte for byte as held, in the order given. */
 	files: RecordFile[];
-	/** The producer directories left out (private, or all of them under an unreadable manifest), as the folder names them (sorted). */
+	/**
+	 * The producers left out (sorted): a private one as its manifest entry
+	 * spells it, never the folded name; under an unreadable manifest, every
+	 * producer directory by its own name.
+	 */
 	leftOut: string[];
 	/** The manifest as read: `absent` carries every record; `unreadable` carries them only when asked. */
 	manifest: ManifestReading["kind"];
@@ -111,19 +115,24 @@ function producerDir(rel: string): string | null {
 export function planRecords(files: RecordFile[], asked: boolean): RecordsPlan {
 	const manifestFile = files.find((f) => f.rel === RECORDS_MANIFEST) ?? null;
 	const reading = readRecordsManifest(manifestFile ? manifestFile.data : null);
-	let leaves: (dir: string) => boolean;
-	if (asked || reading.kind === "absent") leaves = () => false;
-	else if (reading.kind === "unreadable") leaves = () => true;
+	// The name a left-out directory is reported by, or null when it travels:
+	// a private producer as its manifest entry spells it ("Fold"), the fold
+	// only matching it to its directory; under an unreadable manifest, which
+	// names nothing, the directory's own name.
+	let leaves: (dir: string) => string | null;
+	if (asked || reading.kind === "absent") leaves = () => null;
+	else if (reading.kind === "unreadable") leaves = (dir) => dir;
 	else {
-		const folded = new Set(reading.privateProducers.map(foldName));
-		leaves = (dir) => folded.has(foldName(dir));
+		const spelled = privateSpellings(reading.privateProducers);
+		leaves = (dir) => spelled.get(foldName(dir)) ?? null;
 	}
 	const kept: RecordFile[] = [];
 	const leftOut = new Set<string>();
 	for (const f of files) {
 		const dir = producerDir(f.rel);
-		if (dir !== null && leaves(dir)) {
-			leftOut.add(dir);
+		const name = dir === null ? null : leaves(dir);
+		if (name !== null) {
+			leftOut.add(name);
 			continue;
 		}
 		kept.push(f);
@@ -131,10 +140,17 @@ export function planRecords(files: RecordFile[], asked: boolean): RecordsPlan {
 	return { files: kept, leftOut: [...leftOut].sort(), manifest: reading.kind, asked };
 }
 
+/** Folded name -> the manifest's own spelling, the first entry's when two fold alike. */
+function privateSpellings(producers: string[]): Map<string, string> {
+	const spelled = new Map<string, string>();
+	for (const p of producers) if (!spelled.has(foldName(p))) spelled.set(foldName(p), p);
+	return spelled;
+}
+
 /**
  * The export's records switch, when the world's records call for one: the
- * private producers a readable manifest names and the folder holds
- * ("Include private records"), or an unreadable manifest beside producer
+ * private producers a readable manifest names and the folder holds, as the
+ * manifest spells them ("Include private records"), or an unreadable manifest beside producer
  * directories ("Include every record"). Null when there is nothing to ask.
  */
 export type RecordsOption = { kind: "private"; producers: string[] } | { kind: "unreadable" };
@@ -145,14 +161,21 @@ export function recordsOption(files: RecordFile[]): RecordsOption | null {
 	const dirs = new Set(files.map((f) => producerDir(f.rel)).filter((d): d is string => d !== null));
 	if (reading.kind === "unreadable") return dirs.size > 0 ? { kind: "unreadable" } : null;
 	if (reading.kind !== "readable") return null;
-	const folded = new Set(reading.privateProducers.map(foldName));
-	const producers = [...dirs].filter((d) => folded.has(foldName(d))).sort();
+	const spelled = privateSpellings(reading.privateProducers);
+	const producers = [...new Set([...dirs].map((d) => spelled.get(foldName(d))).filter((p): p is string => p !== undefined))].sort();
 	return producers.length > 0 ? { kind: "private", producers } : null;
 }
 
 /** The switch's words, sentence case in the plugin's voice. */
 export const INCLUDE_PRIVATE_RECORDS = "Include private records";
 export const INCLUDE_EVERY_RECORD = "Include every record (the records list could not be read)";
+
+/** The sentence under the switch: the private producers as the manifest spells them. */
+export function recordsSwitchDesc(option: RecordsOption): string {
+	return option.kind === "private"
+		? `This world's records mark ${option.producers.join(", ")} as private. Off, they stay out of the folder; RECORDS.json still lists them.`
+		: "This world's RECORDS.json could not be read, so which records are private is not known. Off, no producer's records go out; RECORDS.json goes out unchanged.";
+}
 
 /** The report's sentences about records (empty when the world has none). */
 export function recordsReportLines(plan: RecordsPlan | null): string[] {
