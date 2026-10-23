@@ -92,6 +92,61 @@ export function isServerField(key: string): boolean {
 }
 
 /**
+ * The server's keys a note keeps of an element body, in SERVER_FIELDS order:
+ * each one the body sets, a null or empty one left out (R3). The one rule,
+ * for Download (apiDataToFrontmatter) and for a save's answer
+ * (withServerFieldLines).
+ */
+export function serverFieldsFrom(data: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const key of SERVER_FIELDS) {
+		if (key in data && !isEmptyFieldValue(data[key])) out[key] = data[key];
+	}
+	return out;
+}
+
+/** True when `body` is an element body that carries any of the server's keys (a save's answer worth refreshing from). */
+export function carriesServerFields(body: unknown): body is Record<string, unknown> {
+	return !!body && typeof body === "object" && !Array.isArray(body) && SERVER_FIELDS.some((k) => k in (body as Record<string, unknown>));
+}
+
+/**
+ * `content` (a whole note) with its server keys replaced by `data`'s, by
+ * serverFieldsFrom's rule, written by serializeFrontmatter as Download writes
+ * them, last in the block (3.10, Seethe's walk of PR 11, h69 #11009: a save
+ * left `change_seq` at the pulled number, and the folder export wrote that
+ * stale number, or a hand-typed `created_at`, as the server's). Only those
+ * lines change: every other line of the block, and the body, stay byte for
+ * byte. A server key typed by hand anywhere in the block, its continuation
+ * lines included, is replaced by the server's value; one the server leaves
+ * null leaves the note. A note whose block is not at byte 0, or has no close,
+ * is returned as it is.
+ */
+export function withServerFieldLines(content: string, data: Record<string, unknown>): string {
+	if (!content.startsWith("---")) return content;
+	const close = frontmatterClose(content);
+	if (!close) return content;
+	const lines = content.slice(0, close.end).split("\n");
+	const cr = lines[0].endsWith("\r") ? "\r" : "";
+	const kept: string[] = [lines[0]];
+	let dropping = false;
+	for (const line of lines.slice(1)) {
+		const bare = line.endsWith("\r") ? line.slice(0, -1) : line;
+		// A key's continuation: an indented line, or a `- ` list item under it.
+		if (dropping && bare.trim() !== "" && /^([ \t]|- |-$)/.test(bare)) continue;
+		dropping = false;
+		const key = /^([A-Za-z0-9_]+)[ \t]*:/.exec(bare)?.[1];
+		if (key && isServerField(key)) {
+			dropping = true;
+			continue;
+		}
+		kept.push(line);
+	}
+	const fresh = serializeFrontmatter(serverFieldsFrom(data)).split("\n").slice(1, -1).map((l) => `${l}${cr}`);
+	return [...kept, ...fresh].join("\n") + content.slice(close.end);
+}
+
+/**
  * The server's keys a note's frontmatter carries, in SERVER_FIELDS order:
  * what the folder export writes back beside the element's fields.
  */
@@ -1327,7 +1382,10 @@ export function apiDataToFrontmatter(
 
 	// Collect content fields first, then assemble in R4 order at the end.
 	const content: Record<string, unknown> = {};
-	const server: Record<string, unknown> = {};
+	// The server's own keys, as served (3.10). A null is left out, as every
+	// other empty field is (R3): `created_by` and `changed_by` are null for
+	// the world's owner, `changed_client` until a client names itself.
+	const server = serverFieldsFrom(data);
 	let imageUrl: unknown = undefined;
 
 	for (const [key, value] of Object.entries(data)) {
@@ -1338,14 +1396,7 @@ export function apiDataToFrontmatter(
 			content[key] = value; // verbatim, kept even when empty (R3 exception)
 			continue;
 		}
-		if (isServerField(key)) {
-			// The server's own keys, as served (3.10). A null is left out, as
-			// every other empty field is (R3): `created_by` and `changed_by`
-			// are null for the world's owner, `changed_client` until a client
-			// names itself.
-			if (!isEmptyFieldValue(value)) server[key] = value;
-			continue;
-		}
+		if (isServerField(key)) continue; // collected above, by serverFieldsFrom
 		if (!schema) {
 			// Unknown category — pass through, but still apply the empty-omit rule.
 			if (!isEmptyFieldValue(value)) content[key] = value;

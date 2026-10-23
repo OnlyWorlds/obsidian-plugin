@@ -33,6 +33,8 @@ export interface HarnessOpts {
 	feed?: { id: string; op: string }[];
 	/** Ids keel answers 410 (deleted in this world). */
 	gone?: string[];
+	/** The element body keel answers an update or a create of an id with (default: `{}` for an update, the sent body for a create). */
+	answer?: Record<string, Record<string, unknown>>;
 }
 
 export async function harnessSave(o: HarnessOpts) {
@@ -63,12 +65,12 @@ export async function harnessSave(o: HarnessOpts) {
 			calls.push(`create ${type}`);
 			sent.push(b);
 			server.set(String(b.id), b);
-			return b;
+			return o.answer?.[String(b.id)] ?? b;
 		},
 		update: async (type: string, id: string, b: Record<string, unknown>) => {
 			calls.push(`update ${type} ${id}`);
 			sent.push(b);
-			return {};
+			return o.answer?.[id] ?? {};
 		},
 		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[], opts?: unknown) => {
 			calls.push("bulk");

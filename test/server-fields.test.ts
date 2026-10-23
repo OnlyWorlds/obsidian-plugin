@@ -22,7 +22,7 @@ import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
 import { readElement } from "../vault/element-file";
-import { SERVER_FIELDS, apiDataToFrontmatter, frontmatterToPayloadFields, getCategorySchema, bodyTextFields } from "../vault/element-transform";
+import { SERVER_FIELDS, apiDataToFrontmatter, frontmatterToPayloadFields, getCategorySchema, bodyTextFields, withServerFieldLines } from "../vault/element-transform";
 import { folderServerFields } from "../vault/folder-format";
 import { harnessSave } from "./support/save-harness";
 
@@ -228,4 +228,69 @@ test("folderServerFields: all seven for a whole note that carries any, only its 
 		created_at: null, updated_at: null, change_seq: 3, created_by: null, changed_by: null, changed_via: null, changed_client: null,
 	});
 	assert.deepEqual(folderServerFields({ change_seq: 3, created_at: "t" }, true), { change_seq: 3, created_at: "t" });
+});
+
+// --- a save refreshes the seven from its answer (Seethe's walk of PR 11, h69 #11009) ---
+
+const IRE_PATH = "OnlyWorlds/Worlds/W/Elements/Character/Ireena.md";
+/** The server's answer after the save: change_seq moved on, the owner changed it, no client named. */
+const ANSWERED = { ...SERVED, change_seq: 9, updated_at: "2026-10-23T04:00:00Z", changed_by: null, changed_via: "key", changed_client: null };
+const FRESH_LINES =
+	'created_at: "2026-10-20T10:00:00.123456Z"\nupdated_at: "2026-10-23T04:00:00Z"\nchange_seq: 9\n' +
+	`created_by: ${MEMBER}\nchanged_via: key\n---\n`;
+
+test("★ Save: the note's seven are refreshed from the PATCH's answer, last, nulls left out; a hand-typed one is overwritten; nothing else moves", async () => {
+	const note = NOTE_WITH_SEVEN("A noble, edited.").replace('created_at: "2026-10-20T10:00:00Z"', "created_at: 1999-01-01");
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note },
+		save: "Character/Ireena.md",
+		server: { [IRE]: { name: "Ireena", description: "A noble.", height: 170, ...SERVED } },
+		answer: { [IRE]: { id: IRE, name: "Ireena", description: "A noble, edited.", height: 170, ...ANSWERED } },
+	});
+	assert.equal(r.result.ok, true, JSON.stringify(r.result));
+	assert.deepEqual(r.sent, [{ description: "A noble, edited." }], "the refresh changed what was sent");
+	const after = r.vault.contentAt(IRE_PATH) ?? "";
+	assert.equal(after, `---\nname: Ireena\nid: ${IRE}\nheight: 170\n${FRESH_LINES}\n### Description\n\nA noble, edited.\n`);
+});
+
+test("★ Save: a create's answer refreshes the seven too", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": `---\nname: Ireena\nid: ${IRE}\n---\n\n### Description\n\nA noble.\n` },
+		save: "Character/Ireena.md",
+		feed: [],
+		cursor: { cursor: "c1", head: 1 },
+		answer: { [IRE]: { id: IRE, name: "Ireena", description: "A noble.", ...ANSWERED } },
+	});
+	assert.equal(r.result.ok, true, JSON.stringify(r.result));
+	assert.ok((r.vault.contentAt(IRE_PATH) ?? "").endsWith(`id: ${IRE}\n${FRESH_LINES}\n### Description\n\nA noble.\n`), r.vault.contentAt(IRE_PATH));
+});
+
+test("★ Save with nothing to send: the server's copy, read before the PATCH, refreshes a stale or hand-typed seven", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": NOTE_WITH_SEVEN("A noble.").replace("change_seq: 7", "change_seq: 5") },
+		save: "Character/Ireena.md",
+		server: { [IRE]: { name: "Ireena", description: "A noble.", height: 170, ...ANSWERED } },
+	});
+	assert.deepEqual(r.result, { ok: true, outcome: "unchanged" });
+	assert.ok((r.vault.contentAt(IRE_PATH) ?? "").includes(`height: 170\n${FRESH_LINES}`), r.vault.contentAt(IRE_PATH));
+});
+
+test("Save: an answer that carries none of the seven leaves the note byte for byte", async () => {
+	const note = NOTE_WITH_SEVEN("A noble, edited.");
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note },
+		save: "Character/Ireena.md",
+		server: { [IRE]: { name: "Ireena", description: "A noble.", height: 170, ...SERVED } },
+	});
+	assert.equal(r.result.ok, true, JSON.stringify(r.result));
+	assert.equal(r.vault.contentAt(IRE_PATH), note);
+});
+
+test("withServerFieldLines: CRLF kept, a block list under a server key dropped with it, every other line as it was", () => {
+	const note = `---\r\nname: Ireena\r\nchange_seq:\r\n  - 3\r\n# a comment\r\nid: ${IRE}\r\ncreated_by: x\r\n---\r\n\r\n### Description\r\n\r\nA.\r\n`;
+	assert.equal(
+		withServerFieldLines(note, { change_seq: 12, created_by: null }),
+		`---\r\nname: Ireena\r\n# a comment\r\nid: ${IRE}\r\nchange_seq: 12\r\n---\r\n\r\n### Description\r\n\r\nA.\r\n`
+	);
+	assert.equal(withServerFieldLines("no block", { change_seq: 1 }), "no block");
 });
