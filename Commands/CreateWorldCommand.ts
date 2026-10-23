@@ -1,4 +1,4 @@
-import { App, Notice, PluginManifest, TFolder, normalizePath, requestUrl } from 'obsidian';
+import { App, Notice, PluginManifest, TFolder, normalizePath } from 'obsidian';
 
 import Handlebars from 'handlebars';
 import { v7 as uuidv7 } from 'uuid';
@@ -12,7 +12,7 @@ import { writeWorldIdMarker } from '../vault/world-id-marker';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import type { ExportWorldCommand } from './ExportWorldCommand';
-import { createAccountWorld, isFullWriteKey, listAccountWorlds, mintVaultKey, revokeCreateKeys, type CreatedWorld } from '../account/account-api';
+import { CREATE_SIGN_IN_FIRST, createAccountWorld, isFullWriteKey, listAccountWorlds, mintVaultKey, revokeCreateKeys, vaultKeyName, type CreatedWorld } from '../account/account-api';
 import { V2ApiError, V2Client } from '../client-v2';
 
 export class CreateWorldCommand {
@@ -20,11 +20,13 @@ export class CreateWorldCommand {
     manifest: PluginManifest;
     /** For the take-online flow: chained upload after linking (optional plumbing). */
     private exportCommand: ExportWorldCommand | null;
-    // DEVELOPMENT: Point to local server instead of production
-     private apiUrl = 'https://www.onlyworlds.com/api/worldsync/create-world-external/';
 
-
-    /** The signed-in account, or null: signed in, Create World online goes through the account (OW Infra #358). */
+    /**
+     * The signed-in account, or null. Create World online goes through the
+     * account only (OW Infra #358; since 3.11 the only door, OW Obsidian #577:
+     * keel #134 froze the old email-and-PIN route): signed out, the plugin
+     * asks to sign in, or makes a local-only world.
+     */
     private account: () => { token: string; username: string } | null;
 
     /** Whether a new world gets its Bases file (the setting; on by default, OW Infra #188). */
@@ -146,214 +148,13 @@ export class CreateWorldCommand {
         return a && a.token ? a : null;
     }
 
-    async createWorldOnServer(worldData: WorldCreationData): Promise<any | null> {
+    async createWorldOnServer(worldData: WorldCreationData): Promise<{ api_key: string; afterLanding?: () => Promise<void> } | null> {
         const account = this.activeAccount();
         if (account) return this.createWorldOnAccount(account, worldData);
-        try {
-
-            const response = await requestUrl({
-                url: this.apiUrl,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    name: worldData.name,
-                    email: worldData.email,
-                    pin: worldData.pin
-                }),
-            });
-
-            if (response.status === 200) {
-                const data = JSON.parse(response.text);
-                
-                if (data.success) {
-                    // Show success modal
-                    return new Promise((resolve) => {
-                        new ApiResponseModal(
-                            this.app,
-                            true,
-                            `World "${worldData.name}" created.`,
-                            {
-                                api_key: data.api_key,
-                            },
-                            () => resolve(data),
-                            null,  // No custom title
-                            false  // Don't show details section
-                        ).open();
-                    });
-                } else {
-                    // Show error modal for API-reported failure
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        data.message || "Server reported an error creating the world.",
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                    return null;
-                }
-            } else if (response.status === 400) {
-                // Authentication or validation error
-                try {
-                    // Try to parse response for more detailed error message
-                    const data = JSON.parse(response.text);
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        data.message || "Email address or PIN not accepted. Check both and try again.",
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                } catch (parseError) {
-                    // Fallback if parsing fails
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        "Email address or PIN not accepted. Check both and try again.",
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                }
-                return null;
-            } else if (response.status === 429) {
-                // Rate limit error
-                try {
-                    // Try to parse response for more detailed error message
-                    const data = JSON.parse(response.text);
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        data.message || "Too many requests. Try again later.",
-                        null,
-                        () => {},
-                        "Rate limit exceeded"
-                    ).open();
-                } catch (parseError) {
-                    // Fallback if parsing fails
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        "Too many requests. Try again later.",
-                        null,
-                        () => {},
-                        "Rate limit exceeded"
-                    ).open();
-                }
-                return null;
-            } else {
-                // Other HTTP errors
-                try {
-                    // Try to parse response for more detailed error message
-                    const data = JSON.parse(response.text);
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        data.message || "Server error: Unable to create world.",
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                } catch (parseError) {
-                    // Fallback if parsing fails
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        `Server error: Unable to create world.`,
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                }
-                return null;
-            }
-        } catch (error) {
-            // Network or parsing errors
-            let errorMessage = "Unable to connect to OnlyWorlds server.";
-            let errorTitle = "Connection error";
-            
-            // Log detailed error for debugging
-            console.error("World creation API error:", error);
-            
-            // If we have a more specific error message, use it
-            if (error instanceof Error) {
-                const errorMsg = error.message;
-                
-                // Check if this is a 400 error (authentication/validation failure)
-                if (errorMsg.includes("status 400") || errorMsg.includes("400 Bad Request")) {
-                    console.log("Authentication or validation error detected (400)");
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        "Email address or PIN not accepted. Check both and try again.",
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                    return null;
-                }
-                
-                // Check if this is a 429 error (rate limiting)
-                if (errorMsg.includes("status 429") || errorMsg.includes("429 Too Many Requests")) {
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        "Too many requests. Try again later.",
-                        null,
-                        () => {},
-                        "Rate limit exceeded"
-                    ).open();
-                    return null;
-                }
-                
-                // Check for other common HTTP errors
-                if (errorMsg.includes("status ") || /^\d{3}\s/.test(errorMsg)) {
-                    new ApiResponseModal(
-                        this.app,
-                        false,
-                        "Server error. Unable to create world.",
-                        null,
-                        () => {},
-                        "World create failed"
-                    ).open();
-                    return null;
-                }
-                
-                // Only show technical details if it's not a standard network error
-                if (!errorMsg.includes("Failed to fetch") && 
-                    !errorMsg.includes("NetworkError") && 
-                    !errorMsg.includes("Network request failed")) {
-                    errorMessage += " Error: " + errorMsg;
-                }
-            }
-            
-            new ApiResponseModal(
-                this.app,
-                false,
-                errorMessage,
-                null,
-                () => {},
-                errorTitle
-            ).open();
-            return null;
-        }
+        new ApiResponseModal(this.app, false, CREATE_SIGN_IN_FIRST, null, () => {}, 'Sign in first').open();
+        return null;
     }
 
-    /**
-     * Signed in: POST /api/v2/account/worlds creates the world under the
-     * account (the PIN goes only if keel says the account has none yet). The
-     * create route names its own key nothing ("no name" on the account's keys
-     * page, Seethe's walk, h37 #6462), so the vault always mints its own key
-     * with mintVaultKey, named for the vault exactly as Download World names
-     * it, and `afterLanding`, called once that key is in World.md, revokes the
-     * create route's key (DELETE /api/v2/account/worlds/{id}/keys/{key_id}):
-     * the keys page still holds one key per vault. Should that mint fail, the
-     * create route's key serves, unnamed, rather than strand the new world.
-     * Answers in the old route's shape ({api_key}) so both callers go on as before.
-     */
     /**
      * True only when keel says the typed PIN is not the account's: a world the
      * account owns whose key this vault holds is read with the PIN, and keel
@@ -390,6 +191,18 @@ export class CreateWorldCommand {
         return false;
     }
 
+    /**
+     * Signed in: POST /api/v2/account/worlds through the SDK's
+     * createAccountWorld (OW Obsidian #577), the PIN only if keel says the
+     * account has none yet, the world's write key named for the vault as
+     * Download World names its keys (`obsidian: <vault>`, Seethe's walk, h37
+     * #6462), so the keys page holds one named key per vault. keel shows that
+     * key once; it goes into World.md (the caller) and is shown nowhere else.
+     * Should the answer carry no full key, the vault mints its own named key
+     * (mintVaultKey) and `afterLanding`, called once that key is in World.md,
+     * revokes the create route's key. Answers `{api_key}` so both callers go
+     * on as before.
+     */
     private async createWorldOnAccount(
         account: { token: string; username: string },
         worldData: WorldCreationData
@@ -411,7 +224,12 @@ export class CreateWorldCommand {
         }
         let created: CreatedWorld;
         try {
-            created = await createAccountWorld(account.token, worldData.name, worldData.pin ? String(worldData.pin) : '');
+            created = await createAccountWorld(
+                account.token,
+                worldData.name,
+                worldData.pin ? String(worldData.pin) : '',
+                vaultKeyName(this.app.vault.getName())
+            );
         } catch (error) {
             new ApiResponseModal(
                 this.app,
@@ -423,6 +241,11 @@ export class CreateWorldCommand {
             ).open();
             return null;
         }
+        // The usual answer: the world's one key, named for this vault.
+        if (isFullWriteKey(created.key)) {
+            new Notice(`World "${worldData.name}" created on onlyworlds.com under ${account.username}.`, 6000);
+            return { api_key: created.key };
+        }
         let minted;
         try {
             minted = await mintVaultKey(
@@ -431,11 +254,6 @@ export class CreateWorldCommand {
                 this.app.vault.getName()
             );
         } catch (error) {
-            if (isFullWriteKey(created.key)) {
-                console.warn('OnlyWorlds: no key named for this vault could be made; using the key the world was created with.', error);
-                new Notice(`World "${worldData.name}" created on onlyworlds.com under ${account.username}.`, 6000);
-                return { api_key: created.key };
-            }
             new ApiResponseModal(
                 this.app,
                 false,
