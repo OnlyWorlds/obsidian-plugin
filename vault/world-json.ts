@@ -76,7 +76,10 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 // from 0.3.8 to 0.3.14 the export did not meet; `source` and `producer` came in
 // 3.8.0, a known-of note goes out as its stub (0.3.10), the plugin re-keys no
 // id (0.3.11), writes no `records/` (0.3.12) and no `.owworld` (0.3.13).
-export const FOLDER_FORMAT_VERSION = "0.3.14";
+// 0.3.15 since 3.10: its change is records marked private (§4.7's OW-8
+// clause, §4.5 rules 11 and 12), and the plugin writes no `records/` at all,
+// so no private record can travel (OW Obsidian #564).
+export const FOLDER_FORMAT_VERSION = "0.3.15";
 
 /**
  * The `exported_as` line (spec §4.2, v0.3.9): which slice of the world this
