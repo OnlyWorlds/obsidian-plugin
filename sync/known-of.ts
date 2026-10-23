@@ -54,7 +54,8 @@ export function isKnownOfElement(element: unknown): boolean {
 /**
  * The keys every stub keeps, written even when empty (keel's `KNOWN_OF_BASE`;
  * ow-folder-store's `knownOfBody` and Python's `known_of_for_disk` write the
- * same set: h37 #8936, 6). A note holds the six of them that are note keys.
+ * same set: h37 #8936, 6). A note holds the nine of them that are note keys
+ * (the three server keys since 3.10, when the server set them).
  */
 export const KNOWN_OF_KEEPS: ReadonlySet<string> = new Set([
 	"id", "type", "name", "description", "supertype", "subtype", "image_url", "created_at", "updated_at", "change_seq",

@@ -63,6 +63,8 @@ In an element note, fields are read from Properties and `###` sections, and from
 
 The note's identity is the `id` in its Properties, so renaming a note does not break anything.
 
+A note downloaded from onlyworlds.com also carries seven Properties the server keeps, below its fields: `created_at` and `updated_at` (when the element was made and last changed), `change_seq` (its version number), `created_by` and `changed_by` (the member who made it and who last changed it), `changed_via` and `changed_client` (how that change arrived, and which app sent it). They are the server's and read-only: Save element, auto-sync and Upload world never send them, and the next Download replaces them, so editing one changes nothing on onlyworlds.com. One the server leaves empty, such as `created_by` on the owner's own elements, is not written. They describe the element as of the last Download; a save does not update them. **Export as OnlyWorlds folder** writes them into each element's file.
+
 ## Sync
 
 The plugin reads the world's key from that world's `World.md`. The **API key** setting is a fallback for a world whose `World.md` has no key (the plugin warns when it uses it). A local-only world never syncs.

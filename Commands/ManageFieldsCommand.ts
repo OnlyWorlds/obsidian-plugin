@@ -105,7 +105,7 @@ export class ManageFieldsCommand {
 					hasContent: !isEmptyFieldValue(value),
 					custom: false,
 					where: 'frontmatter',
-					group: def.type === 'number' ? 'Numbers' : 'Links',
+					group: def.type === 'integer' ? 'Numbers' : 'Links',
 				});
 			}
 		}
@@ -190,7 +190,7 @@ export class ManageFieldsCommand {
 			for (const [key, def] of Object.entries(schema)) {
 				if (BASE_KEYS.has(key) || def.type === 'text') continue;
 				if (!keep.has(key) || key in fmOut) continue;
-				fmOut[key] = def.type === 'multi_link' ? [] : def.type === 'number' ? null : '';
+				fmOut[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
 			}
 		}
 		// The body ends as writeElement ends it (one newline after the last

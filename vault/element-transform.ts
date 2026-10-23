@@ -11,7 +11,9 @@
  * processFrontMatter), not this module's.
  *
  * The @onlyworlds/sdk import is plain data (FIELD_SCHEMA) with no runtime deps,
- * so it stays pure.
+ * so it stays pure. Since 3.10 the SDK is 4.x (standard 00.33.00): ESM only,
+ * bundled into main.js by esbuild, and a whole-number field's type is
+ * `integer` (it was `number` through 3.x).
  */
 
 import { FIELD_SCHEMA } from "@onlyworlds/sdk";
@@ -19,7 +21,7 @@ import { decodeHtmlEntities } from "../Scripts/htmlEntities";
 
 /** Field descriptor shape as exported by the SDK's FIELD_SCHEMA. */
 export interface SchemaField {
-	type: "text" | "number" | "single_link" | "multi_link";
+	type: "text" | "integer" | "single_link" | "multi_link";
 	target?: string;
 	required?: boolean;
 }
@@ -62,12 +64,56 @@ export function toolShadowHeadings(frontmatter: Record<string, unknown>): Set<st
 	return out;
 }
 
+/**
+ * The server's own keys on every element body (keel sets them; the standard
+ * does not declare them): when it was made and last changed, its change
+ * number, who made and changed it, through which door and which client
+ * (keel D72, #299, #520). Download writes them into the note under these
+ * names, as the folder spec §4 has an element body carry every key the
+ * server serves (3.10, OW Obsidian #564); they are read-only: a save never
+ * sends one (NON_PAYLOAD_KEYS), and the stale-save guard reads its own
+ * record (vault/change-seq-index.ts), never the note's `change_seq`.
+ */
+export const SERVER_FIELDS = [
+	"created_at",
+	"updated_at",
+	"change_seq",
+	"created_by",
+	"changed_by",
+	"changed_via",
+	"changed_client",
+] as const;
+
+const SERVER_FIELD_SET: ReadonlySet<string> = new Set(SERVER_FIELDS);
+
+/** True for one of the server's seven keys (SERVER_FIELDS). */
+export function isServerField(key: string): boolean {
+	return SERVER_FIELD_SET.has(key);
+}
+
+/**
+ * The server's keys a note's frontmatter carries, in SERVER_FIELDS order:
+ * what the folder export writes back beside the element's fields.
+ */
+export function serverFieldsOf(frontmatter: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const key of SERVER_FIELDS) {
+		if (key in frontmatter) out[key] = dateToFieldString(frontmatter[key]);
+	}
+	return out;
+}
+
 /** Meta keys that never belong in an outbound API payload. */
 // `known_of` marks a stub (the folder spec §4.4, OW Infra #454): never a field,
 // never adopted as `x_known_of`; keel refuses it in a write body with a 422.
 // `known_of_written` is the stub writer's record of what it wrote (h37 #9280,
 // N1): the plugin's bookkeeping, never a field, never sent or exported.
-const NON_PAYLOAD_KEYS = new Set(["id", "world", "world_id", "position", "aliases", "tags", "known_of", "known_of_written"]);
+// The server's seven (SERVER_FIELDS) are the server's to set: never sent,
+// never adopted as `x_created_at` (3.10).
+const NON_PAYLOAD_KEYS = new Set([
+	"id", "world", "world_id", "position", "aliases", "tags", "known_of", "known_of_written",
+	...SERVER_FIELDS,
+]);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -884,11 +930,13 @@ export function bodyToFieldValues(
 }
 
 /**
- * Fields the pinned SDK (2.2.2, standard 00.30.00) declares that the API does
- * not have. keel 422s them ("Unknown field: relations", measured on the wire
- * 2026-10-10, hop 10), and a 422 on one field fails the whole save, so a note
- * carrying such a key could never be saved. The SDK bump to 4.x removes the
- * need for this list; until then it is the plugin's view of the schema.
+ * Fields the SDK through 3.x (2.2.2, standard 00.30.00) declared that the API
+ * does not have. keel 422s them ("Unknown field: relations", measured on the
+ * wire 2026-10-10, hop 10), and a 422 on one field fails the whole save. The
+ * 4.x FIELD_SCHEMA no longer carries `relation.relations` (SDK 4.0.1), so
+ * nothing scaffolds it now; the list stays because notes written before 3.10
+ * may still carry the key, and it must be neither sent nor adopted as
+ * `x_relations`.
  */
 export const API_DROPPED_FIELDS: Readonly<Record<string, readonly string[]>> = {
 	relation: ["relations"],
@@ -1262,6 +1310,9 @@ export interface WriteFrontmatterOptions {
  * carries only fields that have values. NEVER dropped: `id`, `name`, and
  * extension keys (atlas_/shadow_/x_ round-trip verbatim even when empty).
  *
+ * The server's seven keys (SERVER_FIELDS) follow everything else, each one
+ * the server set, under its wire name (3.10); a null one is left out, by R3.
+ *
  * The body-derived field (description/story) is excluded — it lives in the body.
  */
 export function apiDataToFrontmatter(
@@ -1276,6 +1327,7 @@ export function apiDataToFrontmatter(
 
 	// Collect content fields first, then assemble in R4 order at the end.
 	const content: Record<string, unknown> = {};
+	const server: Record<string, unknown> = {};
 	let imageUrl: unknown = undefined;
 
 	for (const [key, value] of Object.entries(data)) {
@@ -1284,6 +1336,14 @@ export function apiDataToFrontmatter(
 		if (key === "world" || key === "world_id") continue;
 		if (isExtensionKey(key)) {
 			content[key] = value; // verbatim, kept even when empty (R3 exception)
+			continue;
+		}
+		if (isServerField(key)) {
+			// The server's own keys, as served (3.10). A null is left out, as
+			// every other empty field is (R3): `created_by` and `changed_by`
+			// are null for the world's owner, `changed_client` until a client
+			// names itself.
+			if (!isEmptyFieldValue(value)) server[key] = value;
 			continue;
 		}
 		if (!schema) {
@@ -1329,7 +1389,7 @@ export function apiDataToFrontmatter(
 				continue;
 			}
 			if (key in content) continue; // a real value already won
-			content[key] = def.type === "multi_link" ? [] : def.type === "number" ? null : "";
+			content[key] = def.type === "multi_link" ? [] : def.type === "integer" ? null : "";
 		}
 	}
 
@@ -1350,7 +1410,7 @@ export function apiDataToFrontmatter(
 	const schemaForOrder = schema ?? {};
 	const rank = (key: string): number => {
 		const t = schemaForOrder[key]?.type;
-		if (t === "number") return 0;
+		if (t === "integer") return 0;
 		if (t === "single_link" || t === "multi_link") return 1;
 		return 2; // extension keys and anything unschema'd trail the known fields
 	};
@@ -1362,6 +1422,11 @@ export function apiDataToFrontmatter(
 		.forEach(({ k }) => {
 			fm[k] = content[k];
 		});
+	// The server's keys last, in SERVER_FIELDS order: machine fields the
+	// person reads least, and never edits (a save sends none of them).
+	for (const k of SERVER_FIELDS) {
+		if (k in server) fm[k] = server[k];
+	}
 	return fm;
 }
 
@@ -1461,7 +1526,7 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 export interface ParsedSpanField {
 	/** snake_case field key, e.g. "location", "height", "str" */
 	key: string;
-	/** "text" | "number" | "single_link" | "multi_link" */
+	/** "text" | "integer" | "single_link" | "multi_link" (a span's `Number` tooltip reads as `integer`, FIELD_SCHEMA's word since SDK 4.0) */
 	kind: SchemaField["type"];
 	/** raw value string after the colon (undecoded of wikilinks) */
 	raw: string;
@@ -1499,7 +1564,7 @@ function tooltipKind(tooltip: string): SchemaField["type"] {
 	const t = tooltip.trim().toLowerCase();
 	if (t.startsWith("single ")) return "single_link";
 	if (t.startsWith("multi ")) return "multi_link";
-	if (t === "number") return "number";
+	if (t === "number") return "integer";
 	return "text";
 }
 
@@ -1614,7 +1679,7 @@ export function spanFieldsToFrontmatter(
 				fm[f.key] = ids;
 				break;
 			}
-			case "number": {
+			case "integer": {
 				if (isEmpty) {
 					fm[f.key] = null;
 					break;

@@ -94,7 +94,7 @@ function makeActive(h: { app: App; file: TFile }): void {
 function renamePlugin(h: Awaited<ReturnType<typeof setup>>) {
 	return {
 		...h.plugin,
-		buildClient: async (k: string) => {
+		buildV2Client: async (k: string) => {
 			h.clientsBuilt.push(k);
 			return null;
 		},

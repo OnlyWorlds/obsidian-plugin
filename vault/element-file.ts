@@ -26,6 +26,8 @@ import {
 	AMBIGUOUS_LINK,
 	likelyLinkField,
 	bodyTextFields,
+	SERVER_FIELDS,
+	serverFieldsOf,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -100,6 +102,12 @@ export interface ParsedElement {
 	 * folder spec §4.4). Never pushed (OW Infra #454).
 	 */
 	knownOf: boolean;
+	/**
+	 * The server's keys the note carries (SERVER_FIELDS: `created_at` to
+	 * `changed_client`), as Download wrote them. Never in `fields`, so never
+	 * sent; the folder export writes them back (3.10, OW Obsidian #564).
+	 */
+	serverFields: Record<string, unknown>;
 }
 
 /** "allies is not a field of Character; did you mean friends? Sent as x_allies." */
@@ -297,6 +305,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			...(unclosedFence ? { unclosedFence } : {}),
 			...misnamed(category, adopted),
 			knownOf,
+			serverFields: serverFieldsOf(fm),
 		};
 	}
 
@@ -319,6 +328,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			unresolvedLinks: [],
 			ambiguousLinks: [],
 			knownOf: false,
+			serverFields: {},
 		};
 	}
 
@@ -477,7 +487,10 @@ export async function writeElement(
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
 	// `known_of` and its record are the writer's alone: set on a stub, gone on a whole write.
-	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY]);
+	// The server's seven are the arriving element's (3.10): one the server
+	// now serves null (a former member's `changed_by` after the owner's
+	// edit) leaves the note, never kept from the last pull.
+	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY, ...SERVER_FIELDS]);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	// A stub replacing a whole copy (a view reset) keeps none of its extension

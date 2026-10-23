@@ -13,6 +13,7 @@ import {
 	worldFolderName,
 	planElementPaths,
 	buildFolderElementBody,
+	folderServerFields,
 	wikilinksToOwMentions,
 	type ElementRef,
 } from "../vault/folder-format";
@@ -52,7 +53,8 @@ import {
  *     old export's spatial/ copy can never sit beside a new elements/ one;
  *   - every element body carries `type`; no timestamp is minted, and the
  *     server/sync fields an import carried go back out as received (spec
- *     §4.1, §4.2, §5; OW Infra #166 row 6);
+ *     §4.1, §4.2, §5; OW Infra #166 row 6); a downloaded note's seven
+ *     server keys go out as Download wrote them, a null one as null (3.10);
  *   - folder = <slug>-<id8>, files = spec §3.2: <slug>--<id-tail>.json (slug
  *     cap 40), <full-id>.json for an unsluggable name, and the full-id
  *     fallback on a same-type collision (OW Infra #166 row 14).
@@ -216,7 +218,7 @@ export class ExportFolderCommand {
 		// note path -> ref index for wikilink resolution: a `[[link]]` names the
 		// note Obsidian resolves it to, never an element by name alone, so two
 		// same-name twins keep their own ids (round C, 3).
-		const elements: { type: string; payload: Record<string, unknown>; path: string }[] = [];
+		const elements: { type: string; payload: Record<string, unknown>; path: string; server: Record<string, unknown> }[] = [];
 		const failed: { path: string; reason: string }[] = [];
 		const byPath = new Map<string, ElementRef>();
 		// This world's notes by file name (lower case), for a link Obsidian
@@ -256,7 +258,9 @@ export class ExportFolderCommand {
 				// and only what it keeps (the folder spec §4.4 rule 1, OW Infra #454).
 				const payload: Record<string, unknown> = { ...parsed.fields, id: parsed.id, name: parsed.name };
 				if (parsed.knownOf) payload.known_of = true;
-				elements.push({ type: parsed.category, payload, path: file.path });
+				// The server's keys the note carries go out beside its fields (3.10).
+				const server = folderServerFields(parsed.serverFields, parsed.knownOf);
+				elements.push({ type: parsed.category, payload, path: file.path, server });
 				const ref = { id: parsed.id, name: parsed.name, type: parsed.category };
 				byPath.set(file.path, ref);
 				const key = file.basename.toLowerCase();
@@ -310,10 +314,12 @@ export class ExportFolderCommand {
 					}
 				);
 			}
+			// What an import carried, then the server's keys the note holds:
+			// the note's are the newer pull's and win (3.10, OW Obsidian #564).
 			const body = buildFolderElementBody(
 				el.type,
 				payload,
-				carriedById[String(el.payload.id)] ?? {},
+				{ ...(carriedById[String(el.payload.id)] ?? {}), ...el.server },
 				orderById[String(el.payload.id)]
 			);
 			const rel = paths.get(String(el.payload.id)) as string;

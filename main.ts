@@ -25,7 +25,6 @@ import { CreateElementModal } from 'Modals/CreateElementModal';
 import { Platform, Plugin, TFile, normalizePath, Notice } from 'obsidian';
 import { WorldService } from 'Scripts/WorldService';
 import { PinCache } from './auth/pin-cache';
-import { ObsidianOnlyWorldsClient } from './client';
 import { DEFAULT_SETTINGS, OnlyWorldsPluginSettings } from './settings/settings';
 import { OnlyWorldsSettingTab } from './settings/settings-tab';
 import { AutoSyncEngine } from './sync/auto-sync';
@@ -414,24 +413,13 @@ parseSettingsForDefaultCategory(content: string): string | null {
   }
 
   /**
-   * Build an Obsidian-aware OnlyWorlds API client for a given world.
+   * Build the plugin's v2 API client for a given world (client-v2.ts): the
+   * settings key unless one is passed, the PIN from its prompt and cache.
    *
    * Returns null if API key or PIN are unavailable (user-cancelled, etc).
-   * The caller is responsible for handling the null case.
+   * The caller is responsible for handling the null case. (The SDK's v1
+   * client this had a sibling for left with @onlyworlds/sdk 4.0; 3.10.)
    */
-  async buildClient(apiKey?: string): Promise<ObsidianOnlyWorldsClient | null> {
-      const key = apiKey || this.settings.apiKey;
-      if (!key) {
-          return null;
-      }
-      const pin = await this.pinCache.get();
-      if (!pin) {
-          return null;
-      }
-      return new ObsidianOnlyWorldsClient({ apiKey: key, apiPin: pin });
-  }
-
-  /** v2 sibling of buildClient — same key resolution, same PIN prompt/cache. */
   async buildV2Client(apiKey?: string): Promise<V2Client | null> {
       const key = apiKey || this.settings.apiKey;
       if (!key) {
