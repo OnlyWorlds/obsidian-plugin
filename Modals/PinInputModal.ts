@@ -4,10 +4,18 @@ import { applyMobileModal } from './mobile';
 export class PinInputModal extends Modal {
     pin: string = '';
     onSubmit: (pin: string | null) => void; // Callback function
+    private answered = false;
 
     constructor(app: App, onSubmit: (pin: string | null) => void) {
         super(app);
         this.onSubmit = onSubmit;
+    }
+
+    /** Answer once: Submit, Cancel, or a close with neither (onClose). */
+    private answer(pin: string | null): void {
+        if (this.answered) return;
+        this.answered = true;
+        this.onSubmit(pin);
     }
 
     onOpen() {
@@ -40,8 +48,9 @@ export class PinInputModal extends Modal {
                     // Validate PIN is exactly 4 digits
                     const pinNum = parseInt(this.pin, 10);
                     if (this.pin && this.pin.length === 4 && !isNaN(pinNum) && pinNum >= 1000 && pinNum <= 9999) {
+                        // Answer before closing: close() runs onClose, which answers null.
+                        this.answer(this.pin);
                         this.close();
-                        this.onSubmit(this.pin);
                     } else {
                         // Show validation error
                         const errorEl = contentEl.querySelector('.pin-error');
@@ -59,8 +68,8 @@ export class PinInputModal extends Modal {
             .addButton(btn => btn
                 .setButtonText('Cancel')
                 .onClick(() => {
+                    this.answer(null); // Indicate cancellation
                     this.close();
-                    this.onSubmit(null); // Indicate cancellation
                 }));
         applyMobileModal(this);
     }
@@ -68,5 +77,9 @@ export class PinInputModal extends Modal {
     onClose() {
         const { contentEl } = this;
         contentEl.empty();
+        // Closed unanswered (Escape, the X): the same answer as Cancel, so
+        // whatever waits on the prompt ends with its cancel line instead of
+        // waiting forever (Seethe's walk of PR 11, h69 #11009).
+        this.answer(null);
     }
 } 
