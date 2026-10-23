@@ -5,6 +5,8 @@ import { bodyFieldForCategory } from "../vault/element-transform";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
+import { readRecordsTree, worldRecordsRoot, writeRecordFiles } from "../vault/records-store";
+import { planRecords, privateProducersIn, recordsReportLines, type RecordsPlan } from "../vault/records";
 import { buildWorldJson, exportedAsFromMe, pluginProducer, serverWorldId, type ExportedAs, type ServerWorld } from "../vault/world-json";
 import { V2Client } from "../client-v2";
 import { worldFileApiKey } from "../vault/world-key";
@@ -70,12 +72,28 @@ import {
  * world in Atlas. Provenance (spec §4.2): `source` and the producer line on a
  * downloaded world, the producer line on a world made in the vault, an
  * imported world's lines as it came (vault/world-json.ts buildWorldJson).
+ *
+ * Records (spec §4.5 rules 6 and 11, §4.7 OW-8; OW Obsidian #577): the
+ * world's `records/` (where the import put it, vault/records-store.ts) goes
+ * out byte for byte, `RECORDS.json` whole, except the producer directories
+ * its manifest marks private, which stay out whole unless the person turns
+ * on Include private records. A manifest that cannot be read leaves nothing
+ * out, and the report says so (vault/records.ts planRecords).
  */
 /** The plugin as the export uses it: its hidden lists, its manifest, and the PIN it holds for saves. */
 type ExportHost = HiddenListHost & {
 	manifest?: { id?: string; version?: string };
 	pinCache?: { peek(): string | null };
 };
+
+/** One file of an export: text (world.json, an element) or bytes (a record), each written as it is. */
+type PlannedFile = { rel: string; content: string } | { rel: string; data: Uint8Array };
+
+/** What the person chose beside the destination. */
+export interface ExportOptions {
+	/** Carry the producers RECORDS.json marks private (off by default). */
+	includePrivateRecords?: boolean;
+}
 
 export class ExportFolderCommand {
 	private app: App;
@@ -98,7 +116,15 @@ export class ExportFolderCommand {
 			return;
 		}
 		new WorldPickModal(this.app, worlds, (world) => {
-			new DestinationPickModal(this.app, (dest) => void this.exportWorld(world, dest)).open();
+			void (async () => {
+				let privateProducers: string[] = [];
+				try {
+					privateProducers = privateProducersIn(await readRecordsTree(this.app, worldRecordsRoot(world)));
+				} catch {
+					privateProducers = [];
+				}
+				new DestinationPickModal(this.app, privateProducers, (dest, opts) => void this.exportWorld(world, dest, opts)).open();
+			})();
 		}).open();
 	}
 
@@ -202,11 +228,13 @@ export class ExportFolderCommand {
 	 */
 	private async planFiles(
 		world: string,
-		worldId: string
+		worldId: string,
+		opts: ExportOptions = {}
 	): Promise<{
-		files: { rel: string; content: string }[];
+		files: PlannedFile[];
 		failed: { path: string; reason: string }[];
 		hidden: number;
+		records: RecordsPlan | null;
 	} | null> {
 		const files = this.elementFilesFor(world);
 		if (files.length === 0) {
@@ -285,7 +313,7 @@ export class ExportFolderCommand {
 			if (el.type.toLowerCase() === "character" && typeof el.payload.name === "string") characters.set(String(el.payload.id), el.payload.name);
 		}
 		const worldJson = await this.buildWorldJson(world, worldId, (id) => characters.get(id) ?? null);
-		const planned: { rel: string; content: string }[] = [
+		const planned: PlannedFile[] = [
 			{ rel: "world.json", content: JSON.stringify(worldJson, null, 2) + "\n" },
 		];
 		// Filenames per spec §3.2, with its writer collision rule (row 14).
@@ -325,14 +353,24 @@ export class ExportFolderCommand {
 			const rel = paths.get(String(el.payload.id)) as string;
 			planned.push({ rel, content: JSON.stringify(body, null, 2) + "\n" });
 		}
-		return { files: planned, failed, hidden };
+		// The world's records, as held, minus private producers unless asked.
+		const held = await readRecordsTree(this.app, worldRecordsRoot(world));
+		const records = held.length > 0 ? planRecords(held, opts.includePrivateRecords === true) : null;
+		if (records) planned.push(...records.files);
+		return { files: planned, failed, hidden, records };
 	}
 
-	private async exportWorld(world: string, dest: ExportDestination): Promise<void> {
+	private async exportWorld(world: string, dest: ExportDestination, opts: ExportOptions = {}): Promise<void> {
 		const { worldId, idNote } = await this.worldIdFor(world);
 		const folderName = worldFolderName(world, worldId);
 
-		const plan = await this.planFiles(world, worldId);
+		let plan;
+		try {
+			plan = await this.planFiles(world, worldId, opts);
+		} catch (e) {
+			new Notice(`Export failed: ${e instanceof Error ? e.message : String(e)}`, 10000);
+			return;
+		}
 		if (!plan) return;
 		const report = { ...plan, idNote };
 
@@ -377,7 +415,7 @@ export class ExportFolderCommand {
 	private async writeVault(
 		world: string,
 		folderName: string,
-		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number; idNote: string | null }
+		plan: { files: PlannedFile[]; failed: { path: string; reason: string }[]; hidden: number; idNote: string | null; records: RecordsPlan | null }
 	): Promise<void> {
 		const root = normalizePath(`OW-folder-export/${folderName}`);
 		if (this.app.vault.getAbstractFileByPath(root)) {
@@ -390,6 +428,11 @@ export class ExportFolderCommand {
 		try {
 			await this.ensureVaultFolder(root);
 			for (const f of plan.files) {
+				if ("data" in f) {
+					// A record: bytes through the adapter, a dot-file included.
+					await writeRecordFiles(this.app, root, [f]);
+					continue;
+				}
 				const full = normalizePath(`${root}/${f.rel}`);
 				await this.ensureVaultFolder(full.substring(0, full.lastIndexOf("/")));
 				await this.app.vault.create(full, f.content);
@@ -401,7 +444,7 @@ export class ExportFolderCommand {
 		new ExportReportModal(this.app, world, {
 			kind: "vault",
 			display: `OW-folder-export/${folderName}/`,
-		}, plan.files.length, plan.failed, plan.hidden, plan.idNote).open();
+		}, plan.files.length, plan.failed, plan.hidden, plan.idNote, recordsReportLines(plan.records)).open();
 	}
 
 	/**
@@ -413,7 +456,7 @@ export class ExportFolderCommand {
 		world: string,
 		folderName: string,
 		destDir: string,
-		plan: { files: { rel: string; content: string }[]; failed: { path: string; reason: string }[]; hidden: number; idNote: string | null }
+		plan: { files: PlannedFile[]; failed: { path: string; reason: string }[]; hidden: number; idNote: string | null; records: RecordsPlan | null }
 	): Promise<void> {
 		// eslint-disable-next-line @typescript-eslint/no-var-requires
 		const fs = require("fs/promises") as typeof import("fs/promises");
@@ -448,7 +491,8 @@ export class ExportFolderCommand {
 			for (const f of plan.files) {
 				const full = path.join(target, ...f.rel.split("/"));
 				await fs.mkdir(path.dirname(full), { recursive: true });
-				await fs.writeFile(full, f.content, "utf8");
+				if ("data" in f) await fs.writeFile(full, f.data);
+				else await fs.writeFile(full, f.content, "utf8");
 			}
 		} catch (e) {
 			new Notice(
@@ -460,7 +504,7 @@ export class ExportFolderCommand {
 		new ExportReportModal(this.app, world, {
 			kind: "external",
 			display: target,
-		}, plan.files.length, plan.failed, plan.hidden, plan.idNote).open();
+		}, plan.files.length, plan.failed, plan.hidden, plan.idNote, recordsReportLines(plan.records)).open();
 	}
 
 	private async ensureVaultFolder(path: string): Promise<void> {
@@ -585,14 +629,36 @@ class WorldPickModal extends Modal {
  * native picker, falling back to a paste-path modal if none is reachable.
  */
 class DestinationPickModal extends Modal {
-	constructor(app: App, private onPick: (dest: ExportDestination) => void) {
+	/** Include private records (off by default; shown only when the world's records mark a producer private). */
+	private includePrivate = false;
+
+	constructor(
+		app: App,
+		/** The world's producer directories RECORDS.json marks private. */
+		private privateProducers: string[],
+		private onPick: (dest: ExportDestination, opts: ExportOptions) => void
+	) {
 		super(app);
+	}
+
+	private pick(dest: ExportDestination): void {
+		this.onPick(dest, { includePrivateRecords: this.includePrivate });
 	}
 
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl("h2", { text: "Where should the folder go?" });
+
+		if (this.privateProducers.length > 0) {
+			new Setting(contentEl)
+				.setName("Include private records")
+				.setDesc(
+					`This world's records mark ${this.privateProducers.join(", ")} as private. ` +
+						"Off, they stay out of the folder; RECORDS.json still lists them."
+				)
+				.addToggle((t) => t.setValue(false).onChange((v) => (this.includePrivate = v)));
+		}
 
 		new Setting(contentEl)
 			.setName("In the vault (default)")
@@ -603,7 +669,7 @@ class DestinationPickModal extends Modal {
 					.setCta()
 					.onClick(() => {
 						this.close();
-						this.onPick({ kind: "vault" });
+						this.pick({ kind: "vault" });
 					})
 			);
 
@@ -626,11 +692,11 @@ class DestinationPickModal extends Modal {
 	private async chooseExternal(): Promise<void> {
 		const dir = await pickDirectoryNative();
 		if (dir) {
-			this.onPick({ kind: "external", dir });
+			this.pick({ kind: "external", dir });
 			return;
 		}
 		// No native picker reachable (or cancelled) — offer the paste-path modal.
-		new PastePathModal(this.app, (typed) => this.onPick({ kind: "external", dir: typed })).open();
+		new PastePathModal(this.app, (typed) => this.pick({ kind: "external", dir: typed })).open();
 	}
 
 	onClose() {
@@ -698,7 +764,9 @@ class ExportReportModal extends Modal {
 		private failed: { path: string; reason: string }[],
 		private hidden = 0,
 		/** The world id's line (a mint, or a server id not recorded yet; ExportFolderCommand.worldIdFor). */
-		private idNote: string | null = null
+		private idNote: string | null = null,
+		/** What happened to the world's records (vault/records.ts recordsReportLines). */
+		private recordsLines: string[] = []
 	) {
 		super(app);
 	}
@@ -715,6 +783,7 @@ class ExportReportModal extends Modal {
 			summary.createEl("li", { text: `${this.hidden} note${this.hidden === 1 ? "" : "s"} hidden by the world's owner, not exported` });
 		}
 		if (this.idNote) summary.createEl("li", { text: this.idNote });
+		for (const line of this.recordsLines) summary.createEl("li", { text: line });
 
 		const where = contentEl.createEl("p");
 		where.createEl("strong", { text: "Folder: " });

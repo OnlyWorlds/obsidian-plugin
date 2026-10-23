@@ -7,6 +7,8 @@ import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker"
 import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
 import { renderWorldMd, worldJsonToKeep } from "../vault/world-json";
 import { safeWorldFolderName } from "../vault/world-name";
+import { readRecordsTree, worldRecordsRoot, writeRecordFiles } from "../vault/records-store";
+import { RECORDS_DIR } from "../vault/records";
 import {
 	parseFolderElementBody,
 	typeFromFolderPath,
@@ -37,6 +39,10 @@ import {
  * the world.json itself (minus `api`) is kept in the folder sidecar so the
  * export writes every key back. An existing World.md or sidecar is never
  * overwritten.
+ *
+ * Records (spec §4.5, OW Obsidian #577): the folder's `records/` is copied
+ * whole into the world's folder, byte for byte (importRecords), and the
+ * folder export writes it back from there.
  */
 export class ImportFolderCommand {
 	private app: App;
@@ -60,7 +66,12 @@ export class ImportFolderCommand {
 		new FolderPickModal(this.app, candidates, (dir) => void this.importFolder(dir)).open();
 	}
 
-	/** Any vault folder directly containing a world.json is an import candidate. */
+	/**
+	 * Any vault folder directly containing a world.json is an import candidate,
+	 * except one inside a world's `records/` (a folder's, or a world's in the
+	 * vault): a producer's own `world.json` there is its data (spec §4.7 OW-5,
+	 * §4.5 rule 6a), never a second world.
+	 */
 	private findWorldFolders(): string[] {
 		const dirs = new Set<string>();
 		for (const f of this.app.vault.getFiles()) {
@@ -71,7 +82,16 @@ export class ImportFolderCommand {
 				dirs.add(dir);
 			}
 		}
-		return [...dirs].sort();
+		const inRecords = (dir: string): boolean => {
+			const segs = dir.split("/");
+			for (let i = 0; i < segs.length; i++) {
+				if (segs[i] !== RECORDS_DIR) continue;
+				const owner = segs.slice(0, i).join("/");
+				if (dirs.has(owner) || /^OnlyWorlds\/Worlds\/[^/]+$/.test(owner)) return true;
+			}
+			return false;
+		};
+		return [...dirs].filter((d) => !inRecords(d)).sort();
 	}
 
 	private async importFolder(dir: string): Promise<void> {
@@ -291,7 +311,34 @@ export class ImportFolderCommand {
 			await writeFolderSidecar(this.app, targetWorld, sidecar);
 		}
 
-		new ImportReportModal(this.app, targetWorld, result).open();
+		const records = await this.importRecords(dir, targetWorld);
+
+		new ImportReportModal(this.app, targetWorld, { ...result, records }).open();
+	}
+
+	/**
+	 * The folder's `records/` (spec §4.5, OW Obsidian #577): copied whole into
+	 * the world's folder in the vault (vault/records-store.ts), every producer
+	 * directory and `RECORDS.json`, byte for byte, nothing parsed or renamed.
+	 * Only into a world folder that exists (some element was written now or
+	 * before) and holds no `records/` yet: a re-import never overwrites the
+	 * records the vault holds, and never mixes two copies. The report's line.
+	 */
+	private async importRecords(dir: string, world: string): Promise<string | null> {
+		const source = normalizePath(`${dir}/${RECORDS_DIR}`);
+		if (!(await this.app.vault.adapter.exists(source))) return null;
+		const target = worldRecordsRoot(world);
+		if (!(await this.app.vault.adapter.exists(normalizePath(`OnlyWorlds/Worlds/${world}`)))) return null;
+		if (await this.app.vault.adapter.exists(target)) {
+			return "records/ is already in this world: the vault's copy is kept as it is, the folder's was not copied.";
+		}
+		try {
+			const files = await readRecordsTree(this.app, source);
+			await writeRecordFiles(this.app, normalizePath(`OnlyWorlds/Worlds/${world}`), files);
+			return `${files.length} record file${files.length === 1 ? "" : "s"} kept in records/, byte for byte`;
+		} catch (e) {
+			return `records/ could not be copied: ${e instanceof Error ? e.message : String(e)}`;
+		}
 	}
 
 	/**
@@ -446,6 +493,8 @@ class ImportReportModal extends Modal {
 			skipped: string[];
 			failed: { path: string; reason: string }[];
 			duplicates: { id: string; read: string; ignored: string }[];
+			/** What happened to the folder's records/, in one sentence; null when it has none. */
+			records?: string | null;
 		}
 	) {
 		super(app);
@@ -463,6 +512,7 @@ class ImportReportModal extends Modal {
 		if (this.result.duplicates.length > 0) {
 			summary.createEl("li", { text: `${this.result.duplicates.length} element(s) found twice: one copy read, the other ignored` });
 		}
+		if (this.result.records) summary.createEl("li", { text: this.result.records });
 
 		if (this.result.duplicates.length > 0) {
 			contentEl.createEl("h3", { text: "Found twice" });

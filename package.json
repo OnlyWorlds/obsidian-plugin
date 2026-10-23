@@ -30,7 +30,7 @@
     "typescript-eslint": "8.35.1"
   },
   "dependencies": {
-    "@onlyworlds/sdk": "^4.64.0",
+    "@onlyworlds/sdk": "^4.66.0",
     "handlebars": "^4.7.8",
     "obsidian": "latest",
     "uuid": "^10.0.0"

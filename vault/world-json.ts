@@ -77,9 +77,14 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 // 3.8.0, a known-of note goes out as its stub (0.3.10), the plugin re-keys no
 // id (0.3.11), writes no `records/` (0.3.12) and no `.owworld` (0.3.13).
 // 0.3.15 since 3.10: its change is records marked private (§4.7's OW-8
-// clause, §4.5 rules 11 and 12), and the plugin writes no `records/` at all,
-// so no private record can travel (OW Obsidian #564).
-export const FOLDER_FORMAT_VERSION = "0.3.15";
+// clause, §4.5 rules 11 and 12), and the plugin wrote no `records/` at all,
+// so no private record could travel (OW Obsidian #564).
+// 0.3.16 since 3.11 (OW Obsidian #577): a server export carries `origin` as
+// served (§4.2; a downloaded world's `GET /world` body goes out whole, so
+// `origin` travels as keel served it, both members, `null` kept), and the
+// folder export now carries `records/` byte for byte, private producers left
+// out unless asked (Commands/ExportFolderCommand.ts, vault/records.ts).
+export const FOLDER_FORMAT_VERSION = "0.3.16";
 
 /**
  * The `exported_as` line (spec §4.2, v0.3.9): which slice of the world this
@@ -144,7 +149,12 @@ export interface ServerWorld {
 	world: Record<string, unknown>;
 }
 
-/** The provenance keys a writer of this spec owns (§4.2); never taken from a server's world body. */
+/**
+ * The provenance keys a writer of this spec owns (§4.2); never taken from a
+ * server's world body. `origin` is not one: it is the server's own key (the
+ * world's first import, served on `GET /world`), so it goes out as served,
+ * like every world key, and is absent only when no server is behind the world.
+ */
 const PROVENANCE_KEYS = [
 	"source", "exported_as", "producer", "format_version",
 	"snapshot_of", "snapshot_label", "snapshot_at", "snapshot_change_seq", "snapshot_torn", "snapshot_counts", "writable",

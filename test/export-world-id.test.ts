@@ -95,7 +95,7 @@ test("★ an export of a downloaded world carries the server id, every key GET /
 	assert.equal(source.world, WID);
 	assert.ok(typeof source.at === "string" && !Number.isNaN(Date.parse(source.at)), `source.at: ${String(source.at)}`);
 	assert.deepEqual(world.producer, { tool: "onlyworlds-builder", version: "3.8.0", input: "obsidian-vault" });
-	assert.equal(world.format_version, "0.3.15");
+	assert.equal(world.format_version, "0.3.16");
 	// the provenance this writer cannot know is absent, never guessed
 	for (const k of ["exported_as", "snapshot_of", "api", "api_key"]) assert.equal(k in world, false, `${k} written`);
 
@@ -202,7 +202,7 @@ test("★ an export with a key carries exported_as from GET /me: the owner's who
 	const { world } = await exportWorld(app, vault, "Moppetopia", host);
 	assert.deepEqual(world.exported_as, { kind: "owner", role: "owner", character: null });
 	assert.equal(seen.filter((s) => s === "GET /me").length, 1, "one /me");
-	assert.equal(world.format_version, "0.3.15");
+	assert.equal(world.format_version, "0.3.16");
 	assert.deepEqual(Object.keys(world).slice(-4), ["source", "exported_as", "producer", "format_version"]);
 });
 
@@ -246,7 +246,7 @@ test("★ without a key, an export writes no exported_as, asks nothing and says 
 	assert.equal("exported_as" in world, false);
 	assert.deepEqual(seen.filter((s) => s === "GET /me"), [], "no /me without a key");
 	assert.equal(idNote, null);
-	assert.equal(world.format_version, "0.3.15");
+	assert.equal(world.format_version, "0.3.16");
 	// A world made in the vault (a local world) asks nothing either.
 	const local = makeApp();
 	await local.vault.seed("OnlyWorlds/Worlds/Native/World.md", "# World Overview: Native\n\n- **API Key:** local\n");
@@ -274,4 +274,68 @@ test("★ a classic 10-digit key on a world with a PIN: the /me read sends the P
 	const { world } = await exportWorld(app, vault, "Moppetopia", withPin);
 	assert.deepEqual(pins, ["4321"]);
 	assert.deepEqual(world.exported_as, { kind: "owner", role: "owner", character: null });
+});
+
+// --- origin (folder format 0.3.16, spec §4.2; OW Obsidian #577) --------------------
+// keel serves `origin` on GET /world (Keel #571): where the world first came
+// from, both members, null when not known. A server export writes it as served.
+
+/** keel's GET /world for Moppetopia with `origin` where keel puts it, and the same feed as serve(). */
+function serveOrigin(origin: Record<string, unknown>) {
+	const served: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(WORLD)) {
+		served[k] = v;
+		if (k === "owner_character") served.origin = origin;
+	}
+	setRequestUrl((r) => {
+		const path = new URL(r.url).pathname.replace(/^\/api\/v2/, "").replace(/\/$/, "");
+		if (path === "/world") return { status: 200, json: served };
+		if (path === "/changes") {
+			return {
+				status: 200,
+				json: {
+					cursor: "c1", has_more: false, head: 1,
+					changes: [{ op: "upsert", type: "pin", id: PIN_ID, change_seq: 1, updated_at: "x", element: { id: PIN_ID, name: "Crumblefields" } }],
+				},
+			};
+		}
+		return { status: 404, json: {} };
+	});
+	return served;
+}
+
+test("★ 0.3.16: a downloaded world's export carries `origin` as GET /world served it, in its place, beside this export's own provenance (#577)", async () => {
+	const ORIGIN = {
+		source: null,
+		producer: { tool: "atlas", version: "1.80.0", input: "json" },
+	};
+	const { app, vault } = makeApp();
+	const served = serveOrigin(ORIGIN);
+	const host = plugin();
+	await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("ow_k_test", "");
+	const { world } = await exportWorld(app, vault, "Moppetopia", host);
+	assert.deepEqual(world.origin, ORIGIN, "origin not as served");
+	const keys = Object.keys(served).map((k) => (k === "time_range_current" ? "time_current" : k));
+	assert.deepEqual(Object.keys(world).slice(0, keys.length), keys, "origin moved");
+	// origin is the world's first import; source and producer are this export's
+	assert.equal((world.source as Record<string, unknown>).world, WID);
+	assert.deepEqual(world.producer, { tool: "onlyworlds-builder", version: "3.8.0", input: "obsidian-vault" });
+	assert.equal(world.format_version, "0.3.16");
+});
+
+test("★ 0.3.16: origin served with both members null goes out so, never dropped as empty (#577)", async () => {
+	const { app, vault } = makeApp();
+	serveOrigin({ source: null, producer: null });
+	const host = plugin();
+	await new DownloadWorldCommand(app, MANIFEST, host as never).downloadWithKey("ow_k_test", "");
+	const { world } = await exportWorld(app, vault, "Moppetopia", host);
+	assert.deepEqual(world.origin, { source: null, producer: null });
+});
+
+test("0.3.16: a world never downloaded from a server writes no origin (#577)", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Native/World.md", "# World Overview: Native\n\n- **API Key:** local\n");
+	await vault.seed("OnlyWorlds/Worlds/Native/Elements/Character/Ireena.md", `---\nname: Ireena\nid: ${PIN_ID}\n---\n`);
+	const { world } = await exportWorld(app, vault, "Native", plugin());
+	assert.equal("origin" in world, false);
 });
