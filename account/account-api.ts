@@ -138,16 +138,35 @@ export const NOT_A_TOKEN = "That is not an account token. Account tokens start w
  * requestUrl is not held to the browser's cross-origin rules, as every other
  * request of the plugin is not, and a 429 or 503 carrying Retry-After is
  * retried once as owRequest retries it. Only what the SDK reads of an answer
- * is given: ok, status, a header by name, the text, the JSON.
+ * is given: ok, status, a header by name, the text, the JSON. Headers come as
+ * a plain object, a Headers instance or name-value pairs; a body that is not
+ * a string is refused before anything is sent, never dropped.
  */
+export function plainHeaders(headers: HeadersInit | undefined): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!headers) return out;
+	if (typeof Headers !== "undefined" && headers instanceof Headers) {
+		headers.forEach((value, name) => (out[name] = value));
+	} else if (Array.isArray(headers)) {
+		for (const [name, value] of headers) out[name] = value;
+	} else {
+		for (const [name, value] of Object.entries(headers)) out[name] = String(value);
+	}
+	return out;
+}
+
 export const requestUrlFetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+	const body = init?.body;
+	if (body !== undefined && body !== null && typeof body !== "string") {
+		throw new TypeError("requestUrlFetch sends only a string body; this request was not sent.");
+	}
 	const req: RequestUrlParam = {
 		url: typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
 		method: init?.method ?? "GET",
-		headers: (init?.headers ?? {}) as Record<string, string>,
+		headers: plainHeaders(init?.headers),
 		throw: false,
 	};
-	if (typeof init?.body === "string") req.body = init.body;
+	if (typeof body === "string") req.body = body;
 	let res = await requestUrl(req);
 	if (res.status === 429 || res.status === 503) {
 		const wait = retryAfterMs(res.headers);

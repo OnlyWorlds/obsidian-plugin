@@ -25,7 +25,15 @@ import { readWorldFile } from "@onlyworlds/sdk";
 import { makeApp, __modals, type MockVault } from "./support/obsidian-mock";
 import { ImportFolderCommand } from "../Commands/ImportFolderCommand";
 import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
-import { planRecords, privateProducersIn, readRecordsManifest, recordsReportLines, type RecordFile } from "../vault/records";
+import {
+	INCLUDE_EVERY_RECORD,
+	INCLUDE_PRIVATE_RECORDS,
+	planRecords,
+	readRecordsManifest,
+	recordsOption,
+	recordsReportLines,
+	type RecordFile,
+} from "../vault/records";
 
 const WID = "0199b000-0000-7000-8000-0000000000aa";
 const CHAR_ID = "0199b000-0000-7000-8000-0000000000c1";
@@ -104,12 +112,14 @@ function assertSameBytes(got: Map<string, Uint8Array>, want: Map<string, Uint8Ar
 
 // --- the manifest, pure ------------------------------------------------------------
 
-test("RECORDS.json: absent, unreadable (not JSON, not an array, an entry not an object, private without a name), or the private producers", () => {
+test("RECORDS.json: absent, unreadable (not JSON, not an array, an entry not an object, an entry with no producer name), or the private producers", () => {
 	assert.deepEqual(readRecordsManifest(null), { kind: "absent" });
 	assert.equal(readRecordsManifest(enc("{")).kind, "unreadable");
 	assert.equal(readRecordsManifest(enc('{"producer":"lab"}')).kind, "unreadable");
 	assert.equal(readRecordsManifest(enc("[1]")).kind, "unreadable");
 	assert.equal(readRecordsManifest(enc('[{"private":true}]')).kind, "unreadable");
+	assert.equal(readRecordsManifest(enc('[{"producer":"lab"},{"format":"ledger"}]')).kind, "unreadable", "a public entry with no producer name (Amendment A)");
+	assert.equal(readRecordsManifest(enc('[{"producer":7}]')).kind, "unreadable", "a producer name that is not a string");
 	assert.equal(readRecordsManifest(new Uint8Array([0x5b, 0xff, 0x5d])).kind, "unreadable", "not UTF-8");
 	assert.deepEqual(readRecordsManifest(enc('[{"producer":"lab"},{"producer":"fold","private":true},{"producer":"x","private":"true"}]')), {
 		kind: "readable",
@@ -129,15 +139,33 @@ test("planRecords: a private producer is matched to its directory after OW-18's 
 	assert.deepEqual(plan.leftOut, ["fold"]);
 	assert.equal(plan.files[0].data, files[0].data, "the manifest is passed through as the same bytes");
 	assert.deepEqual(planRecords(files, true).files.map((f) => f.rel), files.map((f) => f.rel));
-	assert.deepEqual(privateProducersIn(files), ["fold"]);
+	assert.deepEqual(recordsOption(files), { kind: "private", producers: ["fold"] });
 });
 
-test("the report's records lines: carried, left out, no manifest, unreadable manifest", () => {
+test("recordsOption: the switch is asked for private producers the folder holds, for an unreadable manifest beside producer directories, and for nothing else (Amendment A)", () => {
+	const lab = { rel: "records/lab/ledger.bin", data: LEDGER };
+	assert.deepEqual(recordsOption([{ rel: "records/RECORDS.json", data: enc("{") }, lab]), { kind: "unreadable" });
+	assert.equal(recordsOption([{ rel: "records/RECORDS.json", data: enc("{") }]), null, "an unreadable manifest with no producer directory: nothing to ask");
+	assert.equal(recordsOption([lab]), null, "no manifest: nothing can be private");
+	assert.equal(recordsOption([{ rel: "records/RECORDS.json", data: enc('[{"producer":"fold","private":true}]') }, lab]), null, "a private producer the folder does not hold");
+	assert.equal(INCLUDE_EVERY_RECORD, "Include every record (the records list could not be read)");
+	assert.equal(INCLUDE_PRIVATE_RECORDS, "Include private records");
+});
+
+test("the report's records lines: carried, left out, no manifest, unreadable manifest off and on", () => {
 	assert.deepEqual(recordsReportLines(null), []);
 	const left = recordsReportLines(planRecords([{ rel: "records/RECORDS.json", data: MANIFEST_TWO }, { rel: "records/fold/a", data: enc("x") }], false));
 	assert.match(left[1], /^Private records left out: fold\. RECORDS\.json still lists them; turn on Include private records to carry them\.$/);
-	assert.match(recordsReportLines(planRecords([{ rel: "records/lab/a", data: enc("x") }], false))[1], /no RECORDS\.json, so every record went out/);
-	assert.match(recordsReportLines(planRecords([{ rel: "records/RECORDS.json", data: enc("{") }], false))[1], /could not be read, so every record went out/);
+	assert.match(recordsReportLines(planRecords([{ rel: "records/lab/a", data: enc("x") }], false))[1], /^records\/ has no RECORDS\.json, so every record went out: nothing can be private without one\.$/);
+	const unreadable = [{ rel: "records/RECORDS.json", data: enc("{") }, { rel: "records/lab/a", data: enc("x") }];
+	assert.deepEqual(recordsReportLines(planRecords(unreadable, false)), [
+		"1 record file carried in records/, byte for byte",
+		"records/RECORDS.json could not be read, so no producer's records went out (lab) and RECORDS.json went out unchanged; turn on Include every record (the records list could not be read) to carry them.",
+	]);
+	assert.deepEqual(recordsReportLines(planRecords(unreadable, true)), [
+		"2 record files carried in records/, byte for byte",
+		"records/RECORDS.json could not be read, and you asked for every record, so every record went out.",
+	]);
 });
 
 // --- import and export through the commands ------------------------------------------
@@ -174,16 +202,44 @@ test("★ export: asked, both producers go out byte for byte; by default the pri
 	assert.ok([...plain.files.keys()].some((p) => p.startsWith("elements/character/")));
 });
 
-test("★ a records/ without a manifest travels whole, and the report says nothing was left out by guess; an unreadable one the same", async () => {
-	for (const manifest of [null, enc('{"producer":"fold","private":true}')]) {
+test("★ a records/ without a manifest travels whole, and the report says nothing can be private without one", async () => {
+	const { app, vault } = makeApp();
+	const records: Record<string, Uint8Array> = { "records/fold/.head": enc("2"), "records/lab/ledger.bin": LEDGER };
+	await seedWorld(vault, "Drop/barovia", records);
+	await importDir(app, "Drop/barovia");
+	const out = await exportWorld(app, vault, "Barovia");
+	assertSameBytes(recordsOf(out.files), new Map(Object.entries(records)), "no manifest");
+	assert.match(out.lines[out.lines.length - 1], /every record went out: nothing can be private without one\.$/);
+});
+
+test("★ an unreadable RECORDS.json (malformed JSON, not an array, an entry with no producer name): off, no producer directory goes out and RECORDS.json travels byte-exact; on, everything travels whole (Amendment A)", async () => {
+	for (const [shape, manifest] of [
+		["malformed JSON", enc('[{"producer":"fold","private":true}')],
+		["not an array", enc('{"producer":"fold","private":true}')],
+		["an entry with no producer name", enc('[{"producer":"lab"},{"private":true,"format":"spine"}]')],
+	] as const) {
 		const { app, vault } = makeApp();
-		const records: Record<string, Uint8Array> = { "records/fold/.head": enc("2"), "records/lab/ledger.bin": LEDGER };
-		if (manifest) records["records/RECORDS.json"] = manifest;
+		const records: Record<string, Uint8Array> = {
+			"records/RECORDS.json": manifest,
+			"records/fold/.head": enc("2"),
+			"records/lab/ledger.bin": LEDGER,
+		};
 		await seedWorld(vault, "Drop/barovia", records);
 		await importDir(app, "Drop/barovia");
-		const out = await exportWorld(app, vault, "Barovia");
-		assertSameBytes(recordsOf(out.files), new Map(Object.entries(records)), manifest ? "unreadable manifest" : "no manifest");
-		assert.match(out.lines[out.lines.length - 1], /every record went out: nothing was left out by guess\.$/);
+
+		const off = await exportWorld(app, vault, "Barovia");
+		assertSameBytes(recordsOf(off.files), new Map([["records/RECORDS.json", manifest]]), `${shape}, off`);
+		assert.deepEqual(off.lines, [
+			"1 record file carried in records/, byte for byte",
+			"records/RECORDS.json could not be read, so no producer's records went out (fold, lab) and RECORDS.json went out unchanged; turn on Include every record (the records list could not be read) to carry them.",
+		], shape);
+
+		const on = await exportWorld(app, vault, "Barovia", true);
+		assertSameBytes(recordsOf(on.files), new Map(Object.entries(records)), `${shape}, on`);
+		assert.deepEqual(on.lines, [
+			"3 record files carried in records/, byte for byte",
+			"records/RECORDS.json could not be read, and you asked for every record, so every record went out.",
+		], shape);
 	}
 });
 

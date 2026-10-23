@@ -23,6 +23,8 @@ import {
 	signedInLabel,
 	vaultKeyName,
 	CREATE_SIGN_IN_FIRST,
+	plainHeaders,
+	requestUrlFetch,
 	type AccountWorld,
 } from "../account/account-api";
 import { inviteWords, joinCode, previewJoin } from "../account/join";
@@ -729,6 +731,26 @@ test("Create World online, signed in, an account with no PIN yet: keel asks (422
 	assert.deepEqual(JSON.parse(creates[1].body ?? "{}"), { name: "Fresh", pin: "4321", key_name: "obsidian: Test Vault" });
 	assert.equal(res?.api_key, "ow_w_created");
 	noOldRoute();
+});
+
+test("requestUrlFetch: headers as a Headers instance, as pairs or as an object all reach requestUrl as a plain object (Amendment A, low)", async () => {
+	assert.deepEqual(plainHeaders(new Headers({ Authorization: "Bearer t", "Content-Type": "application/json" })), { authorization: "Bearer t", "content-type": "application/json" });
+	assert.deepEqual(plainHeaders([["X-A", "1"]]), { "X-A": "1" });
+	assert.deepEqual(plainHeaders({ "X-B": "2" }), { "X-B": "2" });
+	assert.deepEqual(plainHeaders(undefined), {});
+	setRequestUrl(() => ({ status: 200, json: { ok: true } }));
+	__requests.length = 0;
+	const res = await requestUrlFetch(`${V2}/health`, { method: "POST", headers: new Headers({ Authorization: "Bearer t" }), body: "{}" });
+	assert.equal(res.status, 200);
+	assert.equal(__requests[0].headers.authorization, "Bearer t");
+	assert.equal(__requests[0].body, "{}");
+});
+
+test("requestUrlFetch refuses a body that is not a string, and sends nothing (Amendment A, low)", async () => {
+	setRequestUrl(() => ({ status: 200, json: {} }));
+	__requests.length = 0;
+	await assert.rejects(requestUrlFetch(`${V2}/health`, { method: "POST", body: new Uint8Array([1]) }), /only a string body; this request was not sent/);
+	assert.equal(__requests.length, 0);
 });
 
 // --- the key-and-PIN download stays as it is ------------------------------------

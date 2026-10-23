@@ -6,7 +6,15 @@ import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-s
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
 import { readRecordsTree, worldRecordsRoot, writeRecordFiles } from "../vault/records-store";
-import { planRecords, privateProducersIn, recordsReportLines, type RecordsPlan } from "../vault/records";
+import {
+	INCLUDE_EVERY_RECORD,
+	INCLUDE_PRIVATE_RECORDS,
+	planRecords,
+	recordsOption,
+	recordsReportLines,
+	type RecordsOption,
+	type RecordsPlan,
+} from "../vault/records";
 import { buildWorldJson, exportedAsFromMe, pluginProducer, serverWorldId, type ExportedAs, type ServerWorld } from "../vault/world-json";
 import { V2Client } from "../client-v2";
 import { worldFileApiKey } from "../vault/world-key";
@@ -77,8 +85,10 @@ import {
  * world's `records/` (where the import put it, vault/records-store.ts) goes
  * out byte for byte, `RECORDS.json` whole, except the producer directories
  * its manifest marks private, which stay out whole unless the person turns
- * on Include private records. A manifest that cannot be read leaves nothing
- * out, and the report says so (vault/records.ts planRecords).
+ * on Include private records. A manifest that cannot be read carries no
+ * producer's records unless the person turns on Include every record, and
+ * `RECORDS.json` travels either way; the report says which happened
+ * (vault/records.ts planRecords, Amendment A).
  */
 /** The plugin as the export uses it: its hidden lists, its manifest, and the PIN it holds for saves. */
 type ExportHost = HiddenListHost & {
@@ -91,7 +101,10 @@ type PlannedFile = { rel: string; content: string } | { rel: string; data: Uint8
 
 /** What the person chose beside the destination. */
 export interface ExportOptions {
-	/** Carry the producers RECORDS.json marks private (off by default). */
+	/**
+	 * The records switch (off by default): carry the producers RECORDS.json
+	 * marks private, or, when RECORDS.json cannot be read, every producer.
+	 */
 	includePrivateRecords?: boolean;
 }
 
@@ -117,13 +130,13 @@ export class ExportFolderCommand {
 		}
 		new WorldPickModal(this.app, worlds, (world) => {
 			void (async () => {
-				let privateProducers: string[] = [];
+				let option: RecordsOption | null = null;
 				try {
-					privateProducers = privateProducersIn(await readRecordsTree(this.app, worldRecordsRoot(world)));
+					option = recordsOption(await readRecordsTree(this.app, worldRecordsRoot(world)));
 				} catch {
-					privateProducers = [];
+					option = null;
 				}
-				new DestinationPickModal(this.app, privateProducers, (dest, opts) => void this.exportWorld(world, dest, opts)).open();
+				new DestinationPickModal(this.app, option, (dest, opts) => void this.exportWorld(world, dest, opts)).open();
 			})();
 		}).open();
 	}
@@ -629,13 +642,13 @@ class WorldPickModal extends Modal {
  * native picker, falling back to a paste-path modal if none is reachable.
  */
 class DestinationPickModal extends Modal {
-	/** Include private records (off by default; shown only when the world's records mark a producer private). */
+	/** The records switch (off by default; shown only when the world's records call for one). */
 	private includePrivate = false;
 
 	constructor(
 		app: App,
-		/** The world's producer directories RECORDS.json marks private. */
-		private privateProducers: string[],
+		/** What the switch asks about: private producers, or an unreadable RECORDS.json (vault/records.ts recordsOption). */
+		private recordsOption: RecordsOption | null,
 		private onPick: (dest: ExportDestination, opts: ExportOptions) => void
 	) {
 		super(app);
@@ -650,12 +663,16 @@ class DestinationPickModal extends Modal {
 		contentEl.empty();
 		contentEl.createEl("h2", { text: "Where should the folder go?" });
 
-		if (this.privateProducers.length > 0) {
+		const option = this.recordsOption;
+		if (option) {
 			new Setting(contentEl)
-				.setName("Include private records")
+				.setName(option.kind === "private" ? INCLUDE_PRIVATE_RECORDS : INCLUDE_EVERY_RECORD)
 				.setDesc(
-					`This world's records mark ${this.privateProducers.join(", ")} as private. ` +
-						"Off, they stay out of the folder; RECORDS.json still lists them."
+					option.kind === "private"
+						? `This world's records mark ${option.producers.join(", ")} as private. ` +
+								"Off, they stay out of the folder; RECORDS.json still lists them."
+						: "This world's RECORDS.json could not be read, so which records are private is not known. " +
+								"Off, no producer's records go out; RECORDS.json goes out unchanged."
 				)
 				.addToggle((t) => t.setValue(false).onChange((v) => (this.includePrivate = v)));
 		}

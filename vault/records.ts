@@ -15,10 +15,15 @@
  * them; `RECORDS.json` travels byte-exact either way, so a reader learns a
  * producer was left out rather than never there. An entry is matched to its
  * directory after OW-18's fold (NFC, then Unicode 15.1 simple case folding,
- * the SDK's table), so `Fold` names `records/fold/`. A manifest the plugin
- * cannot read leaves nothing out by guess: every record travels, and the
- * export's report says so. The reading mirrors the SDK's writeWorldFile
- * (4.66.0), which refuses where this export carries everything and says so.
+ * the SDK's table), so `Fold` names `records/fold/`.
+ *
+ * A manifest the plugin cannot read leaves nothing out by guess and carries
+ * nothing by guess either (§4.7 OW-8: the writer refuses, or the caller asks;
+ * Amendment A, Kael h69 #11140): the export asks with one switch, off by
+ * default; off, no producer directory goes out and `RECORDS.json` still
+ * travels byte-exact (the label travels, never the notes); on, everything
+ * travels whole. With no manifest at all nothing can be private, so every
+ * record travels.
  */
 import { simpleCaseFold } from "@onlyworlds/sdk";
 
@@ -44,9 +49,9 @@ export function isRecordsPath(rel: string): boolean {
 /**
  * The manifest as the private clause reads it:
  *   - `absent`: no `records/RECORDS.json`;
- *   - `unreadable`: not UTF-8 JSON, not an array of objects, or an entry
- *     marked private with no producer name: which records are private
- *     cannot be told, so none is left out;
+ *   - `unreadable`: not UTF-8 JSON, not an array, or an entry that is not an
+ *     object naming its directory (a non-empty string `producer`): which
+ *     records are private cannot be told;
  *   - `readable`: the producers whose entry says `"private": true`.
  */
 export type ManifestReading =
@@ -69,11 +74,10 @@ export function readRecordsManifest(manifest: Uint8Array | null): ManifestReadin
 			return { kind: "unreadable", why: "holds an entry that is not an object" };
 		}
 		const { producer, private: isPrivate } = entry as { producer?: unknown; private?: unknown };
-		if (isPrivate !== true) continue;
 		if (typeof producer !== "string" || producer === "") {
-			return { kind: "unreadable", why: "marks an entry private without a producer name" };
+			return { kind: "unreadable", why: "holds an entry with no producer name" };
 		}
-		privateProducers.push(producer);
+		if (isPrivate === true) privateProducers.push(producer);
 	}
 	return { kind: "readable", privateProducers };
 }
@@ -82,47 +86,73 @@ export function readRecordsManifest(manifest: Uint8Array | null): ManifestReadin
 export interface RecordsPlan {
 	/** The files that travel, byte for byte as held, in the order given. */
 	files: RecordFile[];
-	/** The producer directories left out as private, as the folder names them (sorted). */
+	/** The producer directories left out (private, or all of them under an unreadable manifest), as the folder names them (sorted). */
 	leftOut: string[];
-	/** The manifest as read: `unreadable` and `absent` carry every record. */
+	/** The manifest as read: `absent` carries every record; `unreadable` carries them only when asked. */
 	manifest: ManifestReading["kind"];
+	/** Whether the person turned the export's records switch on. */
+	asked: boolean;
+}
+
+/** The producer directory a record file sits in, or null for a file at `records/`'s root. */
+function producerDir(rel: string): string | null {
+	const segs = rel.split("/");
+	return segs.length > 2 && segs[0] === RECORDS_DIR ? segs[1] : null;
 }
 
 /**
- * Which of a world's record files an export writes (rule 6 and rule 11). A
- * file inside a private producer's directory (`records/<producer>/...`) is
- * left out unless `includePrivate`; every other file, `RECORDS.json` among
- * them, travels as it is. With no readable manifest, everything travels.
+ * Which of a world's record files an export writes (rule 6 and rule 11, §4.7
+ * OW-8). `asked` is the export's one switch. A readable manifest: a file in a
+ * private producer's directory is left out unless asked. An unreadable one:
+ * every producer directory is left out unless asked (nothing carried by
+ * guess). No manifest: everything travels. A file at `records/`'s root,
+ * `RECORDS.json` among them, always travels as it is.
  */
-export function planRecords(files: RecordFile[], includePrivate: boolean): RecordsPlan {
+export function planRecords(files: RecordFile[], asked: boolean): RecordsPlan {
 	const manifestFile = files.find((f) => f.rel === RECORDS_MANIFEST) ?? null;
 	const reading = readRecordsManifest(manifestFile ? manifestFile.data : null);
-	if (includePrivate || reading.kind !== "readable" || reading.privateProducers.length === 0) {
-		return { files: [...files], leftOut: [], manifest: reading.kind };
+	let leaves: (dir: string) => boolean;
+	if (asked || reading.kind === "absent") leaves = () => false;
+	else if (reading.kind === "unreadable") leaves = () => true;
+	else {
+		const folded = new Set(reading.privateProducers.map(foldName));
+		leaves = (dir) => folded.has(foldName(dir));
 	}
-	const folded = new Set(reading.privateProducers.map(foldName));
 	const kept: RecordFile[] = [];
 	const leftOut = new Set<string>();
 	for (const f of files) {
-		const segs = f.rel.split("/");
-		if (segs.length > 2 && segs[0] === RECORDS_DIR && folded.has(foldName(segs[1]))) {
-			leftOut.add(segs[1]);
+		const dir = producerDir(f.rel);
+		if (dir !== null && leaves(dir)) {
+			leftOut.add(dir);
 			continue;
 		}
 		kept.push(f);
 	}
-	return { files: kept, leftOut: [...leftOut].sort(), manifest: reading.kind };
+	return { files: kept, leftOut: [...leftOut].sort(), manifest: reading.kind, asked };
 }
 
-/** The private producers a world's records name, for the export's option; empty when none or unreadable. */
-export function privateProducersIn(files: RecordFile[]): string[] {
+/**
+ * The export's records switch, when the world's records call for one: the
+ * private producers a readable manifest names and the folder holds
+ * ("Include private records"), or an unreadable manifest beside producer
+ * directories ("Include every record"). Null when there is nothing to ask.
+ */
+export type RecordsOption = { kind: "private"; producers: string[] } | { kind: "unreadable" };
+
+export function recordsOption(files: RecordFile[]): RecordsOption | null {
 	const manifestFile = files.find((f) => f.rel === RECORDS_MANIFEST) ?? null;
 	const reading = readRecordsManifest(manifestFile ? manifestFile.data : null);
-	if (reading.kind !== "readable") return [];
-	const dirs = new Set(files.map((f) => f.rel.split("/")).filter((s) => s.length > 2 && s[0] === RECORDS_DIR).map((s) => s[1]));
+	const dirs = new Set(files.map((f) => producerDir(f.rel)).filter((d): d is string => d !== null));
+	if (reading.kind === "unreadable") return dirs.size > 0 ? { kind: "unreadable" } : null;
+	if (reading.kind !== "readable") return null;
 	const folded = new Set(reading.privateProducers.map(foldName));
-	return [...dirs].filter((d) => folded.has(foldName(d))).sort();
+	const producers = [...dirs].filter((d) => folded.has(foldName(d))).sort();
+	return producers.length > 0 ? { kind: "private", producers } : null;
 }
+
+/** The switch's words, sentence case in the plugin's voice. */
+export const INCLUDE_PRIVATE_RECORDS = "Include private records";
+export const INCLUDE_EVERY_RECORD = "Include every record (the records list could not be read)";
 
 /** The report's sentences about records (empty when the world has none). */
 export function recordsReportLines(plan: RecordsPlan | null): string[] {
@@ -130,15 +160,21 @@ export function recordsReportLines(plan: RecordsPlan | null): string[] {
 	const lines: string[] = [];
 	const n = plan.files.length;
 	if (n > 0) lines.push(`${n} record file${n === 1 ? "" : "s"} carried in records/, byte for byte`);
-	if (plan.leftOut.length > 0) {
+	if (plan.manifest === "unreadable") {
+		if (plan.leftOut.length > 0) {
+			lines.push(
+				`records/RECORDS.json could not be read, so no producer's records went out (${plan.leftOut.join(", ")}) and RECORDS.json went out unchanged; turn on ${INCLUDE_EVERY_RECORD} to carry them.`
+			);
+		} else if (plan.asked) {
+			lines.push("records/RECORDS.json could not be read, and you asked for every record, so every record went out.");
+		}
+	} else if (plan.leftOut.length > 0) {
 		lines.push(
-			`Private records left out: ${plan.leftOut.join(", ")}. RECORDS.json still lists them; turn on Include private records to carry them.`
+			`Private records left out: ${plan.leftOut.join(", ")}. RECORDS.json still lists them; turn on ${INCLUDE_PRIVATE_RECORDS} to carry them.`
 		);
 	}
 	if (plan.manifest === "absent" && n > 0) {
-		lines.push("records/ has no RECORDS.json, so every record went out: nothing was left out by guess.");
-	} else if (plan.manifest === "unreadable") {
-		lines.push("records/RECORDS.json could not be read, so every record went out: nothing was left out by guess.");
+		lines.push("records/ has no RECORDS.json, so every record went out: nothing can be private without one.");
 	}
 	return lines;
 }
