@@ -1,12 +1,10 @@
 import { App, Modal, Notice, TFolder, normalizePath } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
-import { WorldService } from '../Scripts/WorldService';
 import { classifyWorldKey, worldFileApiKey } from '../vault/world-key';
-import { signedInLabel } from '../account/account-api';
+import { CREATE_SIGN_IN_FIRST, signedInLabel } from '../account/account-api';
 
 export interface WorldCreationData {
     name: string;
-    email: string;
     pin: number;
     /** True = no account: world minted client-side, no server call, sync off until a key is added. */
     localOnly?: boolean;
@@ -17,14 +15,16 @@ export interface WorldCreationData {
 
 export class CreateWorldModal extends Modal {
     onSubmit: (data: WorldCreationData | null) => void;
-    private worldService: WorldService;
-    /** Signed in (OW Infra #358): the world goes under this account, and no email is asked. */
+    /**
+     * Signed in (OW Infra #358): the world goes under this account. Signed out,
+     * only a local-only world can be made here: the online create goes through
+     * the account (OW Obsidian #577), so the modal says to sign in first.
+     */
     private account: { username: string } | null;
 
     constructor(app: App, onSubmit: (data: WorldCreationData | null) => void, account?: { username: string }) {
         super(app);
         this.onSubmit = onSubmit;
-        this.worldService = new WorldService(app);
         this.account = account ?? null;
     }
 
@@ -45,33 +45,7 @@ export class CreateWorldModal extends Modal {
         });
         nameInput.style.width = '100%';
         nameInput.style.marginBottom = '15px';
-        
-        // Email Field
-        const emailLabel = contentEl.createEl('label', { text: 'OnlyWorlds email address' });
-        emailLabel.style.display = 'block';
-        emailLabel.style.marginBottom = '4px';
-        emailLabel.style.fontWeight = 'bold';
-        
-        // Get default email from settings
-        const defaultEmail = await this.worldService.getDefaultEmailFromSettings();
-        
-        const emailInput = contentEl.createEl('input', {
-            type: 'email',
-            placeholder: '',
-        });
-        emailInput.style.width = '100%';
-        emailInput.style.marginBottom = '15px';
-        
-        // Pre-fill email if available from settings
-        if (defaultEmail) {
-            emailInput.value = defaultEmail;
-        }
-        // Signed in: the account names the owner, so there is no email to give.
-        if (this.account) {
-            emailLabel.hide();
-            emailInput.hide();
-        }
-        
+
         // PIN Field
         const pinLabel = contentEl.createEl('label', { text: 'OnlyWorlds PIN' });
         pinLabel.style.display = 'block';
@@ -97,16 +71,19 @@ export class CreateWorldModal extends Modal {
                 target.value = target.value.slice(0, 4);
             }
         });
-        
+        // Signed out: no online create here, so no PIN to give.
+        if (!this.account) {
+            pinLabel.hide();
+            pinInput.hide();
+        }
+
         // Description
         const description = contentEl.createEl('p', {
             text: this.account
                 ? `${signedInLabel(this.account.username)}: the world is created under that account. ` +
                   'The PIN is your account PIN; an account without one yet takes this one. ' +
                   'Or create a local-only world: everything stays in your vault.'
-                : 'Email and PIN link the world to your OnlyWorlds account for syncing. ' +
-                  'No account? Create a local-only world — everything stays in your vault, ' +
-                  'and you can add an API key to World.md later to enable sync.'
+                : CREATE_SIGN_IN_FIRST
         });
         description.style.fontSize = '0.85em';
         description.style.fontStyle = 'italic';
@@ -136,7 +113,7 @@ export class CreateWorldModal extends Modal {
         const createButton = buttonContainer.createEl('button', { text: 'Create with account' });
         createButton.style.marginLeft = '8px';
         createButton.addEventListener('click', () => {
-            this.validateAndSubmit(nameInput.value, emailInput.value, pinInput.value);
+            this.validateAndSubmit(nameInput.value, pinInput.value);
         });
         
         // Take-a-local-world-online section — only shown when local-only worlds exist.
@@ -151,8 +128,11 @@ export class CreateWorldModal extends Modal {
             publishLabel.style.fontWeight = 'bold';
 
             const publishDesc = contentEl.createEl('p', {
-                text: 'Creates the world on onlyworlds.com under your account (' + (this.account ? 'the PIN above' : 'email and PIN above') + '), ' +
+                text: this.account
+                    ? 'Creates the world on onlyworlds.com under your account (the PIN above), ' +
                       'links this vault\'s copy to it, and uploads your elements.'
+                    : 'Creates the world on onlyworlds.com under your account, links this vault\'s copy to it, ' +
+                      'and uploads your elements. Sign in first (Settings, OnlyWorlds account).'
             });
             publishDesc.style.fontSize = '0.85em';
             publishDesc.style.fontStyle = 'italic';
@@ -167,7 +147,7 @@ export class CreateWorldModal extends Modal {
 
             const publishButton = contentEl.createEl('button', { text: 'Take online' });
             publishButton.addEventListener('click', () => {
-                this.validateAndSubmitFromLocal(worldSelect.value, emailInput.value, pinInput.value);
+                this.validateAndSubmitFromLocal(worldSelect.value, pinInput.value);
             });
         }
 
@@ -175,21 +155,14 @@ export class CreateWorldModal extends Modal {
         nameInput.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                (this.account ? pinInput : emailInput).focus();
+                if (this.account) pinInput.focus();
             }
         });
-        
-        emailInput.addEventListener('keydown', (e: KeyboardEvent) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                pinInput.focus();
-            }
-        });
-        
+
         pinInput.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                this.validateAndSubmit(nameInput.value, emailInput.value, pinInput.value);
+                this.validateAndSubmit(nameInput.value, pinInput.value);
             }
         });
         
@@ -198,19 +171,19 @@ export class CreateWorldModal extends Modal {
         applyMobileModal(this);
     }
     
-    validateAndSubmit(name: string, email: string, pinStr: string) {
+    validateAndSubmit(name: string, pinStr: string) {
         // Validate name
         if (!name.trim()) {
             new Notice('World name is required');
             return;
         }
-        
-        // Validate email (signed in: the account names the owner, no email)
-        if (!this.account && !this.isValidEmail(email)) {
-            new Notice('Enter a valid email address');
+
+        // Signed out: the online create goes through the account.
+        if (!this.account) {
+            new Notice(CREATE_SIGN_IN_FIRST, 10000);
             return;
         }
-        
+
         // Validate PIN
         const pin = parseInt(pinStr, 10);
         if (isNaN(pin) || pin < 1000 || pin > 9999) {
@@ -222,7 +195,6 @@ export class CreateWorldModal extends Modal {
         this.close();
         this.onSubmit({
             name: name.trim(),
-            email: this.account ? '' : email.trim(),
             pin: pin
         });
     }
@@ -233,10 +205,9 @@ export class CreateWorldModal extends Modal {
             return;
         }
         this.close();
-        // email/pin are unused on the local path; zeroed so the shape stays uniform.
+        // The PIN is unused on the local path; zeroed so the shape stays uniform.
         this.onSubmit({
             name: name.trim(),
-            email: '',
             pin: 0,
             localOnly: true
         });
@@ -257,13 +228,13 @@ export class CreateWorldModal extends Modal {
         return names.sort();
     }
 
-    validateAndSubmitFromLocal(worldName: string, email: string, pinStr: string) {
+    validateAndSubmitFromLocal(worldName: string, pinStr: string) {
         if (!worldName) {
             new Notice('No local world selected');
             return;
         }
-        if (!this.account && !this.isValidEmail(email)) {
-            new Notice('Enter a valid email address. The account fields above are used to create the world online.');
+        if (!this.account) {
+            new Notice(CREATE_SIGN_IN_FIRST, 10000);
             return;
         }
         const pin = parseInt(pinStr, 10);
@@ -274,15 +245,9 @@ export class CreateWorldModal extends Modal {
         this.close();
         this.onSubmit({
             name: worldName,
-            email: this.account ? '' : email.trim(),
             pin: pin,
             fromLocal: true
         });
-    }
-
-    isValidEmail(email: string): boolean {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
     }
 
     onClose() {

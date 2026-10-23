@@ -9,6 +9,8 @@
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { makeApp, setRequestUrl, __requests, __notices, __modals, type MockRequest, type MockResponse } from "./support/obsidian-mock";
 import { FakeEl } from "./support/fake-dom";
 import {
@@ -20,6 +22,9 @@ import {
 	signOut,
 	signedInLabel,
 	vaultKeyName,
+	CREATE_SIGN_IN_FIRST,
+	plainHeaders,
+	requestUrlFetch,
 	type AccountWorld,
 } from "../account/account-api";
 import { inviteWords, joinCode, previewJoin } from "../account/join";
@@ -550,58 +555,85 @@ test("an agent code is refused with words: it is for an AI, not a vault", async 
 });
 
 // --- 4. Create World online ----------------------------------------------------
+// Through the SDK's createAccountWorld on POST /api/v2/account/worlds only (OW
+// Obsidian #577): keel #134 froze the old email-and-PIN route, which the plugin
+// no longer names anywhere.
 
-test("Create World online, signed in: the account's create-world route, and the vault's key is named for the vault as Download World names it; the create key goes once it lands (Seethe's walk, h37 #6462)", async () => {
-	keel({
-		answers: {
-			...accountAnswers(),
-			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [{ name: "", last4: "eate", scope: "WRITE", revoked: false }], key: "ow_w_created_by_create" } },
-			[`GET /account/worlds/${OWNED}/keys`]: {
-				status: 200,
-				json: { data: [
-					{ id: "k0", name: "", last4: "eate", scope: "WRITE", revoked: false },
-					{ id: "k1", name: "obsidian: Test Vault", last4: "rion", scope: "WRITE", revoked: false },
-				] },
-			},
-			[`DELETE /account/worlds/${OWNED}/keys/k0`]: { status: 204 },
-		},
-	});
-	const { app } = makeApp();
-	const plugin = fakePlugin(app, true);
-	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: plugin.settings.accountToken, username: plugin.settings.accountUsername }));
-	const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin: 1234 });
-	const create = sent("/account/worlds").filter((r) => pathOf(r.url) === "/account/worlds" && r.method === "POST");
-	assert.equal(create.length, 1);
-	assert.equal(create[0].headers.Authorization, `Bearer ${TOKEN}`);
-	assert.deepEqual(JSON.parse(create[0].body ?? "{}"), { name: "Fresh" }, "the PIN went where keel did not ask for it");
-	const mint = sent(`/account/worlds/${OWNED}/keys`).filter((r) => r.method === "POST");
-	assert.equal(mint.length, 1, "no key named for the vault was made");
-	assert.deepEqual(JSON.parse(mint[0].body ?? "{}"), { scope: "write", name: vaultKeyName("Test Vault") });
-	assert.equal(res.api_key, "ow_w_minted_hyperion");
-	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0, "the create key went before the vault key landed");
-	await res.afterLanding();
-	const revoked = __requests.filter((r) => r.method === "DELETE");
-	assert.equal(revoked.length, 1);
-	assert.equal(pathOf(revoked[0].url), `/account/worlds/${OWNED}/keys/k0`);
-	assert.ok(!__requests.some((r) => r.url.includes("worldsync")), "the old route was called");
-});
+const OLD_ROUTE = "/api/worldsync/";
 
-test("Create World online, signed in: should the vault's named key not be made, the create route's own key still serves (nothing revoked)", async () => {
+function noOldRoute(): void {
+	assert.ok(!__requests.some((r) => r.url.includes(OLD_ROUTE)), "the old create route was called");
+}
+
+/** POST /account/worlds as keel answers it: the world's row and its one key, shown once, named as asked. */
+function createAnswer(r: MockRequest, key: string | null = "ow_w_created_by_create"): MockResponse {
+	const b = JSON.parse(r.body ?? "{}");
+	return {
+		status: 201,
+		json: { id: OWNED, name: b.name, role: "owner", public_read: false, keys: [{ name: b.key_name ?? "", last4: "eate", scope: "WRITE", revoked: false }], ...(key ? { key } : {}) },
+	};
+}
+
+test("★ Create World online, signed in: the account's create route through the SDK, the world's one key named for the vault as Download World names it; nothing minted, nothing revoked, never the old route (#577)", async () => {
 	keel({
-		answers: {
-			...accountAnswers(),
-			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [{ name: "", last4: "eate", scope: "WRITE", revoked: false }], key: "ow_w_created_by_create" } },
-			[`POST /account/worlds/${OWNED}/keys`]: { status: 500, json: { error: { code: "server_error", message: "boom" } } },
-		},
+		answers: accountAnswers(),
+		route: (r, path) => (r.method === "POST" && path === "/account/worlds" ? createAnswer(r) : undefined),
 	});
 	const { app } = makeApp();
 	__modals.length = 0;
-	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }));
-	const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin: 1234 });
-	assert.equal(res.api_key, "ow_w_created_by_create");
-	assert.equal(res.afterLanding, undefined);
-	assert.equal(__modals.length, 0, "a failure modal opened");
+	const plugin = fakePlugin(app, true);
+	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: plugin.settings.accountToken, username: plugin.settings.accountUsername }));
+	const res = await cmd.createWorldOnServer({ name: "Fresh", pin: 1234 });
+	const create = __requests.filter((r) => r.method === "POST" && r.url === `${V2}/account/worlds`);
+	assert.equal(create.length, 1);
+	assert.equal(create[0].headers.Authorization, `Bearer ${TOKEN}`);
+	assert.deepEqual(JSON.parse(create[0].body ?? "{}"), { name: "Fresh", key_name: vaultKeyName("Test Vault") }, "the PIN went where keel did not ask for it, or the key went unnamed");
+	assert.equal(res?.api_key, "ow_w_created_by_create");
+	assert.equal(res?.afterLanding, undefined);
+	assert.equal(sent(`/account/worlds/${OWNED}/keys`).length, 0, "a second key was minted or listed");
 	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0);
+	assert.equal(__modals.length, 0, "the shown-once key was shown in a modal");
+	noOldRoute();
+});
+
+test("★ Create World, signed in, the whole command: the shown-once key goes into World.md and is shown nowhere else (#577)", async () => {
+	keel({
+		answers: accountAnswers(),
+		route: (r, path) => (r.method === "POST" && path === "/account/worlds" ? createAnswer(r) : undefined),
+	});
+	const { app, vault } = makeApp();
+	__modals.length = 0;
+	__notices.length = 0;
+	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }), () => false);
+	const running = cmd.execute();
+	for (let i = 0; i < 20 && __modals.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+	const modal = __modals[0] as unknown as { onSubmit: (d: { name: string; pin: number }) => void };
+	modal.onSubmit({ name: "Fresh", pin: 1234 });
+	await running;
+	assert.match(worldMd(vault, "Fresh"), /- \*\*API Key:\*\* ow_w_created_by_create/);
+	assert.equal(__modals.length, 1, "a modal opened after the create's own");
+	assert.ok(!__notices.some((n) => JSON.stringify(n).includes("ow_w_created_by_create")), "a notice showed the key");
+	noOldRoute();
+});
+
+test("★ Create World online, not signed in: nothing is sent anywhere, and the person is asked to sign in (#577)", async () => {
+	keel({ answers: {} });
+	const { app } = makeApp();
+	__modals.length = 0;
+	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => null);
+	const res = await cmd.createWorldOnServer({ name: "Old", pin: 1234 });
+	assert.equal(res, null);
+	assert.equal(__requests.length, 0, "a request went out with no account");
+	const said = __modals[0] as unknown as { message: string; success: boolean };
+	assert.equal(said.success, false);
+	assert.equal(said.message, CREATE_SIGN_IN_FIRST);
+	assert.match(CREATE_SIGN_IN_FIRST, /sign in first/);
+});
+
+test("★ the plugin's bundle names the old create route nowhere (#577)", () => {
+	const code = readFileSync(join(__dirname, "..", "main.js"), "utf8");
+	assert.ok(!code.includes("create-world-external"), "the bundle still carries the old create route");
+	assert.ok(!code.includes(OLD_ROUTE), "the bundle still calls a worldsync route");
 });
 
 test("Create World online, signed in: a typed PIN is checked against the account before anything is created (Kael nit)", async () => {
@@ -622,10 +654,11 @@ test("Create World online, signed in: a typed PIN is checked against the account
 		await vault.seed("OnlyWorlds/Worlds/Hyperion/World.md", "- **API Key:** ow_w_hyperion_held\n");
 		const plugin = fakePlugin(app, true);
 		const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: plugin.settings.accountToken, username: plugin.settings.accountUsername }));
-		const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin });
+		const res = await cmd.createWorldOnServer({ name: "Fresh", pin });
 		const posts = sent("/account/worlds").filter((r) => pathOf(r.url) === "/account/worlds" && r.method === "POST");
 		assert.equal(posts.length, created, `PIN ${pin}`);
 		assert.equal(res === null, created === 0, `PIN ${pin}`);
+		noOldRoute();
 	}
 });
 
@@ -633,67 +666,99 @@ test("Create World online, signed in, a create answer without a full write key: 
 	keel({
 		answers: {
 			...accountAnswers(),
-			"POST /account/worlds": { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", public_read: false, keys: [{ name: "", last4: "ab12", scope: "WRITE", revoked: false }] } },
 			[`GET /account/worlds/${OWNED}/keys`]: {
 				status: 200,
 				json: { data: [
-					{ id: "k0", name: "", last4: "ab12", scope: "WRITE", revoked: false },
+					{ id: "k0", name: "obsidian: Test Vault", last4: "eate", scope: "WRITE", revoked: false },
 					{ id: "k1", name: "obsidian: Test Vault", last4: "rion", scope: "WRITE", revoked: false },
 				] },
 			},
 			[`DELETE /account/worlds/${OWNED}/keys/k0`]: { status: 204 },
 		},
+		route: (r, path) => (r.method === "POST" && path === "/account/worlds" ? createAnswer(r, null) : undefined),
 	});
 	const { app } = makeApp();
 	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }));
-	const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin: 1234 });
-	assert.equal(res.api_key, "ow_w_minted_hyperion");
+	const res = await cmd.createWorldOnServer({ name: "Fresh", pin: 1234 });
+	assert.equal(res?.api_key, "ow_w_minted_hyperion");
 	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0, "the create key went before the vault key landed");
-	await res.afterLanding();
+	await res?.afterLanding?.();
 	const mint = sent(`/account/worlds/${OWNED}/keys`).filter((r) => r.method === "POST");
 	assert.equal(JSON.parse(mint[0].body ?? "{}").name, "obsidian: Test Vault");
 	const revoked = __requests.filter((r) => r.method === "DELETE");
 	assert.equal(revoked.length, 1);
 	assert.equal(pathOf(revoked[0].url), `/account/worlds/${OWNED}/keys/k0`);
 	assert.equal(revoked[0].headers.Authorization, `Bearer ${TOKEN}`);
+	noOldRoute();
 });
 
-test("Create World online, signed in, an account with no PIN yet: keel asks (422 param pin), the PIN goes once", async () => {
+test("Create World online, signed in, no full key in the answer and no key for the vault could be made: the person is told, nothing half-linked", async () => {
+	keel({
+		answers: {
+			...accountAnswers(),
+			[`POST /account/worlds/${OWNED}/keys`]: { status: 500, json: { error: { code: "server_error", message: "boom" } } },
+		},
+		route: (r, path) => (r.method === "POST" && path === "/account/worlds" ? createAnswer(r, null) : undefined),
+	});
+	const { app } = makeApp();
+	__modals.length = 0;
+	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }));
+	const res = await cmd.createWorldOnServer({ name: "Fresh", pin: 1234 });
+	assert.equal(res, null);
+	assert.equal(__modals.length, 1);
+	assert.match((__modals[0] as unknown as { message: string }).message, /no key for this vault could be made/);
+	assert.equal(__requests.filter((r) => r.method === "DELETE").length, 0);
+});
+
+test("Create World online, signed in, an account with no PIN yet: keel asks (422 param pin), the PIN goes once, the key still named", async () => {
 	keel({
 		answers: accountAnswers(),
 		route: (r, path) => {
 			if (r.method === "POST" && path === "/account/worlds") {
 				const b = JSON.parse(r.body ?? "{}");
 				if (b.pin === undefined) return { status: 422, json: { error: { code: "invalid_request", param: "pin", message: "Your account has no PIN yet." } } };
-				return { status: 201, json: { id: OWNED, name: "Fresh", role: "owner", key: "ow_w_created" } };
+				return createAnswer(r, "ow_w_created");
 			}
 			return undefined;
 		},
 	});
 	const { app } = makeApp();
 	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => ({ token: TOKEN, username: "tess" }));
-	const res = await cmd.createWorldOnServer({ name: "Fresh", email: "", pin: 4321 });
+	const res = await cmd.createWorldOnServer({ name: "Fresh", pin: 4321 });
 	const creates = __requests.filter((r) => r.url === `${V2}/account/worlds` && r.method === "POST");
 	assert.equal(creates.length, 2);
-	assert.deepEqual(JSON.parse(creates[1].body ?? "{}"), { name: "Fresh", pin: "4321" });
-	assert.ok(res.api_key);
+	assert.deepEqual(JSON.parse(creates[0].body ?? "{}"), { name: "Fresh", key_name: "obsidian: Test Vault" });
+	assert.deepEqual(JSON.parse(creates[1].body ?? "{}"), { name: "Fresh", pin: "4321", key_name: "obsidian: Test Vault" });
+	assert.equal(res?.api_key, "ow_w_created");
+	noOldRoute();
 });
 
-test("Create World online, not signed in: the old route, unchanged", async () => {
-	const OLD = "https://www.onlyworlds.com/api/worldsync/create-world-external/";
-	keel({ answers: { [`POST ${OLD}`]: { status: 200, json: { success: true, api_key: "1234567890" } } } });
-	const { app } = makeApp();
-	__modals.length = 0;
-	const cmd = new CreateWorldCommand(app, { version: "test" } as never, undefined, () => null);
-	const pending = cmd.createWorldOnServer({ name: "Old", email: "a@b.c", pin: 1234 });
-	// The old path shows the key in a modal and resolves when it closes.
-	for (let i = 0; i < 20 && __modals.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
-	(__modals[0] as unknown as { onCloseCallback: () => void }).onCloseCallback();
-	const res = await pending;
-	assert.equal(res.api_key, "1234567890");
-	assert.equal(__requests.length, 1);
-	assert.equal(__requests[0].url, OLD);
-	assert.deepEqual(JSON.parse(__requests[0].body ?? "{}"), { name: "Old", email: "a@b.c", pin: 1234 });
+test("requestUrlFetch: headers as a Headers instance, as pairs or as an object all reach requestUrl as a plain object (Amendment A, low)", async () => {
+	assert.deepEqual(plainHeaders(new Headers({ Authorization: "Bearer t", "Content-Type": "application/json" })), { authorization: "Bearer t", "content-type": "application/json" });
+	assert.deepEqual(plainHeaders([["X-A", "1"]]), { "X-A": "1" });
+	assert.deepEqual(plainHeaders({ "X-B": "2" }), { "X-B": "2" });
+	assert.deepEqual(plainHeaders(undefined), {});
+	setRequestUrl(() => ({ status: 200, json: { ok: true } }));
+	__requests.length = 0;
+	const res = await requestUrlFetch(`${V2}/health`, { method: "POST", headers: new Headers({ Authorization: "Bearer t" }), body: "{}" });
+	assert.equal(res.status, 200);
+	assert.equal(__requests[0].headers.authorization, "Bearer t");
+	assert.equal(__requests[0].body, "{}");
+});
+
+test("requestUrlFetch refuses a body that is not a string, and sends nothing (Amendment A, low)", async () => {
+	setRequestUrl(() => ({ status: 200, json: {} }));
+	__requests.length = 0;
+	await assert.rejects(requestUrlFetch(`${V2}/health`, { method: "POST", body: new Uint8Array([1]) }), /only a string body; this request was not sent/);
+	assert.equal(__requests.length, 0);
+});
+
+test("the Default email setting is gone; an older data.json that still holds it loads as before (Amendment B)", () => {
+	assert.equal("defaultEmail" in DEFAULT_SETTINGS, false);
+	// main.ts loadSettings: Object.assign({}, DEFAULT_SETTINGS, data)
+	const loaded = Object.assign({}, DEFAULT_SETTINGS, { defaultEmail: "a@b.c", defaultWorld: "Hyperion" });
+	assert.equal(loaded.defaultWorld, "Hyperion");
+	assert.equal(loaded.defaultCategory, DEFAULT_SETTINGS.defaultCategory);
 });
 
 // --- the key-and-PIN download stays as it is ------------------------------------

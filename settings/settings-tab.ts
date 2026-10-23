@@ -69,19 +69,6 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Default email")
-			.setDesc("Pre-fills the email field when creating new worlds.")
-			.addText((text) =>
-				text
-					.setPlaceholder("you@example.com")
-					.setValue(this.plugin.settings.defaultEmail)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultEmail = value.trim();
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
 			.setName("Default new element category")
 			.setDesc("Pre-selected category in the Create element command.")
 			.addDropdown((dd) => {

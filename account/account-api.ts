@@ -1,4 +1,5 @@
 import { requestUrl, RequestUrlParam } from "obsidian";
+import { OwApiError, OwV2Client } from "@onlyworlds/sdk";
 import { V2ApiError } from "../client-v2";
 
 /**
@@ -14,7 +15,8 @@ import { V2ApiError } from "../client-v2";
  * Routes, as keel's OpenAPI document declares them (accounts/api.py):
  *   GET  /api/v2/account                        the profile (username)
  *   GET  /api/v2/account/worlds                 owned and member worlds
- *   POST /api/v2/account/worlds                 create a world {name, pin?}
+ *   POST /api/v2/account/worlds                 create a world {name, pin?, key_name?}
+ *        (through the SDK's createAccountWorld since 3.11, OW Obsidian #577)
  *   POST /api/v2/account/worlds/{id}/keys       mint a key {scope, name}; for a
  *        member keel binds it to their own membership (409 pin_required when a
  *        member without an account PIN asks for a write key)
@@ -131,8 +133,61 @@ export function isAccountToken(token: string): boolean {
 
 export const NOT_A_TOKEN = "That is not an account token. Account tokens start with ow_a_.";
 
+/**
+ * `fetch` over Obsidian's requestUrl, for the SDK's client (OW Obsidian #577):
+ * requestUrl is not held to the browser's cross-origin rules, as every other
+ * request of the plugin is not, and a 429 or 503 carrying Retry-After is
+ * retried once as owRequest retries it. Only what the SDK reads of an answer
+ * is given: ok, status, a header by name, the text, the JSON. Headers come as
+ * a plain object, a Headers instance or name-value pairs; a body that is not
+ * a string is refused before anything is sent, never dropped.
+ */
+export function plainHeaders(headers: HeadersInit | undefined): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!headers) return out;
+	if (typeof Headers !== "undefined" && headers instanceof Headers) {
+		headers.forEach((value, name) => (out[name] = value));
+	} else if (Array.isArray(headers)) {
+		for (const [name, value] of headers) out[name] = value;
+	} else {
+		for (const [name, value] of Object.entries(headers)) out[name] = String(value);
+	}
+	return out;
+}
+
+export const requestUrlFetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+	const body = init?.body;
+	if (body !== undefined && body !== null && typeof body !== "string") {
+		throw new TypeError("requestUrlFetch sends only a string body; this request was not sent.");
+	}
+	const req: RequestUrlParam = {
+		url: typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+		method: init?.method ?? "GET",
+		headers: plainHeaders(init?.headers),
+		throw: false,
+	};
+	if (typeof body === "string") req.body = body;
+	let res = await requestUrl(req);
+	if (res.status === 429 || res.status === 503) {
+		const wait = retryAfterMs(res.headers);
+		if (wait !== null) {
+			await owTiming.sleep(wait);
+			res = await requestUrl(req);
+		}
+	}
+	const text = res.text ?? "";
+	const headers = res.headers ?? {};
+	return {
+		ok: res.status >= 200 && res.status < 300,
+		status: res.status,
+		headers: { get: (name: string) => Object.entries(headers).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1] ?? null },
+		text: async () => text,
+		json: async () => JSON.parse(text) as unknown,
+	} as unknown as Response;
+}) as typeof fetch;
+
 function networkWords(e: unknown, fallback: string): Error {
-	if (e instanceof V2ApiError) {
+	if (e instanceof V2ApiError || e instanceof OwApiError) {
 		if (e.status === 401) return new Error("OnlyWorlds does not know that token: it was revoked, or copied wrong. Make a new one on onlyworlds.com, in Account settings under Account tokens.");
 		if (e.status === 429) return new Error("Too many requests. Try again in a minute.");
 		return new Error(e.message || fallback);
@@ -349,24 +404,27 @@ export const REVOKE_BY_HAND = (world: string) =>
 	`The old read key for ${world} could not be revoked from here: revoke it on onlyworlds.com, in Account settings under the world's keys.`;
 
 /**
- * Create a world on the account (POST /account/worlds). keel wants `pin` only
- * from an account that has none yet (it becomes the account PIN) and refuses
- * it from one that has (422, param pin both ways), so the PIN is sent only
- * when keel says the account has none.
+ * Create a world on the account: POST /api/v2/account/worlds through the
+ * SDK's createAccountWorld (4.65.0 and later; OW Obsidian #577), the account
+ * token as the Bearer. keel wants `pin` only from an account that has none yet
+ * (it becomes the account PIN) and refuses it from one that has (422, param
+ * pin both ways), so the PIN is sent only when keel says the account has none.
+ * `keyName` names the world's write key, which keel shows once in `key`.
  */
 export async function createAccountWorld(
 	token: string,
 	name: string,
-	pin: string
+	pin: string,
+	keyName?: string
 ): Promise<CreatedWorld> {
-	type Created = CreatedWorld;
+	const client = new OwV2Client({ apiKey: token, fetch: requestUrlFetch });
+	const named = keyName ? { keyName } : {};
 	try {
-		return await owRequest<Created>("POST", "/account/worlds", { token, body: { name } });
+		return (await client.createAccountWorld({ name, ...named })) as CreatedWorld;
 	} catch (e) {
-		const param = (e as { param?: string | null }).param;
-		if (e instanceof V2ApiError && e.status === 422 && param === "pin" && pin) {
+		if (e instanceof OwApiError && e.status === 422 && e.param === "pin" && pin) {
 			try {
-				return await owRequest<Created>("POST", "/account/worlds", { token, body: { name, pin } });
+				return (await client.createAccountWorld({ name, pin, ...named })) as CreatedWorld;
 			} catch (e2) {
 				throw networkWords(e2, "The world could not be created. Try again.");
 			}
@@ -374,3 +432,11 @@ export async function createAccountWorld(
 		throw networkWords(e, "The world could not be created. Try again.");
 	}
 }
+
+/**
+ * Creating a world on onlyworlds.com goes through the account (keel #134 froze
+ * the old email-and-PIN route; OW Obsidian #577): signed out, the plugin says so.
+ */
+export const CREATE_SIGN_IN_FIRST =
+	"Creating a world on onlyworlds.com goes through your account: sign in first (Settings, OnlyWorlds account), then create it again. " +
+	"Or create a local-only world: everything stays in your vault.";

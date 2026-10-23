@@ -9,7 +9,9 @@
  * What is emulated, and how faithfully:
  *   - Vault: a path -> content map. create / modify / read / createFolder /
  *     delete (a file, or an empty folder only; recorded in `deletes`),
- *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write,list}.
+ *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write,list},
+ *     and adapter.{readBinary,writeBinary,mkdir}: bytes written as bytes read
+ *     back exactly (OW Obsidian #577's records).
  *     `create` refuses an existing path, as Obsidian does.
  *   - metadataCache.getFileCache: parses the frontmatter synchronously from the
  *     current content (an always-warm cache) — UNLESS `coldCache` is set, in
@@ -181,6 +183,12 @@ export class MockVault {
 	files = new Map<string, { file: TFile; content: string }>();
 	folders = new Map<string, TFolder>();
 	dotfiles = new Map<string, string>();
+	/**
+	 * Bytes written as bytes (adapter.writeBinary, seedBinary): read back by
+	 * readBinary exactly; a text write to the path drops them. A path with no
+	 * entry here reads its text as UTF-8.
+	 */
+	binaries = new Map<string, Uint8Array>();
 	/** The disk is case-insensitive (Windows, macOS): see the header. */
 	caseInsensitive = false;
 	private onDisk(p: string): boolean {
@@ -211,8 +219,30 @@ export class MockVault {
 			if (e) return e.content;
 			throw new Error("ENOENT " + p);
 		},
+		/** The bytes at a path: as written by writeBinary, else its text as UTF-8. */
+		readBinary: async (p: string): Promise<ArrayBuffer> => {
+			p = normalizePath(p);
+			const b = this.binaries.get(p);
+			const bytes = b ?? (this.dotfiles.has(p) ? new TextEncoder().encode(this.dotfiles.get(p)) : this.files.has(p) ? new TextEncoder().encode(this.files.get(p)?.content) : null);
+			if (!bytes) throw new Error("ENOENT " + p);
+			return bytes.slice().buffer;
+		},
+		/** Bytes kept exactly; the file is listed like any other (a dot-path stays hidden). */
+		writeBinary: async (p: string, data: ArrayBuffer) => {
+			p = normalizePath(p);
+			const bytes = new Uint8Array(data.slice(0));
+			const text = new TextDecoder().decode(bytes);
+			await this.adapter.write(p, text);
+			this.binaries.set(p, bytes);
+		},
+		/** One folder (its parent must exist on disk); a dot-folder too. */
+		mkdir: async (p: string) => {
+			p = normalizePath(p);
+			if (!this.folders.has(p)) await this.createFolder(p);
+		},
 		write: async (p: string, data: string) => {
 			p = normalizePath(p);
+			this.binaries.delete(p);
 			if (p.split("/").some((seg) => seg.startsWith("."))) {
 				this.dotfiles.set(p, String(data));
 				return;
@@ -255,12 +285,14 @@ export class MockVault {
 		const f = new TFile(this, p);
 		f.parent = this.folders.get(parentPath) ?? null;
 		f.parent?.children.push(f);
+		this.binaries.delete(p);
 		this.files.set(p, { file: f, content: String(content) });
 		return f;
 	}
 	async modify(file: TFile, content: string): Promise<void> {
 		const e = this.files.get(file.path);
 		if (!e) throw new Error("modify: no such file " + file.path);
+		this.binaries.delete(file.path);
 		e.content = String(content);
 	}
 	async read(file: TFile): Promise<string> {
@@ -283,6 +315,21 @@ export class MockVault {
 		const parentPath = this.parentOf(p);
 		if (!this.folders.has(parentPath)) await this.createFolder(parentPath);
 		return this.create(p, content);
+	}
+	/** Test helper: write bytes at a path (a dot-path stays hidden), creating its parent folders. */
+	async seedBinary(p: string, bytes: Uint8Array): Promise<void> {
+		p = normalizePath(p);
+		const parentPath = this.parentOf(p);
+		if (!this.folders.has(parentPath)) await this.createFolder(parentPath);
+		await this.adapter.writeBinary(p, bytes.slice().buffer);
+	}
+	/** Test helper: the bytes at a path as readBinary gives them (undefined if absent). */
+	async bytesAt(p: string): Promise<Uint8Array | undefined> {
+		try {
+			return new Uint8Array(await this.adapter.readBinary(p));
+		} catch {
+			return undefined;
+		}
 	}
 	/** Move a file, or a folder with everything under it (what renameFile does in Obsidian). */
 	move(from: string, to: string): void {

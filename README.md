@@ -23,12 +23,13 @@ A local-only world's `World.md` reads `API Key: local`. Nothing is sent anywhere
 **With an onlyworlds.com account:**
 
 1. Make an account at [onlyworlds.com](https://www.onlyworlds.com/accounts/signup/).
-2. Run **Create world** and choose **Create with account** (your email and PIN). The plugin creates the world on onlyworlds.com and writes its API key into `World.md`.
-3. Push edits with **Save element**, **Upload world**, or auto-sync (below).
+2. Sign in: in Settings, under the OnlyWorlds account, paste an account token (made on onlyworlds.com, in Account settings under Account tokens).
+3. Run **Create world** and choose **Create with account** (your account PIN; an account without one yet takes the one you type). The plugin creates the world on your account and writes its key, named for this vault, into `World.md`.
+4. Push edits with **Save element**, **Upload world**, or auto-sync (below).
 
 **A world you already have online:** run **Download world** and paste a write key or a read key from the world's Access page on onlyworlds.com, under Keys, with your PIN. A read key needs no PIN, which suits a world someone shared with you. Classic 10-digit keys work too.
 
-**Taking a local world online:** run **Create world**, enter your email and PIN, pick the world under **Or take a local world online**, and press **Take online**. The plugin creates the world on your account, writes the key into `World.md`, and uploads the elements, keeping their ids and links. (By hand: replace `local` in `World.md` with the key of a world you made on the site, then run **Upload world**.)
+**Taking a local world online:** signed in, run **Create world**, enter your PIN, pick the world under **Or take a local world online**, and press **Take online**. The plugin creates the world on your account, writes the key into `World.md`, and uploads the elements, keeping their ids and links. (By hand: replace `local` in `World.md` with the key of a world you made on the site, then run **Upload world**.)
 
 ## A note
 
@@ -121,8 +122,8 @@ With Obsidian Sync or another sync tool, Download rebuilds the base from your wo
 | Rename world | Rename the world folder, and the world on onlyworlds.com if it has a key. |
 | Write Bases file | Write the active world's `.base` file (see Bases); rebuilds one you changed, keeping your version beside it. |
 | Draw relationships on a canvas | Draw the active element, what it links to and what links to it as an Obsidian canvas beside its note, each arrow labelled with its field. A Relation keeps its own card. Running it again redraws the canvas; one you changed is first saved as `(your copy)`. File names stop at 255 characters, so an element whose name is longer than about 230 gets no canvas. |
-| Export as OnlyWorlds folder | Write the world as an OnlyWorlds folder (`world.json` plus one JSON file per element). Into the vault, or on desktop into any folder, such as your [Atlas](https://atlas.onlyworlds.com) folder. Never overwrites an existing folder. |
-| Import OnlyWorlds folder | Read an OnlyWorlds folder placed in the vault into notes. Skips elements that already have a note; refuses to merge into a different world of the same name. |
+| Export as OnlyWorlds folder | Write the world as an OnlyWorlds folder (`world.json` plus one JSON file per element, and the world's `records/` byte for byte). Into the vault, or on desktop into any folder, such as your [Atlas](https://atlas.onlyworlds.com) folder. Records a tool marked private stay out unless you turn on **Include private records**. Never overwrites an existing folder. |
+| Import OnlyWorlds folder | Read an OnlyWorlds folder placed in the vault into notes. Skips elements that already have a note; refuses to merge into a different world of the same name. The folder's `records/` (data other tools keep beside the world) is copied into the world's folder unchanged, and the export writes it back. |
 | Copy world to clipboard / Paste world from clipboard | The world as JSON, out and back in. |
 | Update world to latest format | Bring older notes to the current layout: adds missing fields, moves text fields into body sections. Shows the changes and writes nothing until you confirm. |
 | Migrate world notes to frontmatter | Convert notes from the old `<span>` format. Backs every note up first, to `OW-backup-<world>-<timestamp>/`. |
@@ -137,7 +138,6 @@ Updating the plugin does not change your notes, and it reads every format it has
 | API key | empty | Fallback key for a world whose `World.md` has none. Stored in the vault's plugin data. |
 | API PIN | empty | Your 4-digit PIN, stored in the vault's plugin data. Leave empty to be asked once per session. |
 | Default world | empty | The world commands act on. Empty: the first world alphabetically. |
-| Default email | empty | Pre-fills the email in Create world. |
 | Default new element category | Character | Pre-selected in Create element. |
 | Individual element creation commands | off | Adds a `Create new <Type>` command per element type. Reload Obsidian after changing it. |
 | Auto-sync to OnlyWorlds | off | Push edits automatically. |
