@@ -95,7 +95,7 @@ test("★ an export of a downloaded world carries the server id, every key GET /
 	assert.equal(source.world, WID);
 	assert.ok(typeof source.at === "string" && !Number.isNaN(Date.parse(source.at)), `source.at: ${String(source.at)}`);
 	assert.deepEqual(world.producer, { tool: "onlyworlds-builder", version: "3.8.0", input: "obsidian-vault" });
-	assert.equal(world.format_version, "0.3.14");
+	assert.equal(world.format_version, "0.3.15");
 	// the provenance this writer cannot know is absent, never guessed
 	for (const k of ["exported_as", "snapshot_of", "api", "api_key"]) assert.equal(k in world, false, `${k} written`);
 
@@ -202,7 +202,7 @@ test("★ an export with a key carries exported_as from GET /me: the owner's who
 	const { world } = await exportWorld(app, vault, "Moppetopia", host);
 	assert.deepEqual(world.exported_as, { kind: "owner", role: "owner", character: null });
 	assert.equal(seen.filter((s) => s === "GET /me").length, 1, "one /me");
-	assert.equal(world.format_version, "0.3.14");
+	assert.equal(world.format_version, "0.3.15");
 	assert.deepEqual(Object.keys(world).slice(-4), ["source", "exported_as", "producer", "format_version"]);
 });
 
@@ -246,7 +246,7 @@ test("★ without a key, an export writes no exported_as, asks nothing and says 
 	assert.equal("exported_as" in world, false);
 	assert.deepEqual(seen.filter((s) => s === "GET /me"), [], "no /me without a key");
 	assert.equal(idNote, null);
-	assert.equal(world.format_version, "0.3.14");
+	assert.equal(world.format_version, "0.3.15");
 	// A world made in the vault (a local world) asks nothing either.
 	const local = makeApp();
 	await local.vault.seed("OnlyWorlds/Worlds/Native/World.md", "# World Overview: Native\n\n- **API Key:** local\n");
