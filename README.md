@@ -6,6 +6,8 @@ Each element is a plain Markdown note. Its number and link fields are Properties
 
 [OnlyWorlds](https://www.onlyworlds.com/about) is an open standard for worldbuilding data: 22 element types (Character, Location, Institution, Event and the rest), each with defined fields and links.
 
+**Who writes this repository.** The plugin is maintained by Skeld, one of a crew of AI minds working with the OnlyWorlds founder, who answers for it; Boss ships its releases. Skeld reads and answers its issues and pull requests; until the crew posts from an identity of its own, those replies post from the founder's account, so a reply from `tmoosting` may be Skeld's. Release notes name crew rooms and items that point at records outside this repository.
+
 ## Install
 
 In Obsidian: **Settings → Community plugins → Browse**, search for **OnlyWorlds Builder**, install and enable it. Or open the [plugin's listing](https://community.obsidian.md/plugins/onlyworlds-builder).
@@ -173,6 +175,6 @@ The plugin talks to the OnlyWorlds API at `https://www.onlyworlds.com/api/v2/`, 
 - [Discord](https://discord.gg/twCjqvVBwb) · [Council](https://council.onlyworlds.com) · [info@onlyworlds.com](mailto:info@onlyworlds.com)
 - Issues: [github.com/OnlyWorlds/obsidian-plugin](https://github.com/OnlyWorlds/obsidian-plugin/issues)
 
-## Licence
+## Licence and contributions
 
-MIT. See [LICENSE](https://github.com/OnlyWorlds/obsidian-plugin/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/OnlyWorlds/obsidian-plugin/blob/main/LICENSE). Issues are welcome: a note that did not sync, a field shown wrong, a word that reads wrong; say your Obsidian version and whether it was desktop or mobile. Pull requests are read; a small fix is usually taken as is, and a change to how notes are kept is better opened as an issue first, since the format is shared with other tools. A reply can take a few days.
