@@ -113,6 +113,7 @@ export class PasteWorldCommand {
         // name), so link fields render as [[Name]] wikilinks. Sanitized to match
         // the on-disk basename writeElement produces (same rule as download).
         const idToName = this.buildIdToNameMap(data);
+        const idToRealName = this.buildIdToRealNameMap(data);
 
         for (const category in Category) {
             if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
@@ -167,7 +168,7 @@ export class PasteWorldCommand {
                     element,
                     {
                         folderPath: existingElementPath ? existingElementPath.slice(0, existingElementPath.lastIndexOf('/')) : categoryDirectory,
-                        fileName, idToName, keepAbove, knownOf: write === 'stub',
+                        fileName, idToName, idToRealName, keepAbove, knownOf: write === 'stub',
                     }
                 );
             }
@@ -193,6 +194,20 @@ export class PasteWorldCommand {
             for (const element of data[category]) {
                 if (element && typeof element.id === 'string' && typeof element.name === 'string' && element.name) {
                     map.set(element.id, sanitizeFileName(element.name));
+                }
+            }
+        }
+        return (id: string) => map.get(id) ?? null;
+    }
+
+    /** id -> the element's own name, for the `### Depends on` lines (shown where it differs from the note's name). */
+    private buildIdToRealNameMap(data: any): (id: string) => string | null {
+        const map = new Map<string, string>();
+        for (const category in Category) {
+            if (!Array.isArray(data[category])) continue;
+            for (const element of data[category]) {
+                if (element && typeof element.id === 'string' && typeof element.name === 'string' && element.name) {
+                    map.set(element.id, element.name);
                 }
             }
         }

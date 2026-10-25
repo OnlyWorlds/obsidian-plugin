@@ -655,7 +655,7 @@ export class DownloadWorldCommand {
         // from the plan (every pulled element's real note name) + a raw-disk
         // fallback for ids outside an incremental pull's changed set.
         // metadataCache is NOT consulted — its staleness mid-bulk-write IS the bug.
-        const idToName = await this.buildIdToNameMap(worldName, plans);
+        const { toName: idToName, toRealName: idToRealName } = await this.buildIdToNameMap(worldName, plans);
 
         // Pass 2 — rename and write. `landed`: the ids whose note this pull wrote.
         const landed: string[] = [];
@@ -710,6 +710,7 @@ export class DownloadWorldCommand {
                         folderPath: notePath.slice(0, notePath.lastIndexOf('/')),
                         fileName: notePath.split('/').pop(),
                         idToName,
+                        idToRealName,
                         // A downloaded note carries the SAME full field set as a
                         // created one. Without this the note shows only fields
                         // that happen to hold values, so a sparse element gives
@@ -750,8 +751,11 @@ export class DownloadWorldCommand {
     private async buildIdToNameMap(
         worldName: string,
         plans: { element: any; notePath: string }[]
-    ): Promise<(id: string) => string | null> {
+    ): Promise<{ toName: (id: string) => string | null; toRealName: (id: string) => string | null }> {
         const map = new Map<string, string>();
+        // The element's own name beside its note's name: a `### Depends on`
+        // line shows it where the two differ (a name a file name cannot hold).
+        const real = new Map<string, string>();
         const basename = (path: string) => (path.split('/').pop() ?? path).replace(/\.md$/i, '');
 
         // Source 2 (disk) first, so Source 1 (the plan) overwrites on any id
@@ -761,9 +765,11 @@ export class DownloadWorldCommand {
         for (const file of files) {
             try {
                 const content = await this.app.vault.read(file);
-                const fm = parseRawFrontmatterScalars(content, ['id']);
+                const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
                 if (fm.id) {
                     map.set(fm.id, file.basename);
+                    if (fm.name) real.set(fm.id, fm.name);
+                    else real.delete(fm.id);
                 }
             } catch { /* unreadable note — skip */ }
         }
@@ -773,10 +779,12 @@ export class DownloadWorldCommand {
             const element = plan.element;
             if (element && typeof element.id === 'string') {
                 map.set(element.id, basename(plan.notePath));
+                if (typeof element.name === 'string' && element.name) real.set(element.id, element.name);
+                else real.delete(element.id);
             }
         }
 
-        return (id: string) => map.get(id) ?? null;
+        return { toName: (id: string) => map.get(id) ?? null, toRealName: (id: string) => real.get(id) ?? null };
     }
 
     async linkifyContent(noteContent: string, data: any): Promise<string> {
