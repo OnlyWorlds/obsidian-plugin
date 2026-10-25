@@ -109,7 +109,7 @@ test("★ a pull writes the section last: three ids, two resolve, one does not, 
 	assert.ok(text.endsWith(`### Depends on\n\n- [[Argynvostholt]]\n- (not in this vault: ${GONE})\n- [[Vallaki]]\n\n`), text);
 	assert.equal(text.split("### Depends on").length, 2, "one section");
 	assert.ok(text.indexOf("A walled village.") < text.indexOf("### Depends on"), "the section goes last");
-	assert.match(text, new RegExp(`x_spine_depends_on:\\n  - ${ARGYNVOST}\\n  - ${GONE}\\n  - ${VALLAKI}\\n`), "the list stays in the frontmatter as served");
+	assert.ok(text.includes(`x_spine_depends_on:\n  - "[[Argynvostholt]]"\n  - ${GONE}\n  - "[[Vallaki]]"\n`), "the list stays in the frontmatter in the served order, its ids as links (3.13.0), the gap a bare id");
 	for (const other of ["Vallaki", "Argynvostholt"]) assert.ok(!(await note(made, other)).text.includes("Depends on"), other);
 });
 
@@ -373,7 +373,7 @@ test("★ a second pull resolves the dependency from the note on disk: the alias
 	await pull([upsert(KREZK, "Krezk", 4, { x_spine_depends_on: [SDK, VALLAKI] })], first);
 	const second = (await note(first, "Krezk")).text;
 	assert.equal(second, before, "the same note");
-	assert.equal(second.split(`[[${SDK_NOTE}|${SDK_NAME}]]`).length, 2, "the alias line once");
+	assert.equal(SECTION_OF(second).split(`[[${SDK_NOTE}|${SDK_NAME}]]`).length, 2, "the alias line once");
 	await pull([upsert(KREZK, "Krezk", 5, { x_spine_depends_on: [SDK, VALLAKI] })], first);
 	assert.equal((await note(first, "Krezk")).text, before, "and a third time");
 	assert.equal(dependsOnOwnText(withoutDependsOn(splitNote(second).body).section), "", "nothing in it reads as the person's");

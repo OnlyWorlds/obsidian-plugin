@@ -204,7 +204,9 @@ export function categoryToResourceKey(category: string): string {
  * note carries no recoverable id.
  *
  * Extension-namespaced frontmatter keys (atlas_/shadow_/x_) are preserved into
- * `fields` verbatim (R3). The body becomes description (or story for Narrative).
+ * `fields` verbatim (R3), except a whole value of links to elements, which
+ * reads back as their ids (3.13.0). The body becomes description (or story
+ * for Narrative).
  *
  * Note: reliable frontmatter needs metadataCache to have indexed the file. When
  * a caller writes then immediately re-reads, the cache may lag; we fall back to
@@ -485,6 +487,7 @@ export async function writeElement(
 	const resolveId = opts.idToName ?? buildIdToNameResolver(app, worldName);
 	const built = apiDataToFrontmatter(data, cat, elementId, {
 		resolveIdToName: resolveId,
+		resolveIdToRealName: opts.idToRealName,
 		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
 	});
 	// The mark sits under the id, where the Properties panel shows it first;
