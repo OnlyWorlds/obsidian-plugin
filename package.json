@@ -33,6 +33,6 @@
     "@onlyworlds/sdk": "^4.66.0",
     "handlebars": "^4.7.10",
     "obsidian": "latest",
-    "uuid": "^10.0.0"
+    "uuid": "^11.1.1"
   }
 }
