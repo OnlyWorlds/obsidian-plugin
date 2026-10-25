@@ -218,6 +218,12 @@ export class ImportFolderCommand {
 		// metadata cache is not consulted: it is cold for notes written moments
 		// ago in this run, so links came in as raw uuids (hop 9: 43%).
 		const idToName = await this.planNoteNames(targetWorld, parsed, existingIds);
+		// The elements' own names, for the `### Depends on` lines (shown where
+		// they differ from the note's name).
+		const realNames = new Map<string, string>();
+		for (const el of parsed) {
+			if (typeof el.payload.name === "string" && el.payload.name) realNames.set(String(el.payload.id), el.payload.name);
+		}
 
 		// Pass 2 — translate prose ow:// -> [[wikilink]], mint notes via writeElement.
 		const result = { created: [] as string[], skipped: [] as string[], failed, duplicates };
@@ -260,6 +266,7 @@ export class ImportFolderCommand {
 					markSelfWrite: this.markSelfWrite,
 					fileName: planned ? `${planned}.md` : undefined,
 					idToName: (target) => idToName.get(target) ?? null,
+					idToRealName: (target) => realNames.get(target) ?? null,
 					knownOf,
 				});
 				// "created" must only ever count notes that still exist. writeElement

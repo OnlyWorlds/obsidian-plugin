@@ -22,12 +22,17 @@ import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { writeElement, readElement } from "../vault/element-file";
 import { dependsOnSection, dependsOnOwnText, dependsOnKeptMessage, withoutDependsOn, withDependsOn, isDependsOnHeading } from "../vault/element-transform";
 import { harnessSave } from "./support/save-harness";
+import { splitNote } from "../vault/element-transform";
+import { sanitizeFileName } from "../Scripts/WorldService";
 
 const WID = "019e0000-0000-7000-8000-0000000000ee";
 const VALLAKI = "019e0000-0000-7000-8000-0000000000a1";
 const KREZK = "019e0000-0000-7000-8000-0000000000a2";
 const ARGYNVOST = "019e0000-0000-7000-8000-0000000000a3";
 const GONE = "019e0000-0000-7000-8000-0000000000ff"; // an id with no element in the world
+const SDK = "019e0000-0000-7000-8000-0000000000b1";
+const SDK_NAME = "@onlyworlds/sdk"; // a name a file name cannot hold: the slash
+const SDK_NOTE = sanitizeFileName(SDK_NAME); // what the plugin's own rule makes of it
 
 const upsert = (id: string, name: string, seq: number, extra: Record<string, unknown> = {}) => ({
 	op: "upsert", type: "location", id, change_seq: seq, updated_at: "x", element: { id, name, ...extra },
@@ -320,6 +325,72 @@ test("★ a pull keeps a person's line under Depends on, after the generated lis
 	// The list emptied: the heading stays for the person's line alone.
 	await pull([upsert(KREZK, "Krezk", 6, { x_spine_depends_on: [] })], first);
 	assert.equal(SECTION_OF((await note(first, "Krezk")).text), "### Depends on\n\n- my own line\n\n");
+});
+
+// --- a name a file name cannot hold -------------------------------------------
+
+test("dependsOnSection: a dependency whose real name differs from its note name shows the real name as an alias; a plain name stays plain", () => {
+	const notes: Record<string, string> = { [SDK]: SDK_NOTE, [VALLAKI]: "Vallaki" };
+	const real: Record<string, string> = { [SDK]: SDK_NAME, [VALLAKI]: "Vallaki" };
+	const s = dependsOnSection([SDK, VALLAKI, GONE], (id) => notes[id] ?? null, "", (id) => real[id] ?? null);
+	assert.notEqual(SDK_NOTE, SDK_NAME, "the fixture name is one the file-name rule changes");
+	assert.equal(s, `### Depends on\n\n- [[${SDK_NOTE}|${SDK_NAME}]]\n- [[Vallaki]]\n- (not in this vault: ${GONE})\n`);
+	// No real-name resolver: the section is as it was.
+	assert.equal(dependsOnSection([SDK], (id) => notes[id] ?? null), `### Depends on\n\n- [[${SDK_NOTE}]]\n`);
+});
+
+test("dependsOnSection: a real name that would break the link line is not used as the alias", () => {
+	for (const bad of ["a [b] c", "x]]y", "two\nlines"]) {
+		const s = dependsOnSection([SDK], () => "plain-note", "", () => bad);
+		assert.equal(s, "### Depends on\n\n- [[plain-note]]\n", JSON.stringify(bad));
+	}
+	assert.equal(dependsOnSection([SDK], () => "plain-note", "", () => ""), "### Depends on\n\n- [[plain-note]]\n", "no real name");
+});
+
+test("dependsOnOwnText: an alias line is a generated line, never a person's", () => {
+	assert.equal(dependsOnOwnText(`### Depends on\n\n- [[${SDK_NOTE}|${SDK_NAME}]]\n- [[Vallaki]]\n\n`), "");
+	assert.equal(dependsOnOwnText(`### Depends on\n\n- [[${SDK_NOTE}|${SDK_NAME}]]\n- my own line\n\n`), "- my own line");
+});
+
+const SDK_PULL = () => [
+	upsert(VALLAKI, "Vallaki", 1),
+	upsert(SDK, SDK_NAME, 2),
+	upsert(KREZK, "Krezk", 3, { x_spine_depends_on: [SDK, VALLAKI] }),
+];
+const SDK_SECTION = `### Depends on\n\n- [[${SDK_NOTE}|${SDK_NAME}]]\n- [[Vallaki]]\n\n`;
+
+test("★ a pull shows a dependency's real name when its note name differs; a clean name is the plain line", async () => {
+	const made = await pull(SDK_PULL());
+	const { text } = await note(made, "Krezk");
+	assert.equal(SECTION_OF(text), SDK_SECTION);
+	assert.ok((await note(made, SDK_NOTE)).text.startsWith(`---\nname: ${SDK_NAME}\n`) || (await note(made, SDK_NOTE)).text.includes(SDK_NAME), "the element keeps its real name in its note");
+});
+
+test("★ a second pull resolves the dependency from the note on disk: the alias line once, no kept lines", async () => {
+	const first = await pull(SDK_PULL());
+	const before = (await note(first, "Krezk")).text;
+	// Only the dependent changes; the dependency's real name comes from its note.
+	await pull([upsert(KREZK, "Krezk", 4, { x_spine_depends_on: [SDK, VALLAKI] })], first);
+	const second = (await note(first, "Krezk")).text;
+	assert.equal(second, before, "the same note");
+	assert.equal(second.split(`[[${SDK_NOTE}|${SDK_NAME}]]`).length, 2, "the alias line once");
+	await pull([upsert(KREZK, "Krezk", 5, { x_spine_depends_on: [SDK, VALLAKI] })], first);
+	assert.equal((await note(first, "Krezk")).text, before, "and a third time");
+	assert.equal(dependsOnOwnText(withoutDependsOn(splitNote(second).body).section), "", "nothing in it reads as the person's");
+});
+
+const SDK_SPINE_NOTE = `---\nname: Krezk\nid: ${KREZK}\nx_spine_depends_on:\n  - ${SDK}\n  - ${VALLAKI}\n---\n\n### Description\n\nA walled village.\n\n${SDK_SECTION}`;
+const SDK_DEP_NOTE = `---\nname: ${SDK_NAME}\nid: ${SDK}\n---\n\n### Description\n\n\n`;
+
+test("★ a save of a note holding an alias line sends no field and raises no kept-lines notice", async () => {
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": SDK_SPINE_NOTE, [`Location/${SDK_NOTE}.md`]: SDK_DEP_NOTE, "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_spine_depends_on: [SDK, VALLAKI] } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent, [], "the section is no field: nothing to send");
+	assert.ok(!r.notices.some((n) => n.includes("Depends on")), r.notices.join(" | "));
 });
 
 test("★ a plain world: a Depends on heading typed by hand survives the next pull, its text kept", async () => {

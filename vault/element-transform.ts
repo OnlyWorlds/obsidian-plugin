@@ -981,19 +981,24 @@ export function dependsOnIds(value: unknown): string[] | null {
  * The generated section for a list, in buildElementBody's layout: the
  * heading, a blank line, then one line per id in the list's order,
  * `- [[<note name>]]` when `resolve` names the id's note, else
- * `- (not in this vault: <id>)`, so a gap is seen, never dropped. "" when
+ * `- (not in this vault: <id>)`, so a gap is seen, never dropped. When
+ * `realName` gives the element's own name and it differs from the note's
+ * (a name a file name cannot hold: `@onlyworlds/sdk` is the note
+ * `@onlyworlds-sdk`), the line is `- [[<note name>|<real name>]]`: it points
+ * at the note by its file name and shows the real name. A name the same as
+ * its note's stays `- [[<name>]]`. "" when
  * the value is no list or holds no id (an empty list is stated by the
  * frontmatter, not by a heading) and `own` is empty. `own` is a person's
  * text from the note's last section (dependsOnOwnText), written after the
  * list and one blank line; with no list, the heading holds it alone.
  */
-export function dependsOnSection(value: unknown, resolve: IdToName, own = ""): string {
+export function dependsOnSection(value: unknown, resolve: IdToName, own = "", realName?: IdToName): string {
 	const ids = dependsOnIds(value) ?? [];
 	const lines = ids.map((id) => {
 		const name = resolve(id);
 		// One line each, whatever the id holds: a line break in it could
 		// otherwise open a heading of its own.
-		return name ? `- ${toWikilink(name)}` : `- (not in this vault: ${id.replace(/[\r\n]+/g, " ")})`;
+		return name ? `- ${dependsOnLink(name, realName?.(id) ?? null)}` : `- (not in this vault: ${id.replace(/[\r\n]+/g, " ")})`;
 	});
 	// What a person wrote under the heading is kept, after the generated list
 	// and one blank line: never dropped, never sent (dependsOnOwnText).
@@ -1002,7 +1007,18 @@ export function dependsOnSection(value: unknown, resolve: IdToName, own = ""): s
 	return `${SECTION_HEADING} ${DEPENDS_ON_HEADING}\n\n${parts.join("\n\n")}\n`;
 }
 
-/** A line the writer puts in the section: `- [[…]]` or `- (not in this vault: …)`. */
+/**
+ * One dependency's link: `[[note]]`, or `[[note|real name]]` when the
+ * element's own name differs from its note's. A real name that would break
+ * the line (a bracket or a line break in it) is not used as the alias: the
+ * link is then the plain one, as it was.
+ */
+function dependsOnLink(noteName: string, real: string | null): string {
+	if (real && real !== noteName && !/[[\]\r\n]/.test(real)) return `[[${noteName}|${real}]]`;
+	return toWikilink(noteName);
+}
+
+/** A line the writer puts in the section: `- [[…]]` (or `- [[note|name]]`) or `- (not in this vault: …)`. */
 const DEPENDS_ON_GENERATED_LINE = /^- (?:\[\[[^\]\n]*\]\]|\(not in this vault: [^\n]*\))$/;
 
 /**

@@ -392,6 +392,12 @@ export interface WriteElementOpts {
 	 */
 	idToName?: (id: string) => string | null;
 	/**
+	 * Id -> the element's own name, for the `### Depends on` lines: where it
+	 * differs from the note's name in `idToName` (a name a file name cannot
+	 * hold), the line shows it as `[[note|name]]`. Absent -> plain lines.
+	 */
+	idToRealName?: (id: string) => string | null;
+	/**
 	 * Text written above the first field section, as it is: the person's
 	 * writing a hidden element's stub kept, when Download writes that note in
 	 * full again, back where it came from, so a later save folds it into the
@@ -562,7 +568,7 @@ export async function writeElement(
 	// knownOfOwnSections); what a person wrote under the heading is the one
 	// part of the last section kept, after the list, so it is never erased.
 	const ownDepends = dependsOnOwnText(withoutDependsOn(splitNote(content).body).section);
-	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId, ownDepends);
+	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId, ownDepends, opts.idToRealName);
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {
