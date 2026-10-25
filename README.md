@@ -56,7 +56,7 @@ Harbour pilot of Gullwrack, forty years on the shoals.
 Weathered, quick hands, a limp she never explains.
 ```
 
-The body holds one `###` section per text field, in schema order. **Manage fields** adds or removes fields on a note; **Add custom field** adds one of your own (type `Looks`, get a `### Looks` section, synced as `x_looks`). Empty fields are not uploaded.
+The body holds one `###` section per text field, in schema order. **Manage fields** adds or removes fields on a note; **Add custom field** adds one of your own (type `Looks`, get a `### Looks` section, synced as `x_looks`). Empty fields are not uploaded. A property of your own or another tool's (`x_`, `atlas_`, `shadow_`) that holds an element's id, or a list of them, shows as a link too, and goes back as the id.
 
 Text fields round-trip byte for byte through the plugin, spaces, tabs and line endings included, so whitespace you type is a change too: a trailing space or an added blank line goes out with the next save. A line of a value that starts with `### ` is written as `\### ` (Markdown's escape, so the note shows it as typed) and read back without the backslash, so it never starts a new field. A code fence line (```` ``` ```` or `~~~`) that never closes in a value is written as `\~~~` the same way, so a scene break of three tildes comes back as typed. A fence you type open in a note that swallows a later `###` heading is not saved, uploaded or exported, and the notice names the field, the line and that heading; an open fence in the last field swallows nothing and saves.
 
