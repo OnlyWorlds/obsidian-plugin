@@ -20,7 +20,7 @@ import type { TFile } from "obsidian";
 import { makeApp, setRequestUrl } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { writeElement, readElement } from "../vault/element-file";
-import { dependsOnSection, withoutDependsOn, withDependsOn, isDependsOnHeading } from "../vault/element-transform";
+import { dependsOnSection, dependsOnOwnText, dependsOnKeptMessage, withoutDependsOn, withDependsOn, isDependsOnHeading } from "../vault/element-transform";
 import { harnessSave } from "./support/save-harness";
 
 const WID = "019e0000-0000-7000-8000-0000000000ee";
@@ -119,22 +119,17 @@ test("★ no section for an empty or absent list", async () => {
 	assert.ok(!(await note(made, "Krezk")).text.includes("Depends on"));
 });
 
-test("★ a second pull writes the section again from the served list; a list that became empty takes it away", async () => {
+test("★ a second pull writes the section's list again from the served list; a list that became empty takes it away", async () => {
 	const first = await pull([
 		upsert(VALLAKI, "Vallaki", 1),
 		upsert(ARGYNVOST, "Argynvostholt", 2),
 		upsert(KREZK, "Krezk", 3, { x_spine_depends_on: [VALLAKI, ARGYNVOST] }),
 	]);
-	// The person writes inside the generated section: the plugin's, overwritten.
-	const before = await note(first, "Krezk");
-	await first.app.vault.modify(before.file as never, before.text.replace("- [[Argynvostholt]]\n", "- [[Argynvostholt]]\n- my own line\n"));
-
 	// The second pull carries only the changed element (Vallaki and
 	// Argynvostholt resolve through the notes already on disk).
 	await pull([upsert(KREZK, "Krezk", 4, { x_spine_depends_on: [ARGYNVOST] })], first);
 	const second = (await note(first, "Krezk")).text;
 	assert.equal(SECTION_OF(second), "### Depends on\n\n- [[Argynvostholt]]\n\n");
-	assert.ok(!second.includes("my own line"));
 
 	await pull([upsert(KREZK, "Krezk", 5, { x_spine_depends_on: [] })], first);
 	const third = (await note(first, "Krezk")).text;
@@ -252,4 +247,88 @@ test("★ a pull of a world without the list writes the note as 3.11.0 did, byte
 	]);
 	const { text } = await note(made, "Krezk");
 	assert.equal(text, PLAIN_EXPECTED);
+});
+
+// --- a person's own lines under the heading -----------------------------------
+
+test("dependsOnOwnText: every line but the heading, the generated ones and the blank edges", () => {
+	assert.equal(dependsOnOwnText(`### Depends on\n\n- [[Vallaki]]\n- (not in this vault: ${GONE})\n\n`), "");
+	assert.equal(dependsOnOwnText("### Depends on\n\n- [[Vallaki]]\n- my own line\n\nAnd a note.\n\n"), "- my own line\n\nAnd a note.");
+	assert.equal(dependsOnOwnText("### depends ON\r\n\r\nThe pass.\r\n"), "The pass.");
+	assert.equal(dependsOnOwnText(""), "");
+});
+
+const KEPT = dependsOnKeptMessage("Krezk");
+
+test("★ a save of a note with a line of its own under Depends on: one notice naming the note, no field sent", async () => {
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": SPINE_NOTE("A walled village.", "- typed by hand\n"), "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_spine_depends_on: [VALLAKI, GONE] } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent, [], "the section is no field: nothing to send");
+	assert.equal(r.notices.filter((n) => n === KEPT).length, 1, r.notices.join(" | "));
+	assert.equal(KEPT, "\"Depends on\" is the section the plugin writes from a dependency list, so it is not sent. Your lines under it in \"Krezk\" were kept in the note.");
+	const after = await r.app.vault.read(r.files["Location/Krezk.md"]);
+	assert.ok(after.includes("- typed by hand\n"), "the line stays in the note");
+});
+
+test("★ a save of a note with only generated lines under Depends on: no notice", async () => {
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": SPINE_NOTE("A walled village, edited."), "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_spine_depends_on: [VALLAKI, GONE] } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent, [{ description: "A walled village, edited." }]);
+	assert.ok(!r.notices.some((n) => n.includes("Depends on")), r.notices.join(" | "));
+});
+
+test("auto-sync names the kept lines once a session per note, a manual save every time", async () => {
+	const opts = (manual: boolean) => ({
+		notes: { "Location/Krezk.md": SPINE_NOTE("A walled village.", "- typed by hand\n"), "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_spine_depends_on: [VALLAKI, GONE] } },
+		manual,
+	});
+	const counts: number[] = [];
+	for (const manual of [false, false, true]) {
+		const r = await harnessSave(opts(manual));
+		counts.push(r.notices.filter((n) => n === KEPT).length);
+	}
+	assert.deepEqual(counts, [1, 0, 1]);
+});
+
+test("★ a pull keeps a person's line under Depends on, after the generated list; a second pull does not double it", async () => {
+	const first = await pull([
+		upsert(VALLAKI, "Vallaki", 1),
+		upsert(ARGYNVOST, "Argynvostholt", 2),
+		upsert(KREZK, "Krezk", 3, { x_spine_depends_on: [VALLAKI, ARGYNVOST] }),
+	]);
+	// The person writes inside the generated section, between its lines.
+	const before = await note(first, "Krezk");
+	await first.app.vault.modify(before.file as never, before.text.replace("- [[Vallaki]]\n", "- [[Vallaki]]\n- my own line\n"));
+
+	await pull([upsert(KREZK, "Krezk", 4, { x_spine_depends_on: [ARGYNVOST, VALLAKI] })], first);
+	const second = (await note(first, "Krezk")).text;
+	assert.equal(SECTION_OF(second), "### Depends on\n\n- [[Argynvostholt]]\n- [[Vallaki]]\n\n- my own line\n\n");
+
+	await pull([upsert(KREZK, "Krezk", 5, { x_spine_depends_on: [ARGYNVOST, VALLAKI] })], first);
+	assert.equal((await note(first, "Krezk")).text, second, "the same note, the line once");
+
+	// The list emptied: the heading stays for the person's line alone.
+	await pull([upsert(KREZK, "Krezk", 6, { x_spine_depends_on: [] })], first);
+	assert.equal(SECTION_OF((await note(first, "Krezk")).text), "### Depends on\n\n- my own line\n\n");
+});
+
+test("★ a plain world: a Depends on heading typed by hand survives the next pull, its text kept", async () => {
+	const first = await pull([upsert(KREZK, "Krezk", 1, { description: "A walled village." })]);
+	const before = await note(first, "Krezk");
+	await first.app.vault.modify(before.file as never, `${before.text}### Depends on\n\nThe pass road.\n`);
+	await pull([upsert(KREZK, "Krezk", 2, { description: "A walled village, rebuilt." })], first);
+	const after = (await note(first, "Krezk")).text;
+	assert.ok(after.includes("A walled village, rebuilt."), after);
+	assert.ok(after.endsWith("### Depends on\n\nThe pass road.\n\n"), after);
+	assert.equal(after.split("### Depends on").length, 2, "one section");
 });

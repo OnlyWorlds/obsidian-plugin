@@ -38,10 +38,10 @@ interface Dialog {
 }
 
 /** Upload W, where the feed says Akragas exists and Gela was deleted; Syracuse is new. */
-async function upload(opts: { answer: boolean; deleted?: string[]; links?: Record<string, string> }) {
+async function upload(opts: { answer: boolean; deleted?: string[]; links?: Record<string, string>; tail?: Record<string, string> }) {
 	const { app, vault } = makeApp();
 	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **API Key:** ow_k_test\n");
-	for (const [name, id] of Object.entries(IDS)) await vault.seed(`${W}/Elements/Location/${name}.md`, note(id, name, opts.links?.[name] ?? ""));
+	for (const [name, id] of Object.entries(IDS)) await vault.seed(`${W}/Elements/Location/${name}.md`, note(id, name, opts.links?.[name] ?? "") + (opts.tail?.[name] ?? ""));
 	const created: string[] = [];
 	const bulkSent: Record<string, unknown>[] = [];
 	const patches: Record<string, Record<string, unknown>> = {};
@@ -139,4 +139,12 @@ test("★ Leave out takes the left-out id out of every note's links, new and exi
 test("Create again keeps those links: the element comes back with them", async () => {
 	const r = await upload({ answer: true, links: { Akragas: 'rival: "[[Gela]]"\n' } });
 	assert.equal(r.patches[IDS.Akragas]?.rival, IDS.Gela);
+});
+
+test("Upload World names a note whose lines under Depends on were kept, and sends none of them (OW Obsidian #676)", async () => {
+	const r = await upload({ answer: false, tail: { Akragas: "\n### Depends on\n\n- [[Gela]]\n- my own line\n" } });
+	const summary = r.notices.find((n) => n.startsWith("Upload complete")) ?? "";
+	assert.ok(summary.includes('Your lines under "Depends on" in Akragas were kept in the note, not sent.'), summary);
+	assert.ok(!JSON.stringify([r.bulkSent, r.patches]).includes("my own line"));
+	assert.ok(!/depends/i.test(JSON.stringify([r.bulkSent, r.patches])));
 });

@@ -31,6 +31,7 @@ import {
 	DEPENDS_ON_KEY,
 	DEPENDS_ON_CUSTOM_KEY,
 	dependsOnSection,
+	dependsOnOwnText,
 	withDependsOn,
 	withoutDependsOn,
 } from "./element-transform";
@@ -113,6 +114,13 @@ export interface ParsedElement {
 	 * sent; the folder export writes them back (3.10, OW Obsidian #564).
 	 */
 	serverFields: Record<string, unknown>;
+	/**
+	 * The note's `### Depends on` section holds lines a person wrote (any
+	 * line but the generated ones): the section is not sent, so the CALLER
+	 * names the note (dependsOnKeptMessage); the lines stay in the note and
+	 * the next pull keeps them (OW Obsidian #676).
+	 */
+	dependsOnKept?: true;
 }
 
 /** "allies is not a field of Character; did you mean friends? Sent as x_allies." */
@@ -229,8 +237,11 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// Nor is the spine list's generated section (OW Obsidian #676): it is
 		// the plugin's, taken out here before any field is read, so it is never
 		// a field, never folded into the description, and never sent; the list
-		// itself travels as the frontmatter holds it.
-		const raw = withoutDependsOn(knownOf ? withoutKnownOfLine(afterFm) : afterFm).body;
+		// itself travels as the frontmatter holds it. A person's own lines in
+		// it are no field either, but the caller says so (dependsOnKept).
+		const depends = withoutDependsOn(knownOf ? withoutKnownOfLine(afterFm) : afterFm);
+		const raw = depends.body;
+		const dependsOnKept = dependsOnOwnText(depends.section) !== "";
 		const body = raw.trim() ? raw : "";
 		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
@@ -315,6 +326,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			...misnamed(category, adopted),
 			knownOf,
 			serverFields: serverFieldsOf(fm),
+			...(dependsOnKept ? { dependsOnKept: true as const } : {}),
 		};
 	}
 
@@ -545,10 +557,12 @@ export async function writeElement(
 	let body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
 	// The spine list's generated section, last (OW Obsidian #676): written from
 	// the arriving element's list, never from the note's last one, so a list
-	// that became empty or left the element takes the section with it. The
-	// note's own section, if any, was never carried over: the body is rebuilt
-	// from `data` (a known-of note's own sections skip it, knownOfOwnSections).
-	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId);
+	// that became empty or left the element takes its lines with it. The body
+	// is rebuilt from `data` (a known-of note's own sections skip the section,
+	// knownOfOwnSections); what a person wrote under the heading is the one
+	// part of the last section kept, after the list, so it is never erased.
+	const ownDepends = dependsOnOwnText(withoutDependsOn(splitNote(content).body).section);
+	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId, ownDepends);
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {

@@ -8,7 +8,7 @@ import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { carriesServerFields, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
+import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -106,6 +106,9 @@ const misnamedShown = new Set<string>();
 
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
+
+/** Note paths whose kept Depends on lines auto-sync has named this session (OW Obsidian #676). */
+const dependsOnShown = new Set<string>();
 
 /** Note paths whose hidden refusal auto-sync has shown this session (OW Infra #426). */
 const hiddenShown = new Set<string>();
@@ -377,6 +380,13 @@ export class SaveElementCommand {
                 return true;
             });
             if (slips.length > 0) new Notice(likelyMisnamedMessage(v2.category, slips), 12000);
+            // Lines a person wrote under the generated `### Depends on`: never
+            // sent, kept in the note, and said, never dropped without a word
+            // (OW Obsidian #676). Auto-sync says it once a session per note.
+            if (v2.dependsOnKept && (manual || !dependsOnShown.has(activeFile.path))) {
+                if (!manual) dependsOnShown.add(activeFile.path);
+                new Notice(dependsOnKeptMessage(activeFile.basename), 12000);
+            }
             // A [[Name]] no element id answers is left out, its whole field
             // omitted so the server's copy is not stripped. Saying nothing
             // means "saved" while the link did not travel: name the links and

@@ -35,6 +35,8 @@ export class ExportWorldCommand {
     private ambiguousLinks: string[] = [];
     /** Notes this sweep does not send whole (an unclosed code fence), each with why (round C, 1). */
     private refusedNotes: string[] = [];
+    /** Notes whose `### Depends on` holds lines a person wrote: kept in the note, never sent, named in the summary (OW Obsidian #676). */
+    private dependsOnKept: string[] = [];
     /** The ids of this sweep's stubs: notes of elements hidden by the world's owner, never sent (OW Infra #426). */
     private stubIds = new Set<string>();
     /** Each stub's `Type "note name"`, to name a link left out to it. */
@@ -389,6 +391,11 @@ export class ExportWorldCommand {
             if (knownOfSkipped > 0) {
                 summary += ` ${knownOfSkipped} known-of note${knownOfSkipped === 1 ? ' was' : 's were'} not sent.`;
             }
+            if (this.dependsOnKept.length > 0) {
+                const n = this.dependsOnKept.length;
+                const shown = this.dependsOnKept.slice(0, 3).join(', ') + (n > 3 ? ` +${n - 3} more` : '');
+                summary += ` Your lines under "Depends on" in ${shown} were kept in ${n === 1 ? 'the note' : 'those notes'}, not sent.`;
+            }
             new Notice(summary, 8000);
             if (stale.length > 0) new Notice(staleUploadMessage(stale), 15000);
             if (leftOut.names.length > 0) {
@@ -428,6 +435,7 @@ export class ExportWorldCommand {
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
         this.refusedNotes = [];
+        this.dependsOnKept = [];
         this.stubIds = new Set();
         this.stubNames = new Map();
         this.knownOfIds = new Set();
@@ -499,6 +507,7 @@ export class ExportWorldCommand {
                         }
                         if (parsed) {
                             this.ambiguousLinks.push(...parsed.ambiguousLinks);
+                            if (parsed.dependsOnKept) this.dependsOnKept.push(file.basename);
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }

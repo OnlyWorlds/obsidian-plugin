@@ -960,6 +960,11 @@ export function bodySpans(body: string): BodySpan[] {
  * leaked: a person who deleted the key from Properties and saved would have
  * sent the section as a custom field `x_depends_on`. So "Depends on" is no
  * custom field's heading (Manage Fields refuses it).
+ *
+ * ★ Nothing a person wrote is dropped without a word: lines of their own
+ * under the heading are kept by the writer after the generated list, and a
+ * save that finds them says the section is not sent (dependsOnOwnText,
+ * dependsOnKeptMessage).
  */
 export const DEPENDS_ON_KEY = "x_spine_depends_on";
 export const DEPENDS_ON_HEADING = "Depends on";
@@ -978,18 +983,58 @@ export function dependsOnIds(value: unknown): string[] | null {
  * `- [[<note name>]]` when `resolve` names the id's note, else
  * `- (not in this vault: <id>)`, so a gap is seen, never dropped. "" when
  * the value is no list or holds no id (an empty list is stated by the
- * frontmatter, not by a heading).
+ * frontmatter, not by a heading) and `own` is empty. `own` is a person's
+ * text from the note's last section (dependsOnOwnText), written after the
+ * list and one blank line; with no list, the heading holds it alone.
  */
-export function dependsOnSection(value: unknown, resolve: IdToName): string {
-	const ids = dependsOnIds(value);
-	if (!ids || ids.length === 0) return "";
+export function dependsOnSection(value: unknown, resolve: IdToName, own = ""): string {
+	const ids = dependsOnIds(value) ?? [];
 	const lines = ids.map((id) => {
 		const name = resolve(id);
 		// One line each, whatever the id holds: a line break in it could
 		// otherwise open a heading of its own.
 		return name ? `- ${toWikilink(name)}` : `- (not in this vault: ${id.replace(/[\r\n]+/g, " ")})`;
 	});
-	return `${SECTION_HEADING} ${DEPENDS_ON_HEADING}\n\n${lines.join("\n")}\n`;
+	// What a person wrote under the heading is kept, after the generated list
+	// and one blank line: never dropped, never sent (dependsOnOwnText).
+	const parts = [lines.join("\n"), own].filter((p) => p);
+	if (parts.length === 0) return "";
+	return `${SECTION_HEADING} ${DEPENDS_ON_HEADING}\n\n${parts.join("\n\n")}\n`;
+}
+
+/** A line the writer puts in the section: `- [[…]]` or `- (not in this vault: …)`. */
+const DEPENDS_ON_GENERATED_LINE = /^- (?:\[\[[^\]\n]*\]\]|\(not in this vault: [^\n]*\))$/;
+
+/**
+ * What a person wrote inside a `### Depends on` section (as withoutDependsOn
+ * takes it out): every line that is not the heading, not a generated line
+ * and not one of the blank lines at its edges, in order; "" when the section
+ * holds only what the writer puts there. The writer keeps this text under
+ * the heading at the next pull, so a second pull finds the same text and
+ * never doubles it; the save names the note, since the section is not sent.
+ * A hand-typed `- [[Name]]` line reads as a generated one.
+ */
+export function dependsOnOwnText(section: string): string {
+	const kept = section
+		.split("\n")
+		.map((l) => l.replace(/\r$/, ""))
+		.filter((l) => {
+			const heading = SECTION_HEADING_LINE.exec(l);
+			if (heading && isDependsOnHeading(heading[1])) return false;
+			return !DEPENDS_ON_GENERATED_LINE.test(l.trim());
+		});
+	while (kept.length && !kept[0].trim()) kept.shift();
+	while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
+	return kept.join("\n");
+}
+
+/**
+ * The Notice for a save that found a person's lines under `### Depends on`
+ * (in the shape Manage Fields uses for the same heading): nothing of the
+ * section is sent, and the lines stay in the note.
+ */
+export function dependsOnKeptMessage(noteName: string): string {
+	return `"${DEPENDS_ON_HEADING}" is the section the plugin writes from a dependency list, so it is not sent. Your lines under it in "${noteName}" were kept in the note.`;
 }
 
 /** True when a `###` heading is the generated section's: "Depends on", trimmed, in any case. */
@@ -1003,7 +1048,8 @@ export function isDependsOnHeading(heading: string): boolean {
  * heading, or the end); a body with none is returned whole with "" taken.
  * Whatever a person typed inside the section goes with it: the section is
  * recognised by its heading alone, never by what it holds or by the note's
- * frontmatter.
+ * frontmatter. That text is no field, but it is never lost: the writer keeps
+ * it under the heading (dependsOnOwnText) and the save names the note.
  */
 export function withoutDependsOn(body: string): { body: string; section: string } {
 	let kept = "";
