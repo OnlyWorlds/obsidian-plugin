@@ -10,7 +10,6 @@ import {
 	normalizeCategory,
 	splitNote,
 	joinNote,
-	carriesDependsOn,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
@@ -245,6 +244,5 @@ function extractFrontmatterBlock(content: string): string {
 
 /** The body less the spine list's generated section, and that section as it was ("" when the note has none). */
 function ownBody(content: string): { body: string; section: string } {
-	const { frontmatter, body } = splitNote(content);
-	return withoutDependsOn(body, carriesDependsOn(frontmatter));
+	return withoutDependsOn(splitNote(content).body);
 }

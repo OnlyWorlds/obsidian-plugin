@@ -20,7 +20,7 @@ import type { TFile } from "obsidian";
 import { makeApp, setRequestUrl } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { writeElement, readElement } from "../vault/element-file";
-import { dependsOnSection, withoutDependsOn, withDependsOn, carriesDependsOn } from "../vault/element-transform";
+import { dependsOnSection, withoutDependsOn, withDependsOn, isDependsOnHeading } from "../vault/element-transform";
 import { harnessSave } from "./support/save-harness";
 
 const WID = "019e0000-0000-7000-8000-0000000000ee";
@@ -79,19 +79,17 @@ test("dependsOnSection: no section for an empty, absent or non-list value; non-s
 
 test("withoutDependsOn takes the section out wherever it stands; withDependsOn puts it back last", () => {
 	const body = "### Description\n\nA town.\n\n### Depends on\n\n- [[Vallaki]]\n\n### Looks\n\nGrey.\n\n";
-	const { body: own, section } = withoutDependsOn(body, true);
+	const { body: own, section } = withoutDependsOn(body);
 	assert.equal(own, "### Description\n\nA town.\n\n### Looks\n\nGrey.\n\n");
 	assert.equal(section, "### Depends on\n\n- [[Vallaki]]\n\n");
 	assert.equal(withDependsOn(own, section), `${own}${section}`);
-	assert.deepEqual(withoutDependsOn(body, false), { body, section: "" }, "a note without the list keeps every section");
+	const plain = "### Description\n\nA town.\n\n### Depended On By\n\nKrezk.\n";
+	assert.deepEqual(withoutDependsOn(plain), { body: plain, section: "" }, "a body without the heading keeps every section");
 });
 
-test("carriesDependsOn: the key decides, and a custom field x_depends_on keeps its heading", () => {
-	assert.equal(carriesDependsOn({ x_spine_depends_on: [] }), true);
-	assert.equal(carriesDependsOn({ x_spine_depends_on: [VALLAKI], x_depends_on: "Mine." }), false);
-	assert.equal(carriesDependsOn({ name: "Krezk" }), false);
-	assert.equal(carriesDependsOn("---\nname: Krezk\nx_spine_depends_on:\n  - a\n---"), true);
-	assert.equal(carriesDependsOn("---\nname: Krezk\nx_other:\n  x_spine_depends_on: 1\n---"), false, "only a top-level key");
+test("isDependsOnHeading: exactly \"Depends on\", trimmed, in any case", () => {
+	for (const h of ["Depends on", "depends on", "DEPENDS ON", "  Depends On  "]) assert.equal(isDependsOnHeading(h), true, h);
+	for (const h of ["Depends", "Depends  on", "Depends_on", "Depends on:", "Depended on"]) assert.equal(isDependsOnHeading(h), false, h);
 });
 
 // --- at pull -----------------------------------------------------------------
@@ -203,14 +201,39 @@ test("★ a save to a server copy without the list sends it exactly as the front
 
 // --- worlds without the list --------------------------------------------------
 
-test("a `### Depends on` in a note without the list is still the person's custom field", async () => {
+test("★ the key deleted from Properties, the section left: a save sends nothing named depends_on, and the section stays as it is", async () => {
+	// The leak the heading-alone rule closes: owned by the key too, this
+	// section read as a custom field and went out as x_depends_on.
+	const edited = SPINE_NOTE("A walled village, edited.", "- typed by hand\n").replace(`x_spine_depends_on:\n  - ${VALLAKI}\n  - ${GONE}\n`, "");
+	assert.ok(!edited.includes("x_spine_depends_on") && edited.includes("### Depends on"));
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": edited, "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_spine_depends_on: [VALLAKI, GONE] } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent, [{ description: "A walled village, edited." }]);
+	assert.deepEqual(keysOf(r.sent).filter((k) => /depends/i.test(k)), []);
+	assert.ok(!JSON.stringify(r.sent).includes("typed by hand"));
+	// Save does not rewrite the body: the section stays until the next pull.
+	const after = await r.app.vault.read(r.files["Location/Krezk.md"]);
+	assert.ok(after.includes("### Depends on\n\n- [[Vallaki]]\n- typed by hand\n"), after);
+});
+
+test("a `### Depends on` in any note is no field, in any case; an element's own x_depends_on stays in the frontmatter", async () => {
 	const { app, vault } = makeApp();
 	const file = (await vault.seed(
 		"OnlyWorlds/Worlds/W/Elements/Location/Krezk.md",
-		`---\nname: Krezk\nid: ${KREZK}\n---\n\n### Description\n\nA village.\n\n### Depends on\n\nThe pass.\n`
+		`---\nname: Krezk\nid: ${KREZK}\n---\n\n### Description\n\nA village.\n\n### depends ON\n\nThe pass.\n`
 	)) as unknown as TFile;
 	const read = await readElement(app, file);
-	assert.equal(read?.fields.x_depends_on, "The pass.");
+	assert.equal(read?.fields.description, "A village.");
+	assert.deepEqual(keysOf(read?.fields).filter((k) => /depends/i.test(k)), []);
+
+	const written = await writeElement(app, "W", "location", VALLAKI, { name: "Vallaki", x_depends_on: "The road." });
+	const text = await app.vault.read(written);
+	assert.ok(!/### Depends on/i.test(text), "never a section of its own");
+	assert.equal((await readElement(app, written))?.fields.x_depends_on, "The road.", "sent from the frontmatter, verbatim");
 });
 
 /**

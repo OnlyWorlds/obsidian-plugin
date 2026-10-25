@@ -949,30 +949,22 @@ export function bodySpans(body: string): BodySpan[] {
  *
  * The key rides in the frontmatter verbatim, as every extension key does
  * (apiDataToFrontmatter), so the graph draws nothing for it. A note whose
- * frontmatter carries it gains one generated section at Download, last in
- * the body: `### Depends on`, one `[[note]]` line per id (OW Obsidian #676).
- * The section is the plugin's: every reader drops it (withoutDependsOn), so
- * it is never read as a field and never sent, and the next Download writes
- * it again from the served list.
+ * element carries it gains one generated section at Download, last in the
+ * body: `### Depends on`, one `[[note]]` line per id (OW Obsidian #676).
+ *
+ * ★ The section is owned by its HEADING ALONE: a `###` section headed
+ * "Depends on" (trimmed, any case) is the plugin's in every note, whether or
+ * not its frontmatter still carries the list. Every reader drops it
+ * (withoutDependsOn), so it is never read as a field and never sent, and
+ * only the writer puts it there, from the key. Owning it by the key as well
+ * leaked: a person who deleted the key from Properties and saved would have
+ * sent the section as a custom field `x_depends_on`. So "Depends on" is no
+ * custom field's heading (Manage Fields refuses it).
  */
 export const DEPENDS_ON_KEY = "x_spine_depends_on";
 export const DEPENDS_ON_HEADING = "Depends on";
-/** The custom field `### Depends on` would read as in a note without the list: such a field, when present, keeps its heading. */
-const DEPENDS_ON_CUSTOM_KEY = `x_${headingToFieldKey(DEPENDS_ON_HEADING)}`;
-
-/**
- * True when a note with this frontmatter (the parsed object, or the raw
- * `---` block) owns a generated `### Depends on` section: it carries the
- * list's key, and no custom field `x_depends_on` claims that heading. The
- * writer and every reader decide by this one test, so they never disagree.
- */
-export function carriesDependsOn(frontmatter: Record<string, unknown> | string): boolean {
-	if (typeof frontmatter === "string") {
-		const top = (key: string) => new RegExp(`^${key}[ \\t]*:`, "m").test(frontmatter);
-		return top(DEPENDS_ON_KEY) && !top(DEPENDS_ON_CUSTOM_KEY);
-	}
-	return DEPENDS_ON_KEY in frontmatter && !(DEPENDS_ON_CUSTOM_KEY in frontmatter);
-}
+/** The custom key a `### Depends on` section would read as, were it not the plugin's: never written as a section of its own. */
+export const DEPENDS_ON_CUSTOM_KEY = "x_depends_on";
 
 /** The list's ids as the profile reads them: null when the value is not a list; non-string entries dropped. */
 export function dependsOnIds(value: unknown): string[] | null {
@@ -1000,21 +992,20 @@ export function dependsOnSection(value: unknown, resolve: IdToName): string {
 	return `${SECTION_HEADING} ${DEPENDS_ON_HEADING}\n\n${lines.join("\n")}\n`;
 }
 
-/** True when a `###` heading is the generated section's (compared as the reader compares headings). */
+/** True when a `###` heading is the generated section's: "Depends on", trimmed, in any case. */
 export function isDependsOnHeading(heading: string): boolean {
-	return headingToFieldKey(heading) === headingToFieldKey(DEPENDS_ON_HEADING);
+	return heading.trim().toLowerCase() === DEPENDS_ON_HEADING.toLowerCase();
 }
 
 /**
  * The body without its generated `### Depends on` section(s), every other
  * byte as it is, and the section text taken out (heading line to the next
- * heading, or the end). Only for a note that carriesDependsOn; any other
- * body is returned whole with "" taken. Whatever a person typed inside the
- * section goes with it: the section is recognised by its heading and the
- * note's key alone, never by what it holds.
+ * heading, or the end); a body with none is returned whole with "" taken.
+ * Whatever a person typed inside the section goes with it: the section is
+ * recognised by its heading alone, never by what it holds or by the note's
+ * frontmatter.
  */
-export function withoutDependsOn(body: string, owns: boolean): { body: string; section: string } {
-	if (!owns) return { body, section: "" };
+export function withoutDependsOn(body: string): { body: string; section: string } {
 	let kept = "";
 	let section = "";
 	for (const span of bodySpans(body)) {

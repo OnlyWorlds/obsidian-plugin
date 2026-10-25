@@ -29,7 +29,7 @@ import {
 	SERVER_FIELDS,
 	serverFieldsOf,
 	DEPENDS_ON_KEY,
-	carriesDependsOn,
+	DEPENDS_ON_CUSTOM_KEY,
 	dependsOnSection,
 	withDependsOn,
 	withoutDependsOn,
@@ -230,7 +230,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// the plugin's, taken out here before any field is read, so it is never
 		// a field, never folded into the description, and never sent; the list
 		// itself travels as the frontmatter holds it.
-		const raw = withoutDependsOn(knownOf ? withoutKnownOfLine(afterFm) : afterFm, carriesDependsOn(fm)).body;
+		const raw = withoutDependsOn(knownOf ? withoutKnownOfLine(afterFm) : afterFm).body;
 		const body = raw.trim() ? raw : "";
 		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
@@ -429,8 +429,11 @@ export async function writeElement(
 	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
 	// frontmatter verbatim, never becomes a section, and so is never read back
 	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
+	// `x_depends_on` is never a section: its heading is the generated
+	// section's, which no reader reads (OW Obsidian #676). An element that
+	// carries one keeps it in the frontmatter, verbatim, as any extension key.
 	const customTextFields = Object.entries(data)
-		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string")
+		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string" && k !== DEPENDS_ON_CUSTOM_KEY)
 		.map(([k]) => k);
 
 	const folder = opts.folderPath
@@ -545,7 +548,7 @@ export async function writeElement(
 	// that became empty or left the element takes the section with it. The
 	// note's own section, if any, was never carried over: the body is rebuilt
 	// from `data` (a known-of note's own sections skip it, knownOfOwnSections).
-	const depends = carriesDependsOn(merged) ? dependsOnSection(data[DEPENDS_ON_KEY], resolveId) : "";
+	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId);
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {

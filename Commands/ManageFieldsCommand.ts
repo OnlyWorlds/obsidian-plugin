@@ -14,7 +14,6 @@ import {
 	joinNote,
 	serializeFrontmatter,
 	appendBodySection,
-	carriesDependsOn,
 	isDependsOnHeading,
 	withDependsOn,
 	withoutDependsOn,
@@ -248,10 +247,10 @@ export class ManageFieldsCommand {
 				return;
 			}
 			const content = await this.app.vault.read(file);
-			// In a note with a dependency list the heading is the plugin's own
-			// section, written again at each download and never sent (OW Obsidian #676).
-			if (isDependsOnHeading(label) && carriesDependsOn(splitNote(content).frontmatter)) {
-				new Notice(`"${label}" is written from this note's dependency list at each download, so it cannot be a custom field here.`);
+			// The heading is the plugin's own section, written from a dependency
+			// list at each download and never sent (OW Obsidian #676).
+			if (isDependsOnHeading(label)) {
+				new Notice(`"${label}" is the section the plugin writes from a dependency list, so it cannot be a custom field.`);
 				return;
 			}
 			const { body, section } = ownBody(content);
@@ -286,8 +285,7 @@ function extractFrontmatterBlock(content: string): string {
 
 /** The body less the spine list's generated section, and that section as it was ("" when the note has none). */
 function ownBody(content: string): { body: string; section: string } {
-	const { frontmatter, body } = splitNote(content);
-	return withoutDependsOn(body, carriesDependsOn(frontmatter));
+	return withoutDependsOn(splitNote(content).body);
 }
 
 /**
