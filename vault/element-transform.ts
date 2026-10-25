@@ -1018,6 +1018,72 @@ function dependsOnLink(noteName: string, real: string | null): string {
 	return toWikilink(noteName);
 }
 
+/**
+ * An extension key's value with its element ids as links (3.13.0), for the
+ * WRITE side: a uuid `resolve` names becomes `[[note]]` (`[[note|real name]]`
+ * where the element's own name differs from its note's, as a `### Depends on`
+ * line), a list of uuids a list of links. The rule takes the whole value or
+ * nothing: a value that is not a uuid, or a list with one entry that is not,
+ * is returned as it came, so free text is never rewritten. A uuid `resolve`
+ * does not name stays the bare id (never `[[Unknown]]`, never dropped). No
+ * `resolve`: the value as it came.
+ */
+export function extensionLinksOut(value: unknown, resolve?: IdToName, realName?: IdToName): unknown {
+	if (!resolve) return value;
+	const one = (id: string): string => {
+		const name = resolve(id);
+		return name ? dependsOnLink(name, realName?.(id) ?? null) : id;
+	};
+	if (typeof value === "string") return UUID_RE.test(value) ? one(value) : value;
+	if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "string" && UUID_RE.test(v))) {
+		return value.map((v) => one(v as string));
+	}
+	return value;
+}
+
+/** What extensionLinksIn returns for a key the save leaves out. */
+const LEFT_OUT: unique symbol = Symbol("left-out");
+
+/**
+ * The READ side of extensionLinksOut: an extension key whose whole value is
+ * links and bare uuids, at least one a link, goes back as ids (a single
+ * string for one link, a list for a list). Each `[[note]]` resolves against
+ * notes of any type, as a generic link field does (no type is named). A link
+ * no element answers, or one whose name matches notes of more than one type,
+ * is reported (`unresolved`, `ambiguous`) and, on the upload path, leaves the
+ * whole key out, so the server keeps its value rather than a shortened list.
+ * Anything else (a link beside a word, free text, a note from before 3.13.0
+ * with bare ids, no resolver) goes as it came.
+ */
+function extensionLinksIn(value: unknown, opts: ReadLinkOptions): unknown {
+	const resolve = opts.resolveNameToId;
+	if (!resolve) return value;
+	const whole: unknown[] | null = typeof value === "string" ? [value] : Array.isArray(value) && value.length > 0 ? value : null;
+	if (!whole) return value;
+	const isLink = (v: unknown) => wikilinkTarget(v) != null;
+	if (!whole.every((v) => isLink(v) || (typeof v === "string" && UUID_RE.test(v)))) return value;
+	if (!whole.some(isLink)) return value;
+	let lost = false;
+	const ids = whole.map((v) => {
+		const target = wikilinkTarget(v);
+		if (target == null) return v; // a bare id, as it is
+		const id = resolve(target, "any");
+		if (id === AMBIGUOUS_LINK) {
+			opts.ambiguous?.push(target);
+			lost = true;
+			return null;
+		}
+		if (!id) {
+			opts.unresolved?.push(target);
+			lost = true;
+			return null;
+		}
+		return id;
+	});
+	if (lost) return opts.omitFieldOnUnresolved ? LEFT_OUT : value;
+	return typeof value === "string" ? ids[0] : ids;
+}
+
 /** A line the writer puts in the section: `- [[…]]` (or `- [[note|name]]`) or `- (not in this vault: …)`. */
 const DEPENDS_ON_GENERATED_LINE = /^- (?:\[\[[^\]\n]*\]\]|\(not in this vault: [^\n]*\))$/;
 
@@ -1295,7 +1361,8 @@ export function normalizeLinkValue(
  * API payload, preserving extension-namespaced keys verbatim (R3).
  *
  * - Known schema fields: kept, with link fields normalized to id shape.
- * - Extension keys (atlas_/shadow_/x_): kept verbatim, untouched.
+ * - Extension keys (atlas_/shadow_/x_): kept verbatim, except a whole value
+ *   of links to elements, which goes back as ids (extensionLinksIn).
  * - `id`, `world`, `world_id`, and Obsidian-native meta keys: dropped
  *   (id travels in the URL path, world is the API key).
  * - Unknown non-extension keys: dropped (they are not API fields and would
@@ -1419,7 +1486,10 @@ export function frontmatterToPayloadFields(
 		// A Date here was a string in the note that YAML read as a timestamp
 		// (plain `2024-01-01`): it goes back as that string (row 3).
 		if (isExtensionKey(key)) {
-			out[key] = dateToFieldString(value); // verbatim, read-only
+			// Verbatim, except links to elements, which go back as their ids
+			// (3.13.0, extensionLinksIn); a key one of them failed is left out.
+			const v = extensionLinksIn(dateToFieldString(value), opts);
+			if (v !== LEFT_OUT) out[key] = v;
 			continue;
 		}
 		if (!schema) {
@@ -1491,6 +1561,11 @@ export function frontmatterToPayloadFields(
 export interface WriteFrontmatterOptions {
 	resolveIdToName?: IdToName;
 	/**
+	 * Id -> the element's own name: an extension key's link shows it as
+	 * `[[note|name]]` where it differs from the note's name (extensionLinksOut).
+	 */
+	resolveIdToRealName?: IdToName;
+	/**
 	 * Emit EVERY frontmatter field of the category, empty ones included, instead
 	 * of only those with values (the R3 empty-omit rule). Set when creating a new
 	 * element: the empty properties are the scaffold that makes the fields
@@ -1545,7 +1620,9 @@ export function apiDataToFrontmatter(
 		if (key === bodyField) continue; // description/story goes to the body
 		if (key === "world" || key === "world_id") continue;
 		if (isExtensionKey(key)) {
-			content[key] = value; // verbatim, kept even when empty (R3 exception)
+			// Verbatim, kept even when empty (R3 exception); a whole value of
+			// element ids is written as links (3.13.0, extensionLinksOut).
+			content[key] = extensionLinksOut(value, resolve, opts.resolveIdToRealName);
 			continue;
 		}
 		if (isServerField(key)) continue; // collected above, by serverFieldsFrom

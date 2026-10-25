@@ -529,7 +529,7 @@ test("R1 ROUND-TRIP: a raw id that resolves to a note drifts to [[Name]] but rec
 	assert.equal(read.location, "loc-1");
 });
 
-test("extension fields never become wikilinks and never get empty-omitted (R1/R3 law)", () => {
+test("an extension value that is no element id never becomes a wikilink; extensions never get empty-omitted (R1/R3 law)", () => {
 	const fm = apiDataToFrontmatter(
 		{ id: "c-1", name: "X", atlas_ref: "loc-1", x_empty: "", shadow_list: [] },
 		"character",
