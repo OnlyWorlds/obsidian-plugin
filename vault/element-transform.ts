@@ -1048,12 +1048,18 @@ const LEFT_OUT: unique symbol = Symbol("left-out");
  * The READ side of extensionLinksOut: an extension key whose whole value is
  * links and bare uuids, at least one a link, goes back as ids (a single
  * string for one link, a list for a list). Each `[[note]]` resolves against
- * notes of any type, as a generic link field does (no type is named). A link
- * no element answers, or one whose name matches notes of more than one type,
- * is reported (`unresolved`, `ambiguous`) and, on the upload path, leaves the
- * whole key out, so the server keeps its value rather than a shortened list.
- * Anything else (a link beside a word, free text, a note from before 3.13.0
- * with bare ids, no resolver) goes as it came.
+ * notes of any type, as a generic link field does (no type is named).
+ *
+ * A link no element answers counts only beside an element id: when another
+ * link in the value resolved, or a bare id stands in it, the value is a list
+ * of ids with a gap, so the gap is reported (`unresolved`) and, on the upload
+ * path, the whole key is left out, the server keeping its value rather than
+ * a shortened list. When no link resolves and no id stands beside them, the
+ * value is links to ordinary notes (`x_sources: "[[Reading notes]]"`) and
+ * goes as it came, as before 3.13.0, with no report. A name matching notes
+ * of more than one type is always reported (`ambiguous`) and leaves the key
+ * out. Anything else (a link beside a word, free text, a note from before
+ * 3.13.0 with bare ids, no resolver) goes as it came.
  */
 function extensionLinksIn(value: unknown, opts: ReadLinkOptions): unknown {
 	const resolve = opts.resolveNameToId;
@@ -1063,24 +1069,34 @@ function extensionLinksIn(value: unknown, opts: ReadLinkOptions): unknown {
 	const isLink = (v: unknown) => wikilinkTarget(v) != null;
 	if (!whole.every((v) => isLink(v) || (typeof v === "string" && UUID_RE.test(v)))) return value;
 	if (!whole.some(isLink)) return value;
-	let lost = false;
+	const unresolved: string[] = [];
+	const ambiguous: string[] = [];
+	let elementIds = 0;
 	const ids = whole.map((v) => {
 		const target = wikilinkTarget(v);
-		if (target == null) return v; // a bare id, as it is
+		if (target == null) {
+			elementIds++;
+			return v; // a bare id, as it is
+		}
 		const id = resolve(target, "any");
 		if (id === AMBIGUOUS_LINK) {
-			opts.ambiguous?.push(target);
-			lost = true;
+			ambiguous.push(target);
 			return null;
 		}
 		if (!id) {
-			opts.unresolved?.push(target);
-			lost = true;
+			unresolved.push(target);
 			return null;
 		}
+		elementIds++;
 		return id;
 	});
-	if (lost) return opts.omitFieldOnUnresolved ? LEFT_OUT : value;
+	// Links to ordinary notes only: the value as it came, never left out.
+	if (ambiguous.length === 0 && unresolved.length > 0 && elementIds === 0) return value;
+	if (ambiguous.length > 0 || unresolved.length > 0) {
+		opts.ambiguous?.push(...ambiguous);
+		opts.unresolved?.push(...unresolved);
+		return opts.omitFieldOnUnresolved ? LEFT_OUT : value;
+	}
 	return typeof value === "string" ? ids[0] : ids;
 }
 

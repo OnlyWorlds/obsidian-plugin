@@ -114,11 +114,19 @@ test("apiDataToFrontmatter -> frontmatterToPayloadFields: every shape comes back
 	assert.ok(targets.every((t) => t === "any"), "an extension key names no type: any type answers");
 });
 
-test("frontmatterToPayloadFields: a [[Name]] no element answers leaves the key out, named; ambiguous too", () => {
+test("frontmatterToPayloadFields: a gap beside an element id leaves the key out, named; ambiguous too; links to ordinary notes alone go as text", () => {
 	const unresolved: string[] = [];
 	const ambiguous: string[] = [];
 	const out = frontmatterToPayloadFields(
-		{ id: KREZK, name: "Krezk", x_spine_depends_on: ["[[Vallaki]]", "[[Nowhere]]"], atlas_capital: "[[Twin]]", x_other: ["[[Vallaki]]"] },
+		{
+			id: KREZK, name: "Krezk",
+			x_spine_depends_on: ["[[Vallaki]]", "[[Nowhere]]"],
+			x_beside_bare: [VALLAKI, "[[Nowhere]]"],
+			atlas_capital: "[[Twin]]",
+			x_other: ["[[Vallaki]]"],
+			x_sources: "[[Reading notes]]",
+			x_reading: ["[[Reading notes]]", "[[Essay]]"],
+		},
 		"location",
 		{
 			resolveNameToId: (n) => (n === "Vallaki" ? VALLAKI : n === "Twin" ? AMBIG : null),
@@ -128,9 +136,12 @@ test("frontmatterToPayloadFields: a [[Name]] no element answers leaves the key o
 		}
 	);
 	assert.ok(!("x_spine_depends_on" in out), "never a shortened list: the server keeps its value");
+	assert.ok(!("x_beside_bare" in out), "a bare id is an element id too");
 	assert.ok(!("atlas_capital" in out));
 	assert.deepEqual(out.x_other, [VALLAKI]);
-	assert.deepEqual(unresolved, ["Nowhere"]);
+	assert.equal(out.x_sources, "[[Reading notes]]");
+	assert.deepEqual(out.x_reading, ["[[Reading notes]]", "[[Essay]]"]);
+	assert.deepEqual(unresolved, ["Nowhere", "Nowhere"], "links to ordinary notes are never reported");
 	assert.deepEqual(ambiguous, ["Twin"]);
 });
 
@@ -214,7 +225,19 @@ test("★ a save against a server holding the same ids sends none of the extensi
 	assert.deepEqual(sentKeys.filter((k) => k in KREZK_KEYS), [], "no extension key differs from the server's");
 });
 
-test("★ a [[Name]] no element answers under an extension key is left out, with the links Notice", async () => {
+test("★ a custom field linking an ordinary note saves as text, as in 3.12.1, with no Notice", async () => {
+	const krezk = `---\nname: Krezk\nid: ${KREZK}\nx_sources: "[[Reading notes]]"\n---\n\n### Description\n\nA walled village.\n`;
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": krezk },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_sources: "[[Old notes]]" } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent, [{ x_sources: "[[Reading notes]]" }]);
+	assert.deepEqual(r.notices.filter((n) => /Not saved/.test(n)), []);
+});
+
+test("★ one link resolved and one not under an extension key: the key is left out, with the links Notice", async () => {
 	const krezk = `---\nname: Krezk\nid: ${KREZK}\nx_spine_depends_on:\n  - "[[Vallaki]]"\n  - "[[Nowhere]]"\natlas_capital: "[[Vallaki]]"\n---\n\n### Description\n\nA walled village.\n`;
 	const vallaki = `---\nname: Vallaki\nid: ${VALLAKI}\n---\n\n### Description\n\n`;
 	const r = await harnessSave({
