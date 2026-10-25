@@ -1,0 +1,232 @@
+/**
+ * The spine profile's dependency list as a section of wikilinks (OW Obsidian
+ * #676): at pull, a note whose element carries `x_spine_depends_on` gains a
+ * `### Depends on` section, last, one `[[note]]` line per id; the section is
+ * never read as a field and never sent; a second pull writes it again from
+ * the served list; a world without the list is written as before, byte for
+ * byte.
+ *
+ * The profile's rule (schema-dist `profiles/spine.md`, serial 61):
+ * "`x_spine_depends_on` | a list of element ids in this world, set on the
+ * dependent only | a value that is not a list is not stated; non-string
+ * entries are dropped; an empty list is stated (no dependencies), unlike an
+ * empty address list; whether an id resolves is the world's audit, never the
+ * reader's."
+ */
+import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { TFile } from "obsidian";
+import { makeApp, setRequestUrl } from "./support/obsidian-mock";
+import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
+import { writeElement, readElement } from "../vault/element-file";
+import { dependsOnSection, withoutDependsOn, withDependsOn, carriesDependsOn } from "../vault/element-transform";
+import { harnessSave } from "./support/save-harness";
+
+const WID = "019e0000-0000-7000-8000-0000000000ee";
+const VALLAKI = "019e0000-0000-7000-8000-0000000000a1";
+const KREZK = "019e0000-0000-7000-8000-0000000000a2";
+const ARGYNVOST = "019e0000-0000-7000-8000-0000000000a3";
+const GONE = "019e0000-0000-7000-8000-0000000000ff"; // an id with no element in the world
+
+const upsert = (id: string, name: string, seq: number, extra: Record<string, unknown> = {}) => ({
+	op: "upsert", type: "location", id, change_seq: seq, updated_at: "x", element: { id, name, ...extra },
+});
+
+interface Pulled {
+	app: ReturnType<typeof makeApp>["app"];
+	plugin: { settings: { syncCursors: Record<string, unknown>; deletedOnServer: Record<string, string[]> }; saveSettings: () => Promise<void> };
+}
+
+/** A Download World run against a served change list; `prior` reuses a vault and its settings for a second pull. */
+async function pull(changes: unknown[], prior?: Pulled): Promise<Pulled> {
+	const made: Pulled = prior ?? { app: makeApp().app, plugin: { settings: { syncCursors: {}, deletedOnServer: {} }, saveSettings: async () => {} } };
+	setRequestUrl((r) => {
+		const path = new URL(r.url).pathname.replace(/^\/api\/v2/, "").replace(/\/$/, "");
+		if (path === "/world") return { status: 200, json: { id: WID, name: "Barovia", description: "" } };
+		if (path === "/changes") return { status: 200, json: { cursor: "c9", has_more: false, head: 9, changes } };
+		return { status: 404, json: {} };
+	});
+	const cmd = new DownloadWorldCommand(made.app, { version: "t" }, made.plugin as never);
+	assert.equal(await cmd.downloadWithKey("ow_k_test", "1234"), "Barovia");
+	return made;
+}
+
+async function note(made: Pulled, name: string): Promise<{ file: TFile; text: string }> {
+	const file = made.app.vault.getMarkdownFiles().find((f) => f.path.includes("/Elements/") && f.basename === name);
+	assert.ok(file, `no note ${name}`);
+	return { file: file as unknown as TFile, text: await made.app.vault.read(file) };
+}
+
+const SECTION_OF = (text: string) => text.slice(text.indexOf("### Depends on"));
+
+// --- the section itself ------------------------------------------------------
+
+test("dependsOnSection: one line per id in the list's order, a gap named, never dropped", () => {
+	const names: Record<string, string> = { [VALLAKI]: "Vallaki", [ARGYNVOST]: "Argynvostholt" };
+	const s = dependsOnSection([ARGYNVOST, GONE, VALLAKI], (id) => names[id] ?? null);
+	assert.equal(s, `### Depends on\n\n- [[Argynvostholt]]\n- (not in this vault: ${GONE})\n- [[Vallaki]]\n`);
+});
+
+test("dependsOnSection: no section for an empty, absent or non-list value; non-string entries dropped", () => {
+	const r = () => "X";
+	assert.equal(dependsOnSection([], r), "");
+	assert.equal(dependsOnSection(undefined, r), "");
+	assert.equal(dependsOnSection(VALLAKI, r), "", "a value that is not a list is not stated");
+	assert.equal(dependsOnSection([1, null, { id: VALLAKI }], r), "", "no string entry: no id");
+	assert.equal(dependsOnSection([1, VALLAKI, null], r), "### Depends on\n\n- [[X]]\n");
+});
+
+test("withoutDependsOn takes the section out wherever it stands; withDependsOn puts it back last", () => {
+	const body = "### Description\n\nA town.\n\n### Depends on\n\n- [[Vallaki]]\n\n### Looks\n\nGrey.\n\n";
+	const { body: own, section } = withoutDependsOn(body, true);
+	assert.equal(own, "### Description\n\nA town.\n\n### Looks\n\nGrey.\n\n");
+	assert.equal(section, "### Depends on\n\n- [[Vallaki]]\n\n");
+	assert.equal(withDependsOn(own, section), `${own}${section}`);
+	assert.deepEqual(withoutDependsOn(body, false), { body, section: "" }, "a note without the list keeps every section");
+});
+
+test("carriesDependsOn: the key decides, and a custom field x_depends_on keeps its heading", () => {
+	assert.equal(carriesDependsOn({ x_spine_depends_on: [] }), true);
+	assert.equal(carriesDependsOn({ x_spine_depends_on: [VALLAKI], x_depends_on: "Mine." }), false);
+	assert.equal(carriesDependsOn({ name: "Krezk" }), false);
+	assert.equal(carriesDependsOn("---\nname: Krezk\nx_spine_depends_on:\n  - a\n---"), true);
+	assert.equal(carriesDependsOn("---\nname: Krezk\nx_other:\n  x_spine_depends_on: 1\n---"), false, "only a top-level key");
+});
+
+// --- at pull -----------------------------------------------------------------
+
+test("★ a pull writes the section last: three ids, two resolve, one does not, in the list's order", async () => {
+	const made = await pull([
+		upsert(VALLAKI, "Vallaki", 1),
+		upsert(ARGYNVOST, "Argynvostholt", 2),
+		upsert(KREZK, "Krezk", 3, { description: "A walled village.", x_spine_depends_on: [ARGYNVOST, GONE, VALLAKI] }),
+	]);
+	const { text } = await note(made, "Krezk");
+	assert.ok(text.endsWith(`### Depends on\n\n- [[Argynvostholt]]\n- (not in this vault: ${GONE})\n- [[Vallaki]]\n\n`), text);
+	assert.equal(text.split("### Depends on").length, 2, "one section");
+	assert.ok(text.indexOf("A walled village.") < text.indexOf("### Depends on"), "the section goes last");
+	assert.match(text, new RegExp(`x_spine_depends_on:\\n  - ${ARGYNVOST}\\n  - ${GONE}\\n  - ${VALLAKI}\\n`), "the list stays in the frontmatter as served");
+	for (const other of ["Vallaki", "Argynvostholt"]) assert.ok(!(await note(made, other)).text.includes("Depends on"), other);
+});
+
+test("★ no section for an empty or absent list", async () => {
+	const made = await pull([
+		upsert(VALLAKI, "Vallaki", 1, { x_spine_depends_on: [] }),
+		upsert(KREZK, "Krezk", 2),
+	]);
+	const v = (await note(made, "Vallaki")).text;
+	assert.ok(!v.includes("Depends on"), v);
+	assert.match(v, /x_spine_depends_on: \[\]/, "an empty list is stated by the frontmatter");
+	assert.ok(!(await note(made, "Krezk")).text.includes("Depends on"));
+});
+
+test("★ a second pull writes the section again from the served list; a list that became empty takes it away", async () => {
+	const first = await pull([
+		upsert(VALLAKI, "Vallaki", 1),
+		upsert(ARGYNVOST, "Argynvostholt", 2),
+		upsert(KREZK, "Krezk", 3, { x_spine_depends_on: [VALLAKI, ARGYNVOST] }),
+	]);
+	// The person writes inside the generated section: the plugin's, overwritten.
+	const before = await note(first, "Krezk");
+	await first.app.vault.modify(before.file as never, before.text.replace("- [[Argynvostholt]]\n", "- [[Argynvostholt]]\n- my own line\n"));
+
+	// The second pull carries only the changed element (Vallaki and
+	// Argynvostholt resolve through the notes already on disk).
+	await pull([upsert(KREZK, "Krezk", 4, { x_spine_depends_on: [ARGYNVOST] })], first);
+	const second = (await note(first, "Krezk")).text;
+	assert.equal(SECTION_OF(second), "### Depends on\n\n- [[Argynvostholt]]\n\n");
+	assert.ok(!second.includes("my own line"));
+
+	await pull([upsert(KREZK, "Krezk", 5, { x_spine_depends_on: [] })], first);
+	const third = (await note(first, "Krezk")).text;
+	assert.ok(!third.includes("Depends on"), third);
+});
+
+test("a known-of note written twice keeps one section, never the old one as the person's", async () => {
+	const { app } = makeApp();
+	const data = { name: "Krezk", x_spine_depends_on: [VALLAKI] };
+	await writeElement(app, "W", "location", KREZK, data, { knownOf: true, idToName: () => "Vallaki" });
+	const file = await writeElement(app, "W", "location", KREZK, data, { knownOf: true, idToName: () => "Vallaki" });
+	const text = await app.vault.read(file);
+	assert.equal(text.split("### Depends on").length, 2, text);
+	assert.ok(text.endsWith("### Depends on\n\n- [[Vallaki]]\n\n"), text);
+});
+
+// --- at push -----------------------------------------------------------------
+
+const SPINE_NOTE = (description: string, extraLine = "") =>
+	`---\nname: Krezk\nid: ${KREZK}\nx_spine_depends_on:\n  - ${VALLAKI}\n  - ${GONE}\n---\n\n` +
+	`### Description\n\n${description}\n\n### Depends on\n\n- [[Vallaki]]\n${extraLine}- (not in this vault: ${GONE})\n\n`;
+const VALLAKI_NOTE = `---\nname: Vallaki\nid: ${VALLAKI}\n---\n\n### Description\n\n\n`;
+
+/** Every key of a payload, nested ones included. */
+const keysOf = (v: unknown): string[] =>
+	v && typeof v === "object" ? Object.entries(v as Record<string, unknown>).flatMap(([k, x]) => [k, ...keysOf(x)]) : [];
+
+test("★ readElement: the section is no field and folds into nothing; the list is the frontmatter's", async () => {
+	const { app, vault } = makeApp();
+	const file = (await vault.seed("OnlyWorlds/Worlds/W/Elements/Location/Krezk.md", SPINE_NOTE("A walled village.", "- typed by hand\n"))) as unknown as TFile;
+	const read = await readElement(app, file);
+	assert.ok(read);
+	assert.equal(read.fields.description, "A walled village.");
+	assert.deepEqual(read.fields.x_spine_depends_on, [VALLAKI, GONE]);
+	assert.deepEqual(keysOf(read.fields).filter((k) => /depends/i.test(k)), ["x_spine_depends_on"]);
+	assert.ok(!JSON.stringify(read.fields).includes("typed by hand"));
+});
+
+test("★ a save of an edited note sends the description, and the list only as served (already on the server: not sent)", async () => {
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": SPINE_NOTE("A walled village, edited.", "- typed by hand\n"), "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", x_spine_depends_on: [VALLAKI, GONE] } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.equal(r.sent.length, 1);
+	assert.equal(r.sent[0].description, "A walled village, edited.");
+	const depends = keysOf(r.sent[0]).filter((k) => /depends/i.test(k));
+	assert.ok(depends.every((k) => k === "x_spine_depends_on"), `payload keys: ${depends.join(", ")}`);
+	if ("x_spine_depends_on" in r.sent[0]) assert.deepEqual(r.sent[0].x_spine_depends_on, [VALLAKI, GONE]);
+	assert.ok(!JSON.stringify(r.sent).includes("typed by hand"));
+	assert.ok(!JSON.stringify(r.sent).includes("Depends on"));
+});
+
+test("★ a save to a server copy without the list sends it exactly as the frontmatter holds it", async () => {
+	const r = await harnessSave({
+		notes: { "Location/Krezk.md": SPINE_NOTE("A walled village."), "Location/Vallaki.md": VALLAKI_NOTE },
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village." } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent, [{ x_spine_depends_on: [VALLAKI, GONE] }]);
+});
+
+// --- worlds without the list --------------------------------------------------
+
+test("a `### Depends on` in a note without the list is still the person's custom field", async () => {
+	const { app, vault } = makeApp();
+	const file = (await vault.seed(
+		"OnlyWorlds/Worlds/W/Elements/Location/Krezk.md",
+		`---\nname: Krezk\nid: ${KREZK}\n---\n\n### Description\n\nA village.\n\n### Depends on\n\nThe pass.\n`
+	)) as unknown as TFile;
+	const read = await readElement(app, file);
+	assert.equal(read?.fields.x_depends_on, "The pass.");
+});
+
+/**
+ * ★ A world with no list anywhere is written byte for byte as 3.11.0 wrote
+ * it. The expected note is the one the 3.11.0 code (main 938e44f) wrote for
+ * this same pull, captured from a run of that code: a supertype, a
+ * description, the scaffold of every other field, and a non-spine `x_` list.
+ */
+const PLAIN_EXPECTED =
+	"---\nname: Krezk\nid: 019e0000-0000-7000-8000-0000000000a2\nsupertype: village\nsubtype: \"\"\nimage_url: \"\"\nfounding_date:\nelevation:\nparent_location: \"\"\npopulations: []\nprimary_power: \"\"\ngoverning_title: \"\"\nsecondary_powers: []\nzone: \"\"\nrival: \"\"\npartner: \"\"\nfounders: []\ncults: []\ndelicacies: []\nextraction_methods: []\nextraction_goods: []\nindustry_methods: []\nindustry_goods: []\nextraction_markets: []\nindustry_markets: []\ncurrencies: []\nbuildings: []\nbuilding_methods: []\nfighters: []\ndefensive_objects: []\nx_tags:\n  - walled\n  - abbey\n---\n\n### Description\n\nA walled village.\n\n### Form\n\n\n### Function\n\n\n### Political Climate\n\n\n### Customs\n\n\n### Infrastructure\n\n\n### Architecture\n\n\n### Defensibility\n\n\n";
+
+test("★ a pull of a world without the list writes the note as 3.11.0 did, byte for byte", async () => {
+	const made = await pull([
+		upsert(VALLAKI, "Vallaki", 1),
+		upsert(KREZK, "Krezk", 2, { supertype: "village", description: "A walled village.", x_tags: ["walled", "abbey"] }),
+	]);
+	const { text } = await note(made, "Krezk");
+	assert.equal(text, PLAIN_EXPECTED);
+});
