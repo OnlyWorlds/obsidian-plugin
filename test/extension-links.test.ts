@@ -260,3 +260,35 @@ test("★ a note from 3.12.1, bare ids under the extension keys, saves the same 
 	assert.equal(r.result.ok, true, r.notices.join(" | "));
 	assert.deepEqual(r.sent, [{ x_spine_depends_on: [VALLAKI, GONE], atlas_capital: VALLAKI }]);
 });
+
+test("★ an id another tool wrote in capitals: its pull and save change no byte and no value", async () => {
+	const UPPER = VALLAKI.toUpperCase();
+	const keys = { atlas_capital: UPPER, x_spine_depends_on: [UPPER, ARGYNVOST] };
+	const world = () => [
+		upsert(VALLAKI, "Vallaki", 1),
+		upsert(ARGYNVOST, "Argynvostholt", 2),
+		upsert(KREZK, "Krezk", 3, { description: "A walled village.", ...keys }),
+	];
+	const made = await pull(world());
+	const first = await note(made, "Krezk");
+	// The id-to-name maps match an id as spelled: another spelling is no
+	// element they name, so it stays the bare id, never a link.
+	assert.ok(first.text.includes(`atlas_capital: ${UPPER}\n`), first.text);
+	assert.ok(first.text.includes(`x_spine_depends_on:\n  - ${UPPER}\n  - "[[Argynvostholt]]"\n`), first.text);
+	const read = await readElement(made.app, first.file);
+	assert.ok(read);
+	for (const [k, v] of Object.entries(keys)) assert.deepEqual(read.fields[k], v, k);
+	await pull(world(), made);
+	assert.equal((await note(made, "Krezk")).text, first.text);
+	const r = await harnessSave({
+		notes: {
+			"Location/Krezk.md": first.text,
+			"Location/Vallaki.md": (await note(made, "Vallaki")).text,
+			"Location/Argynvostholt.md": (await note(made, "Argynvostholt")).text,
+		},
+		save: "Location/Krezk.md",
+		server: { [KREZK]: { name: "Krezk", description: "A walled village.", ...keys } },
+	});
+	assert.equal(r.result.ok, true, r.notices.join(" | "));
+	assert.deepEqual(r.sent.flatMap((b) => Object.keys(b)).filter((k) => k in keys), [], "the served spelling goes back unchanged");
+});
