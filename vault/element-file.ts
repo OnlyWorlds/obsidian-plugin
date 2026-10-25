@@ -28,6 +28,11 @@ import {
 	bodyTextFields,
 	SERVER_FIELDS,
 	serverFieldsOf,
+	DEPENDS_ON_KEY,
+	carriesDependsOn,
+	dependsOnSection,
+	withDependsOn,
+	withoutDependsOn,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -221,7 +226,11 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		// A known-of note's line is no part of any field (OW Infra #454).
 		const knownOf = isKnownOfNote(content);
 		const afterFm = stripFrontmatter(content).replace(/^\r?\n/, "").replace(/^\r?\n/, "");
-		const raw = knownOf ? withoutKnownOfLine(afterFm) : afterFm;
+		// Nor is the spine list's generated section (OW Obsidian #676): it is
+		// the plugin's, taken out here before any field is read, so it is never
+		// a field, never folded into the description, and never sent; the list
+		// itself travels as the frontmatter holds it.
+		const raw = withoutDependsOn(knownOf ? withoutKnownOfLine(afterFm) : afterFm, carriesDependsOn(fm)).body;
 		const body = raw.trim() ? raw : "";
 		// Link fields may be readable `[[Name]]` wikilinks (R1). Resolve them to
 		// ids path-awarely (getFirstLinkpathDest disambiguates same-name notes).
@@ -452,8 +461,9 @@ export async function writeElement(
 	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
 	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
 	// not yet indexed in metadataCache).
+	const resolveId = opts.idToName ?? buildIdToNameResolver(app, worldName);
 	const built = apiDataToFrontmatter(data, cat, elementId, {
-		resolveIdToName: opts.idToName ?? buildIdToNameResolver(app, worldName),
+		resolveIdToName: resolveId,
 		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
 	});
 	// The mark sits under the id, where the Properties panel shows it first;
@@ -529,7 +539,14 @@ export async function writeElement(
 	// A stub with no field to show is the line and the person's writing alone.
 	let sections = bodyValue ? `${above}${gap}${bodyValue}\n` : above;
 	if (own.text) sections = `${sections}${!sections || sections.endsWith("\n\n") ? "" : sections.endsWith("\n") ? "\n" : "\n\n"}${own.text}`;
-	const body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
+	let body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
+	// The spine list's generated section, last (OW Obsidian #676): written from
+	// the arriving element's list, never from the note's last one, so a list
+	// that became empty or left the element takes the section with it. The
+	// note's own section, if any, was never carried over: the body is rebuilt
+	// from `data` (a known-of note's own sections skip it, knownOfOwnSections).
+	const depends = carriesDependsOn(merged) ? dependsOnSection(data[DEPENDS_ON_KEY], resolveId) : "";
+	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {
 		markSelfWrite?.(file.path);

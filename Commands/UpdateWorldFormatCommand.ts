@@ -10,6 +10,9 @@ import {
 	normalizeCategory,
 	splitNote,
 	joinNote,
+	carriesDependsOn,
+	withDependsOn,
+	withoutDependsOn,
 } from '../vault/element-transform';
 import { noteFence, parseElementPath, unclosedFenceMessage } from '../vault/element-file';
 import { isKnownOfNote } from '../sync/known-of';
@@ -72,7 +75,8 @@ export class UpdateWorldFormatCommand {
 			// to either (the folder spec §4.4, OW Infra #454; #426, h37 #8936, 9).
 			if (isKnownOfNote(content) || isStubNote(content)) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
-			const body = stripFrontmatterBlock(content);
+			// The spine list's generated section is no field (OW Obsidian #676).
+			const { body } = ownBody(content);
 			const textFields = bodyTextFields(category);
 
 			// Text fields still living in frontmatter need to move to the body.
@@ -153,7 +157,9 @@ export class UpdateWorldFormatCommand {
 			// to either (the folder spec §4.4, OW Infra #454; #426, h37 #8936, 9).
 			if (isKnownOfNote(content) || isStubNote(content)) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
-			const body = stripFrontmatterBlock(content);
+			// The fields are rebuilt; the generated section goes back last as it
+			// was, never folded into the description of a note that lacks one.
+			const { body, section } = ownBody(content);
 			const parsed = parseElementBody(body, category);
 			if (parsed.unclosedFence) {
 				// Typed open since the plan was made: skipped the same way.
@@ -190,7 +196,7 @@ export class UpdateWorldFormatCommand {
 			// The body ends as writeElement ends it, one newline after the last
 			// section, or the last value's own final newline is read away
 			// (round C, 11).
-			const newContent = joinNote(fmBlock, `${newBody}\n`);
+			const newContent = joinNote(fmBlock, withDependsOn(`${newBody}\n`, section));
 			if (newContent !== content) {
 				this.markSelfWrite?.(file.path);
 				await this.app.vault.modify(file, newContent);
@@ -237,6 +243,8 @@ function extractFrontmatterBlock(content: string): string {
 	return fm ? `${fm}\n` : '';
 }
 
-function stripFrontmatterBlock(content: string): string {
-	return splitNote(content).body;
+/** The body less the spine list's generated section, and that section as it was ("" when the note has none). */
+function ownBody(content: string): { body: string; section: string } {
+	const { frontmatter, body } = splitNote(content);
+	return withoutDependsOn(body, carriesDependsOn(frontmatter));
 }

@@ -14,6 +14,10 @@ import {
 	joinNote,
 	serializeFrontmatter,
 	appendBodySection,
+	carriesDependsOn,
+	isDependsOnHeading,
+	withDependsOn,
+	withoutDependsOn,
 } from '../vault/element-transform';
 import { KNOWN_OF_NO_MANAGE, isKnownOfNote } from '../sync/known-of';
 
@@ -62,7 +66,8 @@ export class ManageFieldsCommand {
 		const { file, category } = active;
 		const content = await this.app.vault.read(file);
 		if (refusedForKnownOf(content)) return;
-		const body = stripFrontmatterBlock(content);
+		// The spine list's generated section is no field to manage (OW Obsidian #676).
+		const { body } = ownBody(content);
 		const parsed = parseElementBody(body, category);
 		if (refusedForFence(file, category, content, body, parsed)) return;
 
@@ -130,7 +135,8 @@ export class ManageFieldsCommand {
 		// A dialog opened before the note became known of: still refused.
 		if (refusedForKnownOf(content)) return;
 		const fmBlock = extractFrontmatterBlock(content);
-		const body = stripFrontmatterBlock(content);
+		// The fields are rebuilt; the generated section goes back last as it was.
+		const { body, section } = ownBody(content);
 		const parsed = parseElementBody(body, category);
 		// A dialog opened before the fence was typed open: still refused.
 		if (refusedForFence(file, category, content, body, parsed)) return;
@@ -195,7 +201,7 @@ export class ManageFieldsCommand {
 		}
 		// The body ends as writeElement ends it (one newline after the last
 		// section), so the last value reads back exactly (OW Infra #166 row 16).
-		const finalContent = joinNote(serializeFrontmatter(fmOut), `${newBody}\n`);
+		const finalContent = joinNote(serializeFrontmatter(fmOut), withDependsOn(`${newBody}\n`, section));
 		if (finalContent !== current) {
 			this.markSelfWrite?.(file.path);
 			await this.app.vault.modify(file, finalContent);
@@ -242,7 +248,13 @@ export class ManageFieldsCommand {
 				return;
 			}
 			const content = await this.app.vault.read(file);
-			const body = stripFrontmatterBlock(content);
+			// In a note with a dependency list the heading is the plugin's own
+			// section, written again at each download and never sent (OW Obsidian #676).
+			if (isDependsOnHeading(label) && carriesDependsOn(splitNote(content).frontmatter)) {
+				new Notice(`"${label}" is written from this note's dependency list at each download, so it cannot be a custom field here.`);
+				return;
+			}
+			const { body, section } = ownBody(content);
 			if (parseElementBody(body, category).unknown.some((u) => headingToFieldKey(u.heading) === key)) {
 				new Notice(`"${label}" is already on this note.`);
 				return;
@@ -251,7 +263,8 @@ export class ManageFieldsCommand {
 			const heading = fieldToHeading(key);
 			// `###`, matching buildElementBody — one heading level across the note.
 			// The last section's value keeps its trailing whitespace (row 16).
-			const newBody = appendBodySection(body, heading);
+			// Before the generated section, which stays last.
+			const newBody = withDependsOn(appendBodySection(body, heading), section);
 			this.markSelfWrite?.(file.path);
 			// joinNote, never string concatenation: it puts the block at byte 0 and
 			// strips leading blank lines, so this path cannot produce the note that
@@ -271,8 +284,10 @@ function extractFrontmatterBlock(content: string): string {
 	return fm ? `${fm}\n` : '';
 }
 
-function stripFrontmatterBlock(content: string): string {
-	return splitNote(content).body;
+/** The body less the spine list's generated section, and that section as it was ("" when the note has none). */
+function ownBody(content: string): { body: string; section: string } {
+	const { frontmatter, body } = splitNote(content);
+	return withoutDependsOn(body, carriesDependsOn(frontmatter));
 }
 
 /**

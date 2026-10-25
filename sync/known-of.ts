@@ -24,7 +24,7 @@
  * The kept keys are never listed here: a stub keeps every key whose value is
  * not an unset one, whatever keel decides a stub keeps.
  */
-import { bodySpans, bodyTextFields, headingToFieldKey, isExtensionKey, parseRawFrontmatterScalars, splitNote } from "../vault/element-transform";
+import { bodySpans, bodyTextFields, carriesDependsOn, headingToFieldKey, isDependsOnHeading, isExtensionKey, parseRawFrontmatterScalars, splitNote } from "../vault/element-transform";
 import { isStubNote, stubKeptText, type ResyncReason } from "./hidden-on-server";
 
 /** The frontmatter key (and wire key) that marks a stub. */
@@ -183,11 +183,15 @@ export function knownOfOwnSections(
 ): KnownOfOwn {
 	const out: KnownOfOwn = { text: "", fields: [] };
 	if (!isKnownOfNote(content) || isStubNote(content)) return out;
-	const body = splitNote(content).body;
+	const { frontmatter, body } = splitNote(content);
 	const fields = new Set(bodyTextFields(category));
 	const wrote = written === null ? null : new Set(written.map((k) => k.toLowerCase()));
+	// The spine list's generated section is the plugin's, never the person's:
+	// the write puts it back from the arriving list (OW Obsidian #676).
+	const generated = carriesDependsOn(frontmatter);
 	for (const span of bodySpans(body)) {
 		if (span.heading === null) continue;
+		if (generated && isDependsOnHeading(span.heading)) continue;
 		const key = headingToFieldKey(span.heading);
 		if (wrote ? wrote.has(key) || wrote.has(`x_${key}`) : fields.has(key)) continue;
 		if (`x_${key}` in data) continue;

@@ -940,6 +940,105 @@ export function bodySpans(body: string): BodySpan[] {
 }
 
 /**
+ * The spine profile's dependency list (schema-dist `profiles/spine.md`,
+ * serial 61): "`x_spine_depends_on` | a list of element ids in this world,
+ * set on the dependent only | a value that is not a list is not stated;
+ * non-string entries are dropped; an empty list is stated (no dependencies),
+ * unlike an empty address list; whether an id resolves is the world's audit,
+ * never the reader's."
+ *
+ * The key rides in the frontmatter verbatim, as every extension key does
+ * (apiDataToFrontmatter), so the graph draws nothing for it. A note whose
+ * frontmatter carries it gains one generated section at Download, last in
+ * the body: `### Depends on`, one `[[note]]` line per id (OW Obsidian #676).
+ * The section is the plugin's: every reader drops it (withoutDependsOn), so
+ * it is never read as a field and never sent, and the next Download writes
+ * it again from the served list.
+ */
+export const DEPENDS_ON_KEY = "x_spine_depends_on";
+export const DEPENDS_ON_HEADING = "Depends on";
+/** The custom field `### Depends on` would read as in a note without the list: such a field, when present, keeps its heading. */
+const DEPENDS_ON_CUSTOM_KEY = `x_${headingToFieldKey(DEPENDS_ON_HEADING)}`;
+
+/**
+ * True when a note with this frontmatter (the parsed object, or the raw
+ * `---` block) owns a generated `### Depends on` section: it carries the
+ * list's key, and no custom field `x_depends_on` claims that heading. The
+ * writer and every reader decide by this one test, so they never disagree.
+ */
+export function carriesDependsOn(frontmatter: Record<string, unknown> | string): boolean {
+	if (typeof frontmatter === "string") {
+		const top = (key: string) => new RegExp(`^${key}[ \\t]*:`, "m").test(frontmatter);
+		return top(DEPENDS_ON_KEY) && !top(DEPENDS_ON_CUSTOM_KEY);
+	}
+	return DEPENDS_ON_KEY in frontmatter && !(DEPENDS_ON_CUSTOM_KEY in frontmatter);
+}
+
+/** The list's ids as the profile reads them: null when the value is not a list; non-string entries dropped. */
+export function dependsOnIds(value: unknown): string[] | null {
+	if (!Array.isArray(value)) return null;
+	return value.filter((v): v is string => typeof v === "string");
+}
+
+/**
+ * The generated section for a list, in buildElementBody's layout: the
+ * heading, a blank line, then one line per id in the list's order,
+ * `- [[<note name>]]` when `resolve` names the id's note, else
+ * `- (not in this vault: <id>)`, so a gap is seen, never dropped. "" when
+ * the value is no list or holds no id (an empty list is stated by the
+ * frontmatter, not by a heading).
+ */
+export function dependsOnSection(value: unknown, resolve: IdToName): string {
+	const ids = dependsOnIds(value);
+	if (!ids || ids.length === 0) return "";
+	const lines = ids.map((id) => {
+		const name = resolve(id);
+		// One line each, whatever the id holds: a line break in it could
+		// otherwise open a heading of its own.
+		return name ? `- ${toWikilink(name)}` : `- (not in this vault: ${id.replace(/[\r\n]+/g, " ")})`;
+	});
+	return `${SECTION_HEADING} ${DEPENDS_ON_HEADING}\n\n${lines.join("\n")}\n`;
+}
+
+/** True when a `###` heading is the generated section's (compared as the reader compares headings). */
+export function isDependsOnHeading(heading: string): boolean {
+	return headingToFieldKey(heading) === headingToFieldKey(DEPENDS_ON_HEADING);
+}
+
+/**
+ * The body without its generated `### Depends on` section(s), every other
+ * byte as it is, and the section text taken out (heading line to the next
+ * heading, or the end). Only for a note that carriesDependsOn; any other
+ * body is returned whole with "" taken. Whatever a person typed inside the
+ * section goes with it: the section is recognised by its heading and the
+ * note's key alone, never by what it holds.
+ */
+export function withoutDependsOn(body: string, owns: boolean): { body: string; section: string } {
+	if (!owns) return { body, section: "" };
+	let kept = "";
+	let section = "";
+	for (const span of bodySpans(body)) {
+		const text = body.slice(span.start, span.end);
+		if (span.heading !== null && isDependsOnHeading(span.heading)) section += text;
+		else kept += text;
+	}
+	return section ? { body: kept, section } : { body, section: "" };
+}
+
+/**
+ * `body` with `section` (a generated section, as taken out by
+ * withoutDependsOn) put back last, one blank line before its heading. For
+ * the commands that rebuild a body locally (Manage Fields, Update World
+ * Format): they rebuild the fields and leave the section as it was.
+ */
+export function withDependsOn(body: string, section: string): string {
+	if (!section) return body;
+	if (!body.trim()) return section;
+	const gap = body.endsWith("\n\n") ? "" : body.endsWith("\n") ? "\n" : "\n\n";
+	return `${body}${gap}${section}`;
+}
+
+/**
  * Turn a parsed body into the field values to upload.
  *
  * ★ Never-drop (R2): unknown sections and any preamble are appended to the body
