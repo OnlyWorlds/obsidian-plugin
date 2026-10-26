@@ -5,7 +5,7 @@ import { buildBasesFile, mayOverwriteBasesFile, stripBasesMarker, type BasesSche
 import type { OnlyWorldsPluginSettings } from "../settings/settings";
 
 /**
- * Writing a world's Bases file into the vault (OW Infra #188). The text is
+ * Writing a world's Bases file into the vault. The text is
  * vault/bases-file.ts's; this is the Obsidian-facing half: where the file
  * goes, and the rule that the plugin overwrites only a file it wrote and
  * nobody changed since.

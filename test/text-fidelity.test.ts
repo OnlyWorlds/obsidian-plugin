@@ -1,6 +1,6 @@
 /**
- * A text field's value round-trips byte for byte (OW Infra #166 row 16, hop 9
- * #11): no trim of leading or trailing whitespace, no line-ending
+ * A text field's value round-trips byte for byte:
+ * no trim of leading or trailing whitespace, no line-ending
  * normalisation, on save (readElement), upload (the same read) and folder
  * export. Before, every section was trimmed and CRLF became LF.
  *

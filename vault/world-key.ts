@@ -79,7 +79,7 @@ export async function resolveWorldKey(
  * split by whether this vault can write to them: a read key (ow_r_) is
  * read-only, every other key or a local world is writable. The one split every
  * world picker that writes uses (Rename World, Upload World), so their lists
- * cannot drift (Kael's cold read, h37 #6484).
+ * cannot drift (Kael's cold read, 2026-10-17).
  */
 export async function splitWorldsByWrite(
     app: App,

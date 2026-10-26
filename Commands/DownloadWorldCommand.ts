@@ -86,7 +86,7 @@ export class DownloadWorldCommand {
                     // server rewind (head below our stored head) or a rejected
                     // cursor forces a cold re-walk from the epoch.
                     //
-                    // Watermark vs vault reality (Captain's smoke, 2026-07-16):
+                    // Watermark vs vault reality (Titus's smoke, 2026-07-16):
                     // settings/data.json OUTLIVES vault content — after clearing
                     // the world folder, a stored cursor at head means "changes
                     // since" = zero, and Download honestly writes NOTHING into an
@@ -101,7 +101,7 @@ export class DownloadWorldCommand {
                     // An install from before the list (a stored cursor, no
                     // knownOnServer entry for this world) walks the feed from
                     // the start once, for the list alone: nothing else of that
-                    // walk is applied (Kael's read, h37 #8212). A failed read
+                    // walk is applied (Kael's read, 2026-10-20). A failed read
                     // leaves it for the next Download.
                     let storedKnown: string[] = this.plugin?.settings.knownOnServer?.[worldId] ?? [];
                     if (stored?.cursor && this.plugin && this.plugin.settings.knownOnServer?.[worldId] === undefined) {
@@ -115,7 +115,7 @@ export class DownloadWorldCommand {
                     let walk: { changes: V2Change[]; cursor: string | null; head: number };
                     // A walk from the start, and why: keel's 409 resync_required
                     // says `view` (drop what the walk no longer names), `role` or
-                    // nothing (keep it): D127, OW Infra #426.
+                    // nothing (keep it): D127.
                     let fromStart = !stored?.cursor;
                     let resync: ResyncReason | null = null;
                     try {
@@ -176,8 +176,8 @@ export class DownloadWorldCommand {
                     await this.createFolderIfNeeded(worldFolderPath);
                     await this.createFolderIfNeeded(elementsFolderPath);
 
-                    // The type folders lose their count, once (OW Obsidian #560:
-                    // the profile's `<Type>/<Name>.md`): `Location (2)` becomes
+                    // The type folders lose their count, once
+                    // (the profile's `<Type>/<Name>.md`): `Location (2)` becomes
                     // `Location` through Obsidian's rename, so links are kept,
                     // before any note is written. A folder whose notes cannot
                     // move whole is left as it is and named in the notice.
@@ -216,7 +216,7 @@ export class DownloadWorldCommand {
 
                     // Each note this pull wrote now holds the server's copy at
                     // its feed row's change_seq: the number a save sends as
-                    // If-Match (OW Obsidian #557). A delete row clears its id's.
+                    // If-Match. A delete row clears its id's.
                     const seqs: Record<string, number | null> = {};
                     for (const id of knownOf.landed) {
                         const row = latest.get(id);
@@ -234,7 +234,7 @@ export class DownloadWorldCommand {
                     // third read, 4; the fix round, item 8). An empty list needs
                     // no read of every note (round C, 8).
                     // A hidden row is not a delete: its id goes on the hidden
-                    // list instead, below (OW Infra #426).
+                    // list instead, below.
                     const deleted = new Set(this.plugin?.settings.deletedOnServer?.[worldId] ?? []);
                     for (const change of latest.values()) {
                         if (change.op === 'delete' && change.reason !== 'hidden') deleted.add(change.id);
@@ -251,10 +251,10 @@ export class DownloadWorldCommand {
                     // world's whole history and meets deletes that never had a
                     // note here (Seethe, 3.5.1: "7 elements deleted" on an empty
                     // vault); a raw-id link to a deleted element is not a kept
-                    // note (Kael's read, h37 #7470).
+                    // note (Kael's read, 2026-10-19).
                     const keptCount = keptDeleteCount(latest.values(), own);
 
-                    // Hidden by the world's owner (OW Infra #426): a hidden row,
+                    // Hidden by the world's owner: a hidden row,
                     // or a view resync's walk not naming a note whose element
                     // this device knew on the server, makes that note a stub.
                     // Never a deleted file, never a note with no element id.
@@ -287,13 +287,13 @@ export class DownloadWorldCommand {
                             [worldId]: [...hidden.known],
                         };
                         // A role (or no-reason) reset's kept notes: never sent
-                        // again until the feed names them (Kael's read, h37 #8212).
+                        // again until the feed names them (Kael's read, 2026-10-20).
                         this.plugin.settings.leftView = {
                             ...(this.plugin.settings.leftView ?? {}),
                             [worldId]: [...hidden.leftView].filter(id => local.has(id)),
                         };
                         // Whole notes kept over a stub: never sent while keel
-                        // serves a stub for them (h37 #8936, 4).
+                        // serves a stub for them.
                         this.plugin.settings.lastKnown = {
                             ...(this.plugin.settings.lastKnown ?? {}),
                             [worldId]: nextLastKnown(this.plugin.settings.lastKnown?.[worldId] ?? [], knownOf.kept, knownOf.written),
@@ -309,7 +309,7 @@ export class DownloadWorldCommand {
                     for (const line of hiddenNotices(hiddenCount, viewCount)) new Notice(line, 10000);
                     for (const line of knownOfNotices(knownOf.became, knownOf.keptWhole)) new Notice(line, 10000);
 
-                    // The world's Bases file (a table and cards per type, OW Infra #188),
+                    // The world's Bases file (a table and cards per type),
                     // behind its setting; never fails the download. After the
                     // download's own notices, so its once-per-vault notice reads
                     // as the footnote it is (Seethe, 3.5.1).
@@ -348,7 +348,7 @@ export class DownloadWorldCommand {
     }
 
     /**
-     * Download a world from the signed-in account (OW Infra #358). A world this
+     * Download a world from the signed-in account. A world this
      * vault already holds under one of its live keys downloads again with that
      * key; otherwise a key is minted for this vault (named for it, so it can be
      * found and revoked on the account's keys page) and the world downloads
@@ -527,8 +527,8 @@ export class DownloadWorldCommand {
     /**
      * Write the pulled elements' notes. `resync` is the reason of the 409 that
      * forced this walk from the start, if any: a known-of stub replaces a whole
-     * note only after a `view` reset (the folder spec §4.4 rule 5, OW Infra
-     * #454). Returns how many notes became known of, the ids of whole notes
+     * note only after a `view` reset (the folder spec §4.4 rule 5).
+     * Returns how many notes became known of, the ids of whole notes
      * kept as last known, and the ids written.
      */
     async generateElementNotes(
@@ -555,7 +555,7 @@ export class DownloadWorldCommand {
         // ★ A link must name the note it points at. Two elements of one type
         // sharing a name get `Twin.md` and `Twin (1).md`; the link to the second
         // must read `[[Twin (1)]]`, or Obsidian (and the upload) resolve it to
-        // the first (OW Infra #166 row 2, hop 9 #9). The paths are decided here,
+        // the first. The paths are decided here,
         // twins in the same pull kept apart by `planned`, so the id -> note-name
         // map below knows every note's real filename before the first link is
         // written.
@@ -598,10 +598,10 @@ export class DownloadWorldCommand {
                     existingElementPath = await this.findElementByIdInCategory(folder, element.id);
                     if (existingElementPath) break;
                 }
-                // A known-of stub (the folder spec §4.4, OW Infra #454): written
+                // A known-of stub (the folder spec §4.4): written
                 // as it is over no note, a known-of note or a hidden stub; over
                 // a whole note only after a view reset, else that note is kept
-                // as last known (the Captain's B12 ruling).
+                // as last known (Titus's B12 ruling).
                 let knownOf = false;
                 if (isKnownOfElement(element)) {
                     let state: NoteState = 'none';
@@ -681,8 +681,8 @@ export class DownloadWorldCommand {
                 landed.push(String((element as { id?: unknown }).id));
                 // A stub written in full again (an unhide, or back in view)
                 // keeps the person's writing it held, above the first field, byte
-                // for byte (Kael's read, h37 #8212); so does a known-of note,
-                // written again or whole (OW Infra #454).
+                // for byte (Kael's read, 2026-10-20); so does a known-of note,
+                // written again or whole.
                 let keepAbove = '';
                 if (existingElementPath) {
                     const current = this.app.vault.getAbstractFileByPath(notePath);
@@ -732,7 +732,7 @@ export class DownloadWorldCommand {
      *
      *   1. The download plan — every pulled element's note path, decided before
      *      any note is written. The name is that note's BASENAME, so a twin's
-     *      link reads `[[Twin (1)]]`, not `[[Twin]]` (OW Infra #166 row 2).
+     *      link reads `[[Twin (1)]]`, not `[[Twin]]`.
      *   2. Raw-disk fallback — an incremental pull carries only CHANGED elements,
      *      so a link may point at an unchanged element absent from the payload.
      *      Scan existing element notes for this world by READING each file for

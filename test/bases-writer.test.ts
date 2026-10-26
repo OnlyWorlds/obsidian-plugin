@@ -1,5 +1,5 @@
 /**
- * Writing a world's Bases file into the vault (OW Infra #188): Download World
+ * Writing a world's Bases file into the vault: Download World
  * and Create World write `<world>.base` beside World.md (behind a setting,
  * on by default), the Write Bases file command writes one any time, and the
  * plugin overwrites only a file it wrote and nobody changed since.

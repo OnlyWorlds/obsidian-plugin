@@ -1,5 +1,5 @@
 /**
- * The plugin bundle loads (3.10, OW Obsidian #564). @onlyworlds/sdk 4.x is
+ * The plugin bundle loads (3.10). @onlyworlds/sdk 4.x is
  * ESM only; Obsidian loads one CommonJS `main.js`. `pretest` builds the
  * plugin with the build's own options (esbuild.options.mjs) to
  * test-dist/main.js (test/support/build-for-tests.mjs); this test loads that

@@ -1,5 +1,5 @@
 /**
- * OW Infra #426 through the real commands over the in-memory vault: Download
+ * Hidden elements through the real commands over the in-memory vault: Download
  * stubs a hidden element's note and counts it apart, writes it in full again
  * on an unhide, reads the 409's reason (view stubs what the fresh walk does
  * not name, role keeps every note); Save Element and Upload World never send
@@ -229,7 +229,7 @@ test("★ Upload World never sends a stub or a hidden id, and strips links to it
 	void HARNESS_WID;
 });
 
-// --- Kael's read of the branch (h37 #8212), ruled -----------------------------
+// --- Kael's read of the branch, ruled -----------------------------
 
 test("★ Download: an unhide carries the stub's kept writing above the first field section, byte for byte", async () => {
 	const { app, vault, plugin } = await setup();

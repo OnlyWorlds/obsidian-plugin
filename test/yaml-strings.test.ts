@@ -3,7 +3,7 @@
  * against the REAL writeElement / readElement through an in-memory vault, under
  * BOTH js-yaml 4 (what Obsidian ships, read off its asar in hop 10) and yaml 2.
  *
- * ★ Row 3 of the data-paths ranking (OW Infra #166, hop 9 #8): the scalar
+ * ★ Row 3 of the data-paths ranking: the scalar
  * writer left `2024-01-01` plain, so it came back a timestamp; ` #` started a
  * YAML comment and cut the value; `1e3` came back the number 1000; a newline
  * inside a quoted value broke the whole block, so the note could not be read

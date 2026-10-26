@@ -1,5 +1,5 @@
 /**
- * OW Infra #454: known-of elements (the folder spec §4.4, rules 1 to 5; keel
+ * Known-of elements (the folder spec §4.4, rules 1 to 5; keel
  * PR 113 and PR 117). A guest's stub is written as it is, read as known of,
  * never pushed by any path; it is written whole when it arrives whole; a
  * whole note whose element arrives as a stub follows the reset that brought it.
@@ -70,7 +70,7 @@ test("★ rule 1 core: a stub keeps its base keys even empty, every other key wh
 	assert.equal(kept.x_unexpected, "kept too", "a key the plugin does not know was dropped");
 	assert.equal(kept.height, 0, "a zero is a value, not an unset field");
 	// As ow-folder-store's knownOfBody and Python's known_of_for_disk: the base
-	// keys are written even when empty, and whitespace is a value (h37 #8936, 6).
+	// keys are written even when empty, and whitespace is a value.
 	assert.equal(kept.subtype, "");
 	assert.equal(kept.image_url, "");
 	assert.equal(knownOfKept({ id: STRAHD, name: "Strahd", description: "", known_of: true }).description, "");
@@ -110,7 +110,7 @@ test("rule 2 core: a note is known of by its key, or by its line under an elemen
 	assert.equal(isKnownOfNote(plain), false);
 	assert.equal(isKnownOfNote(own), false, "a note with no element id is the person's own");
 	assert.equal(isKnownOfNote(byKey.replace("known_of: true", "known_of: false")), false);
-	// Every form of YAML true the plugin's reader (js-yaml 4) reads as true (h37 #8936, 7).
+	// Every form of YAML true the plugin's reader (js-yaml 4) reads as true.
 	for (const t of ["True", "TRUE", "true  # a comment"]) {
 		assert.equal(isKnownOfNote(byKey.replace("known_of: true", `known_of: ${t}`)), true, t);
 	}
@@ -168,8 +168,8 @@ test("★ rule 1: Download writes a stub as it is: `known_of: true`, its kept ke
 	const s = await fresh();
 	const notices = await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, { description: "A noble." }), upsert(STRAHD_STUB(2), 2)], 2);
 	const note = await s.vault.read(noteOf(s.app, STRAHD));
-	// The record of what the stub wrote goes last (h37 #9280, N1): the plugin's bookkeeping, never a field.
-	// The server's keys the stub carries come before it, as on every note (3.10, OW Obsidian #564).
+	// The record of what the stub wrote goes last: the plugin's bookkeeping, never a field.
+	// The server's keys the stub carries come before it, as on every note (3.10).
 	assert.ok(note.startsWith(`---\nname: Strahd\nid: ${STRAHD}\nknown_of: true\nsupertype: Vampire\nsubtype: ""\nimage_url: ""\ncreated_at: "2026-10-20T10:00:00Z"\nupdated_at: "2026-10-20T10:00:00Z"\nchange_seq: 2\nknown_of_written:\n  - description\n  - physicality\n---\n`), note);
 	for (const unset of ["height:", "weight:", "species:", "location:", "friends:", "charisma:", "x_", "### Background", "### Reputation", "### Mentality"]) {
 		assert.ok(!note.includes(unset), `an unset field was written: ${unset}\n${note}`);
@@ -401,7 +401,7 @@ test("Update World Format leaves a known-of note alone: its missing fields are u
 	assert.deepEqual(plan.notes.map((n) => n.path), []);
 });
 
-// --- Kael's read of PR 8 (h37 #8936), each from his probe ------------------------
+// --- Kael's read of PR 8, each from his probe ------------------------
 
 test("★ 1: a save leaves out a link to a known-of target keel answers 410 for, or the feed reports deleted", async () => {
 	const notes = {
@@ -464,7 +464,7 @@ test("★ 4: a whole note kept after a role reset is never saved or uploaded aga
 	assert.deepEqual((s.plugin.settings.lastKnown as Record<string, string[]>)?.[WID], []);
 });
 
-// ★ 5 (round 2) kept the line through a Manage Fields rebuild; N3 (h37 #9280)
+// ★ 5 (round 2) kept the line through a Manage Fields rebuild; N3
 // refuses the rebuild outright, so a known-of note is never rebuilt at all.
 test("★ N3: Manage Fields on a known-of note is refused: the file is byte-identical and the notice says why", async () => {
 	const { app, vault } = makeApp();
@@ -511,7 +511,7 @@ test("★ 8: Delete Element on a known-of note removes the note only, sends noth
 	assert.ok(__notices.some((n) => n.includes("nothing was deleted on onlyworlds.com")), __notices.join(" | "));
 });
 
-test("★ 9: Update World Format leaves a hidden element's stub alone (the #426 flag)", async () => {
+test("★ 9: Update World Format leaves a hidden element's stub alone (the hidden flag)", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Zelraun.md", `---\nname:\nid: ${ZEL}\n---\n\nMine.\n\n${HIDDEN_STUB_LINE}\n`);
 	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<{ notes: { path: string }[] }> };
@@ -521,7 +521,7 @@ test("★ 9: Update World Format leaves a hidden element's stub alone (the #426 
 // --- Seethe's walk of b32a7c0, step 6: the promise narrowed to what is true ----------
 
 test("★ the Save and Download notices promise exactly what survives: above the fields, or under a ### heading of your own", async () => {
-	// N2 (h37 #9280): what the person added is sent once the element is whole (#426's rule), and the notice says so.
+	// N2: what the person added is sent once the element is whole (the hidden mark's rule), and the notice says so.
 	assert.equal(KNOWN_OF_NOT_SAVED, "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download. Once the element arrives whole, what you added is part of its note, and Save sends it.");
 	const s = await fresh();
 	const notices = await download(s.app, s.plugin, [upsert(STRAHD_STUB(2), 2)], 2);
@@ -543,7 +543,7 @@ test("★ a ### section of the person's own after the last field survives a stub
 	assert.equal(wholeNote.split("### My notes").length, 2, "the section was doubled");
 });
 
-// --- Kael's re-read of 567f318 (h37 #9280): N1 and N4 --------------------------------
+// --- Kael's re-read of 567f318: N1 and N4 --------------------------------
 
 test("★ N1: what the last stub wrote and the next stub leaves out goes; what the person added stays, through a stub and a whole write", async () => {
 	const s = await fresh();
@@ -566,7 +566,7 @@ test("★ N1: what the last stub wrote and the next stub leaves out goes; what t
 	assert.ok(!wholeNote.includes("known_of") && !wholeNote.includes("x_looks") && !wholeNote.includes("### Looks"), wholeNote);
 	const parsed = await readElement(s.app, noteOf(s.app, STRAHD));
 	assert.ok(parsed && !("x_looks" in parsed.fields), JSON.stringify(parsed?.fields));
-	// N2: what the person added is part of the note now, and Save sends it (#426's rule).
+	// N2: what the person added is part of the note now, and Save sends it (the hidden mark's rule).
 	assert.equal(parsed.fields.x_suspicion, "he lies");
 	assert.ok(String(parsed.fields.x_my_notes).includes("He owes me a favour."), JSON.stringify(parsed.fields));
 	assert.ok(!Object.keys(parsed.fields).some((k) => k.includes("known_of")), JSON.stringify(parsed.fields));

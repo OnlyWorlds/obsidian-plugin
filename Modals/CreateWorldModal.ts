@@ -16,9 +16,9 @@ export interface WorldCreationData {
 export class CreateWorldModal extends Modal {
     onSubmit: (data: WorldCreationData | null) => void;
     /**
-     * Signed in (OW Infra #358): the world goes under this account. Signed out,
+     * Signed in: the world goes under this account. Signed out,
      * only a local-only world can be made here: the online create goes through
-     * the account (OW Obsidian #577), so the modal says to sign in first.
+     * the account, so the modal says to sign in first.
      */
     private account: { username: string } | null;
 

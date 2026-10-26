@@ -1,6 +1,6 @@
 /**
  * The PIN prompt closed unanswered (Escape, or the X) answers null, as its
- * Cancel button does (Seethe's walk of PR 11, h69 #11009). Before: the save
+ * Cancel button does (Seethe's walk of PR 11). Before: the save
  * waiting on the prompt waited forever, no notice, and Save element pressed
  * again opened nothing until Obsidian reloaded. Obsidian runs a modal's
  * onClose for every way it closes; the test calls it as Escape does.

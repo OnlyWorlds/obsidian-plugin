@@ -182,7 +182,7 @@ export class V2Client {
      * PATCH — send only the fields you parsed; the server merges. With
      * `ifMatch` (the change_seq the note was last pulled or saved at), keel
      * applies it only if the element has not moved since, else answers 412
-     * `precondition_failed` and writes nothing (Keel #210; OW Obsidian #557).
+     * `precondition_failed` and writes nothing.
      */
     async update(
         type: string,

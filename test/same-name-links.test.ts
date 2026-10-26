@@ -4,7 +4,7 @@
  * in-memory vault (test/support/obsidian-mock.ts; its link resolver is a
  * basename emulation of Obsidian's).
  *
- * ★ Row 2 of the data-paths ranking (OW Infra #166, hop 9 #9): download wrote
+ * ★ Row 2 of the data-paths ranking: download wrote
  * `[[Twin]]` for both twins although the second one's note is `Twin (1).md`,
  * so on upload the second twin's link became the first twin's id.
  */

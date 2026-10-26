@@ -393,7 +393,7 @@ test("R3 WRITE: null/''/[]  fields are omitted; id/name/extension-empty retained
 });
 
 test("v3.2 WRITE: key order is BASE, then numbers, then links (§2 ruling)", () => {
-	// Supersedes the 3.0 "name first, id LAST" layout. Captain's 2026-08-22
+	// Supersedes the 3.0 "name first, id LAST" layout. Titus's 2026-08-22
 	// ruling: base identity at the top where a reader scans, then compact number
 	// scalars, then link lists (which grow) at the bottom. Obsidian renders
 	// properties in key order, so this assembly IS the panel layout.
@@ -746,7 +746,7 @@ test("★ never-drop: preamble before the first heading survives", () => {
 
 test("body sections: #### and deeper stay inside their section", () => {
 	// Only `###` (the level we write) is a boundary; every other level is the
-	// user's own structure (OW Infra #166 row 1).
+	// user's own structure.
 	const body = "### Background\n\nBorn in Waterdeep.\n\n#### Childhood\n\nUneventful.\n";
 	const p = parseElementBody(body, "character");
 	assert.match(p.fields.background, /Born in Waterdeep\./);

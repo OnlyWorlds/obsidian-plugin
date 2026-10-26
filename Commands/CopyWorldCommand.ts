@@ -16,7 +16,7 @@ export class CopyWorldCommand {
     manifest: PluginManifest;
     worldService: WorldService;
 
-    /** The plugin's settings, for the hidden lists (OW Infra #426); absent, only stubs are known. */
+    /** The plugin's settings, for the hidden lists; absent, only stubs are known. */
     private host: HiddenListHost | null;
 
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, host?: HiddenListHost) {
@@ -153,7 +153,7 @@ export class CopyWorldCommand {
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     const fileContent = await fs.read(file.path);
-                    // Hidden by the world's owner (OW Infra #426): a stub, or
+                    // Hidden by the world's owner: a stub, or
                     // an id on a hidden list, is never copied as an element.
                     if (isStubNote(fileContent)) return {};
                     const ownId = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
@@ -173,7 +173,7 @@ export class CopyWorldCommand {
                         // (gate finding, 2026-07-16).
                         // A known-of note is copied as the stub it is:
                         // `known_of: true` and only what it keeps, no field
-                        // filled in (the folder spec §4.4 rule 1, OW Infra #454).
+                        // filled in (the folder spec §4.4 rule 1).
                         if (parsed?.knownOf) return { id: parsed.id, ...parsed.fields, known_of: true };
                         parsedElement = parsed
                             ? { id: parsed.id, ...parsed.fields }
@@ -465,7 +465,7 @@ export class CopyWorldCommand {
         // console.log(`Searching for element: ${noteName} in world: ${worldName}`);
         
         // Search across all categories for a file with this name, in each
-        // type's folders (plain, or an older counted one: OW Obsidian #560)
+        // type's folders (plain, or an older counted one)
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {

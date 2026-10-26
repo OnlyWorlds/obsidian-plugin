@@ -1,6 +1,6 @@
 /**
  * A save that changes an element's name renames its note to match (Seethe's
- * walk of rc-next, finding 4, h37 #6503): the server took the new name and the
+ * walk of rc-next, finding 4): the server took the new name and the
  * file kept the old one, so the two drifted further with every edit.
  *
  * The rename goes through Obsidian's fileManager.renameFile, so the user's

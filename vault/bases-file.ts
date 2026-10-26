@@ -1,5 +1,5 @@
 /**
- * A world's Bases file (OW Infra #188) — PURE logic, no Obsidian imports.
+ * A world's Bases file — PURE logic, no Obsidian imports.
  *
  * Obsidian's core Bases plugin (1.9+) reads a `.base` file: YAML with
  * `filters`, `formulas`, `properties` and `views` (Obsidian help, "Bases
@@ -18,8 +18,8 @@
  *
  * Per-type views filter on the folder, not the formula: `file.inFolder` and
  * `startsWith` are documented functions, so a view still works if the formula
- * misreads. A category folder is `Character`, the profile's address (OW
- * Obsidian #560); a vault from 3.8.1 or earlier may still hold `Character (12)` until
+ * misreads. A category folder is `Character`, the profile's address;
+ * a vault from 3.8.1 or earlier may still hold `Character (12)` until
  * a Download renames it (vault/plain-folders.ts), or keep one beside the plain
  * folder when a name clash stopped the merge: both are matched, so no view
  * goes blank on the way.

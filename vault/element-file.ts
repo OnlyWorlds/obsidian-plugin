@@ -84,7 +84,7 @@ export interface ParsedElement {
 	 * `[[Name]]` targets in a generic-target link field (a Pin's `element_id`)
 	 * that matched notes of more than one type. Never guessed: the link is left
 	 * out of `fields`, and the CALLER must name these to the user, as it does
-	 * unresolvedLinks (OW Infra #166 row 2).
+	 * unresolvedLinks.
 	 */
 	ambiguousLinks: string[];
 	/**
@@ -105,20 +105,20 @@ export interface ParsedElement {
 	/**
 	 * The note carries `known_of: true` (or the known-of line): a stub of an
 	 * element its reader knows of, its absent fields unknown, not empty (the
-	 * folder spec §4.4). Never pushed (OW Infra #454).
+	 * folder spec §4.4). Never pushed.
 	 */
 	knownOf: boolean;
 	/**
 	 * The server's keys the note carries (SERVER_FIELDS: `created_at` to
 	 * `changed_client`), as Download wrote them. Never in `fields`, so never
-	 * sent; the folder export writes them back (3.10, OW Obsidian #564).
+	 * sent; the folder export writes them back (3.10).
 	 */
 	serverFields: Record<string, unknown>;
 	/**
 	 * The note's `### Depends on` section holds lines a person wrote (any
 	 * line but the generated ones): the section is not sent, so the CALLER
 	 * names the note (dependsOnKeptMessage); the lines stay in the note and
-	 * the next pull keeps them (OW Obsidian #676).
+	 * the next pull keeps them.
 	 */
 	dependsOnKept?: true;
 }
@@ -227,16 +227,16 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 
 	if (fm && typeof fm.id === "string") {
 		// Not trimmed: the last section's value runs to the end of the note, and
-		// its own trailing whitespace is part of it (OW Infra #166 row 16). What
+		// its own trailing whitespace is part of it. What
 		// sits between the `---` and the first heading is the preamble, which
 		// parseElementBody keeps byte for byte too (round C, 2).
 		// The separator joinNote writes, and only it: the `---` line's ending,
 		// then one blank line. A body with no field heading is the description
 		// itself, so nothing more of it is cut (Seethe's mark 2).
-		// A known-of note's line is no part of any field (OW Infra #454).
+		// A known-of note's line is no part of any field.
 		const knownOf = isKnownOfNote(content);
 		const afterFm = stripFrontmatter(content).replace(/^\r?\n/, "").replace(/^\r?\n/, "");
-		// Nor is the spine list's generated section (OW Obsidian #676): it is
+		// Nor is the spine list's generated section: it is
 		// the plugin's, taken out here before any field is read, so it is never
 		// a field, never folded into the description, and never sent; the list
 		// itself travels as the frontmatter holds it. A person's own lines in
@@ -252,7 +252,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		const ambiguous: string[] = [];
 		const adopted: Array<{ from: string; to: string }> = [];
 		// A Pin's `element_type` (a text field, so a body section) narrows its
-		// generic `element_id` to that type's notes (OW Infra #166 row 2).
+		// generic `element_id` to that type's notes.
 		const parsedBody = body ? parseElementBody(body, category) : null;
 		const elementType = parsedBody?.fields.element_type;
 		// The body is the end of the note, so its line 1 is the note's line
@@ -298,8 +298,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			// key (`atlas_color` in frontmatter, `### Color` in the body). That
 			// section is the tool's value, not a user field: it is consumed here,
 			// read neither as `x_color` nor as prose, and the next write drops it.
-			// The user's own `x_color` in the frontmatter still claims the heading
-			// (OW Infra #166 row 12).
+			// The user's own `x_color` in the frontmatter still claims the heading.
 			const toolShadows = toolShadowHeadings(fm);
 			const unknownHeadings = (parsedBody ?? parseElementBody(body, category)).unknown.map((u) => u.heading.trim());
 			const customKeys = unknownHeadings
@@ -403,13 +402,13 @@ export interface WriteElementOpts {
 	 * Text written above the first field section, as it is: the person's
 	 * writing a hidden element's stub kept, when Download writes that note in
 	 * full again, back where it came from, so a later save folds it into the
-	 * description as any loose prose (OW Infra #426; ruled after Kael's read,
-	 * h37 #8212). Part of the one write.
+	 * description as any loose prose (ruled after Kael's read,
+	 * 2026-10-20). Part of the one write.
 	 */
 	keepAbove?: string;
 	/**
-	 * Write the element as a known-of stub (the folder spec §4.4 rule 1, OW
-	 * Infra #454): `known_of: true` and only the keys whose values are set,
+	 * Write the element as a known-of stub (the folder spec §4.4 rule 1):
+	 * `known_of: true` and only the keys whose values are set,
 	 * every unset field left out (no scaffold, no empty section), the known-of
 	 * line above the fields. Without it, `known_of` never survives a write: a
 	 * stub that arrives whole is written whole (rule 4).
@@ -445,12 +444,12 @@ export async function writeElement(
 	// field as a `## Heading` section, empty ones included (the empty section is
 	// the scaffold that makes a field discoverable at all). Custom `x_` text
 	// fields ride along, rendered without their prefix.
-	// Only `x_` keys, the user's own custom fields (OW Infra #166 row 12). Any
+	// Only `x_` keys, the user's own custom fields. Any
 	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
 	// frontmatter verbatim, never becomes a section, and so is never read back
 	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
 	// `x_depends_on` is never a section: its heading is the generated
-	// section's, which no reader reads (OW Obsidian #676). An element that
+	// section's, which no reader reads. An element that
 	// carries one keeps it in the frontmatter, verbatim, as any extension key.
 	const customTextFields = Object.entries(data)
 		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string" && k !== DEPENDS_ON_CUSTOM_KEY)
@@ -492,7 +491,7 @@ export async function writeElement(
 	});
 	// The mark sits under the id, where the Properties panel shows it first;
 	// the stub's base keys follow, written even when empty, as the reference
-	// writers write them (h37 #8936, 6).
+	// writers write them.
 	let fm: Record<string, unknown> = built;
 	if (knownOf) {
 		fm = { name: built.name, id: built.id, [KNOWN_OF_KEY]: true };
@@ -530,7 +529,7 @@ export async function writeElement(
 	// A stub replacing a whole copy (a view reset) keeps none of its extension
 	// values: they are the element's, and a stub carries only what it keeps.
 	// Over a known-of note, what the last stub wrote goes, by its record, and
-	// what the person added stays (h37 #8936, 3; h37 #9280, N1). A known-of
+	// what the person added stays. A known-of
 	// note with no record (made by hand) keeps every extension key: nothing on
 	// it is known to be the stub's.
 	const state = noteStateOf(content);
@@ -548,7 +547,7 @@ export async function writeElement(
 	// The record goes last, under everything the person reads first.
 	if (knownOf) merged[KNOWN_OF_WRITTEN_KEY] = knownOfWritten(data, cat);
 	// The person's own sections of a known-of note follow the fields, byte for
-	// byte, whether the stub arrives again or whole (h37 #8936, 3). An own
+	// byte, whether the stub arrives again or whole. An own
 	// section headed as a field the element leaves unset stands for that
 	// field: the field is not written a second, empty time (N4).
 	const own = knownOfOwnSections(content, cat, data, written);
@@ -564,7 +563,7 @@ export async function writeElement(
 	let sections = bodyValue ? `${above}${gap}${bodyValue}\n` : above;
 	if (own.text) sections = `${sections}${!sections || sections.endsWith("\n\n") ? "" : sections.endsWith("\n") ? "\n" : "\n\n"}${own.text}`;
 	let body = knownOf ? `${KNOWN_OF_LINE}\n${sections ? `\n${sections}` : ""}` : sections;
-	// The spine list's generated section, last (OW Obsidian #676): written from
+	// The spine list's generated section, last: written from
 	// the arriving element's list, never from the note's last one, so a list
 	// that became empty or left the element takes its lines with it. The body
 	// is rebuilt from `data` (a known-of note's own sections skip the section,
@@ -704,7 +703,7 @@ function buildIdToNameResolver(app: App, worldName: string): (id: string) => str
 
 /**
  * Build the `[[Name]]` -> id resolver for READ (R1), scoped by the link
- * field's TARGET TYPE (OW Infra #166 row 2, ruling: option 2).
+ * field's TARGET TYPE.
  *
  * ★ A Location and a Collective both named Syracuse are both `Syracuse.md`, in
  * different folders, and download writes plain `[[Syracuse]]`. Obsidian's own

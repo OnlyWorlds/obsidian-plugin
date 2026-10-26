@@ -1,6 +1,6 @@
 /**
  * Folder import writes link fields as `[[Name]]`, the way Download does
- * (OW Infra #166 row 17, hop 9 #15: 4,349 of 10,121 Sikelia links came in as
+ * (4,349 of 10,121 Sikelia links came in as
  * raw uuids). The id -> note-name map is built from the folder before any note
  * is written, so a link to an element written later in the run, or one the
  * metadata cache has not indexed yet, still gets its name; a twin's link names
@@ -69,7 +69,7 @@ test("row 17: a link to an element the vault already has (skipped by the import)
 	assert.match(note, /^birthplace: "\[\[Old Vallaki\]\]"$/m);
 });
 
-// --- Seethe's walk, mark 4 (h37 #6632): the layout her fixture used ----------
+// --- Seethe's walk, mark 4: the layout her fixture used ----------
 //
 // Her fixture folder was cleaned up after the walk; its layout is read off what
 // landed: `Elements/Character_twin-01.json/Twin.md`. That folder name is the

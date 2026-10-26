@@ -141,7 +141,7 @@ test("Create again keeps those links: the element comes back with them", async (
 	assert.equal(r.patches[IDS.Akragas]?.rival, IDS.Gela);
 });
 
-test("Upload World names a note whose lines under Depends on were kept, and sends none of them (OW Obsidian #676)", async () => {
+test("Upload World names a note whose lines under Depends on were kept, and sends none of them", async () => {
 	const r = await upload({ answer: false, tail: { Akragas: "\n### Depends on\n\n- [[Gela]]\n- my own line\n" } });
 	const summary = r.notices.find((n) => n.startsWith("Upload complete")) ?? "";
 	assert.ok(summary.includes('Your lines under "Depends on" in Akragas were kept in the note, not sent.'), summary);

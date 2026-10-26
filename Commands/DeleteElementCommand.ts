@@ -7,7 +7,7 @@ import { isStaleWrite, V2ApiError } from '../client-v2';
 import { readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleDeleteMessage } from '../sync/stale-save';
 
-/** What removing a known-of note says (OW Infra #454). */
+/** What removing a known-of note says. */
 export const KNOWN_OF_DELETED = 'Note moved to trash. It was known of, so nothing was deleted on onlyworlds.com.';
 
 /**
@@ -59,8 +59,8 @@ export class DeleteElementCommand {
         }
 
         // A known-of note is a stub of an element this reader only knows of:
-        // removing it is local, never a DELETE on onlyworlds.com (OW Infra
-        // #454, h37 #8936, 8). Before the read-key refusal: a player with a
+        // removing it is local, never a DELETE on onlyworlds.com.
+        // Before the read-key refusal: a player with a
         // read key may still remove a note of their own vault.
         if (v2?.knownOf) {
             new DeleteConfirmModal(this.app, elementName, category, 'known-of', () => {
@@ -76,7 +76,7 @@ export class DeleteElementCommand {
         if (preResolved.readOnly) {
             // A read key can never delete: refuse before the confirm dialog,
             // so no one types a name for a delete that cannot happen
-            // (Seethe's walk of rc-next, h37 #6462). Nothing is sent.
+            // (Seethe's walk of rc-next, 2026-10-17). Nothing is sent.
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
             return;
         }
@@ -108,7 +108,7 @@ export class DeleteElementCommand {
             }
             try {
                 // The change_seq the note was last pulled or saved at, as a save
-                // sends it (OW Obsidian #557): a delete is guarded the same way.
+                // sends it: a delete is guarded the same way.
                 const ifMatch = await readChangeSeq(this.app, worldName, elementId);
                 await client.deleteElement(category.toLowerCase(), elementId, { ifMatch });
                 await recordChangeSeqs(this.app, worldName, { [elementId]: null });

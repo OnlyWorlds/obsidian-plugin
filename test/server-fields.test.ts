@@ -1,5 +1,5 @@
 /**
- * 3.10 (OW Obsidian #564): the SDK at 4.x and the server's seven keys.
+ * 3.10: the SDK at 4.x and the server's seven keys.
  *
  * - FIELD_SCHEMA is @onlyworlds/sdk 4.x's (standard 00.33.00): no `number`
  *   type anywhere (it is `integer`), and Zone has `shape`, a text field, so a
@@ -9,7 +9,7 @@
  *   into every note under their wire names, a null one left out (R3).
  * - A save never sends one of them; the edit still goes.
  * - The folder export writes them back, a null one as null.
- * Boss's D5 compare of 3.8.1 (`Orrery/obsidian/deep/D5-plugin-3.8.1-rerun.md`)
+ * Boss's D5 compare of 3.8.1
  * found them on 0 of 310 notes and `shape` on 0 of 10 Zones.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
@@ -230,7 +230,7 @@ test("folderServerFields: all seven for a whole note that carries any, only its 
 	assert.deepEqual(folderServerFields({ change_seq: 3, created_at: "t" }, true), { change_seq: 3, created_at: "t" });
 });
 
-// --- a save refreshes the seven from its answer (Seethe's walk of PR 11, h69 #11009) ---
+// --- a save refreshes the seven from its answer (Seethe's walk of PR 11) ---
 
 const IRE_PATH = "OnlyWorlds/Worlds/W/Elements/Character/Ireena.md";
 /** The server's answer after the save: change_seq moved on, the owner changed it, no client named. */

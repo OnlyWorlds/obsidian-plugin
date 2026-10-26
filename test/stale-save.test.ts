@@ -1,6 +1,6 @@
 /**
  * A stale save is refused, never reverts another writer's change (3.8.1,
- * OW Obsidian #557, Fix 1; Boss's walk D1 claim 1 on keel staging: a note
+ * Boss's walk D1 claim 1 on keel staging: a note
  * pulled with description "A", another writer's "B", a name-only edit in the
  * stale note sent {name, description: "A"} and the PATCH answered 200 with
  * "B" reverted; the same PATCH with If-Match the pulled change_seq answered
@@ -196,7 +196,7 @@ test("★ a note with no recorded change_seq (a vault from before 3.8.1) saves o
 	assert.equal(notices.filter((n) => n.includes(STALE)).length, 1);
 });
 
-test("★ the unguarded first save of a note with no recorded change_seq says so, once per element (Seethe's walk, h69 #10546)", async () => {
+test("★ the unguarded first save of a note with no recorded change_seq says so, once per element (Seethe's walk)", async () => {
 	const ID = "019e0000-0000-7000-8000-0000000005ab";
 	const UNGUARDED = "saved without checking for newer changes";
 	const { app, vault, keel, plugin } = await setup();
@@ -265,7 +265,7 @@ test("★ auto-sync goes through the same path: a stale note's notice shows once
 	assert.equal((await save(app, plugin, file, true)).notices.filter((n) => n.includes(STALE)).length, 1);
 });
 
-test("★ two saves of one note never race each other: the second waits for the first, reads its change_seq, and is not told its own write is stale (Kael, h69 #10539)", async () => {
+test("★ two saves of one note never race each other: the second waits for the first, reads its change_seq, and is not told its own write is stale (Kael)", async () => {
 	const ID = "019e0000-0000-7000-8000-0000000005aa";
 	const { app, vault, keel, plugin } = await setup({ [ID]: 44 });
 	keel.put(ID, { name: "Hero", description: "A" }, 44);
@@ -351,8 +351,8 @@ test("★ Download records each written note's change_seq beside the world, and 
 	assert.deepEqual(seqIndex(vault), { [A]: 3, [B]: 7 });
 	const notePath = [...vault.files.keys()].find((p) => p.startsWith(`${W}/Elements/`) && p.endsWith("/Beta.md"))!;
 	assert.ok(notePath, "no note for Beta");
-	// Since 3.10 the note carries the server's change_seq, read-only (OW
-	// Obsidian #564): the guard still reads its own record, and the save
+	// Since 3.10 the note carries the server's change_seq, read-only:
+	// the guard still reads its own record, and the save
 	// sends none of the server's keys (keel 422s them in a write body).
 	assert.match(vault.contentAt(notePath) ?? "", /\nchange_seq: 7\n/, "the note carries the server's change_seq");
 	const before = vault.contentAt(notePath) ?? "";

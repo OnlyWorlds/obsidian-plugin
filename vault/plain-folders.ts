@@ -3,11 +3,11 @@ import { Category } from "../enums";
 import { categoryFolderType, isCountedCategoryFolder } from "./category-folder";
 
 /**
- * The one-time rename of a world's counted type folders (OW Obsidian #560).
+ * The one-time rename of a world's counted type folders.
  *
  * Up to 3.8.1 the plugin named a type folder with its note count, `Location (2)`,
  * and renamed it at every new note; the Markdown profile's address is
- * `<Type>/<Name>.md`, no count (Skeld, h69 #10512). Download calls this before
+ * `<Type>/<Name>.md`, no count (Skeld, 2026-10-22). Download calls this before
  * it writes a note, so the notes land in the plain folders:
  *   - a counted folder alone is renamed to its plain name;
  *   - beside a plain folder of the same type, its notes (and anything else in
@@ -47,7 +47,7 @@ export interface PlainFoldersResult {
 	kept: { folder: string; file: string }[];
 }
 
-/** The Notice shown before the pass renames anything (OW Obsidian #560, amendment B: Obsidian's Update links prompt otherwise holds the download with nothing said). */
+/** The Notice shown before the pass renames anything (amendment B: Obsidian's Update links prompt otherwise holds the download with nothing said). */
 export const RENAME_START_NOTICE =
 	"Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update answers it for the rest and turns on Obsidian's automatic link updating for this vault.";
 

@@ -1,8 +1,8 @@
 /**
- * Folder-format conformance (OW Infra #166, rows 5, 6, 13, 14), against the
+ * Folder-format conformance, against the
  * REAL import and export commands through the in-memory vault
- * (test/support/obsidian-mock.ts). The law is the folder format spec
- * (Orrery `product/schema/folder-format-spec.md`): §3.2 filenames, §4 layout,
+ * (test/support/obsidian-mock.ts). The law is the folder format spec:
+ * §3.2 filenames, §4 layout,
  * §4.1 world.json, §4.2 / §5 which keys a writer emits.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock

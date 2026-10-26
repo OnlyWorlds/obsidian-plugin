@@ -1,6 +1,6 @@
 /**
- * The spine profile's dependency list as a section of wikilinks (OW Obsidian
- * #676): at pull, a note whose element carries `x_spine_depends_on` gains a
+ * The spine profile's dependency list as a section of wikilinks:
+ * at pull, a note whose element carries `x_spine_depends_on` gains a
  * `### Depends on` section, last, one `[[note]]` line per id; the section is
  * never read as a field and never sent; a second pull writes it again from
  * the served list; a world without the list is written as before, byte for

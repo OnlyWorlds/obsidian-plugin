@@ -1,6 +1,6 @@
 /**
- * The plugin's words against the house rules (OW Infra #452; Seethe's flags
- * F-33..F-36, Carrier\Studio\style\RULES.md sections 1 and 3):
+ * The plugin's words against the house rules (Seethe's flags
+ * F-33..F-36, the style rules' sections 1 and 3):
  *   - no ALL-CAPS button label in Modals/ (PIN is an acronym and stays);
  *   - no "Please" and no exclamation mark in any message;
  *   - command names in sentence case, and every command id unchanged (users'

@@ -2,7 +2,7 @@
  * Only the format's own field heading (`###`) starts a field — run on the pure
  * transform and through the REAL writeElement / readElement (in-memory vault).
  *
- * ★ Row 1 of the data-paths ranking (OW Infra #166, hop 9 #4): reading took
+ * ★ Row 1 of the data-paths ranking: reading took
  * `##` as a field boundary too, so a `## Notes` line inside a description split
  * it into an `x_notes` field. Ruling (Skeld): `#`, `##`, `####` and deeper inside
  * a field's text are prose and stay in that field. A `###` that names no known

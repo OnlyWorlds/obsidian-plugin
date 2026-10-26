@@ -21,11 +21,11 @@ export interface HarnessOpts {
 	bulkStatus?: (id: string) => number;
 	/** The plugin's stored deleted list for the world. */
 	deleted?: string[];
-	/** The plugin's stored hidden list for the world (OW Infra #426). */
+	/** The plugin's stored hidden list for the world. */
 	hidden?: string[];
-	/** The plugin's stored left-view list for the world (OW Infra #426, Kael h37 #8212). */
+	/** The plugin's stored left-view list for the world. */
 	leftView?: string[];
-	/** The plugin's stored last-known list for the world (whole notes kept after a role reset, OW Infra #454). */
+	/** The plugin's stored last-known list for the world (whole notes kept after a role reset). */
 	lastKnown?: string[];
 	/** The stored (Download's) cursor for the world. */
 	cursor?: { cursor: string; head: number };

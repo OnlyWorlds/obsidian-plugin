@@ -1,5 +1,5 @@
 /**
- * The Bases file, round 2 (OW Infra #188): what the plugin says and does when
+ * The Bases file, round 2: what the plugin says and does when
  * it keeps a world's base, when a world is renamed, the first base it writes,
  * a name differing only in case. Kael's cold read of bases-188, should-fix 2
  * and 3, lows 4 to 6.

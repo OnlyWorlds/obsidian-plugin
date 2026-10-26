@@ -1,6 +1,6 @@
 /**
  * Which elements of a world were deleted on onlyworlds.com, as far as this
- * device can know (OW Infra #166 row 8; Kael's reads, blocker 1c and N3).
+ * device can know (Kael's reads, blocker 1c and N3).
  *
  * A GET answers 404 for a deleted element exactly as for one never uploaded,
  * so a 404 alone must never be read as "create it". Download keeps the ids its
@@ -22,7 +22,7 @@ export interface DeletedListHost {
 		deletedOnServer?: Record<string, string[]>;
 		/** Per world id: element ids hidden from this reader by the world's owner (sync/hidden-on-server.ts). */
 		hiddenOnServer?: Record<string, string[]>;
-		/** Per world id: ids a role (or no-reason) reset's walk no longer named (Kael's read, h37 #8212). */
+		/** Per world id: ids a role (or no-reason) reset's walk no longer named (Kael's read, 2026-10-20). */
 		leftView?: Record<string, string[]>;
 		syncCursors?: Record<string, { cursor?: string; head?: number } | undefined>;
 	};
@@ -58,7 +58,7 @@ export interface DeletedView {
 	 * a deleted id out leaves a hidden one out too.
 	 */
 	ids: Set<string>;
-	/** The ids of `ids` that are hidden, not deleted (OW Infra #426): named so, never offered to create again. */
+	/** The ids of `ids` that are hidden, not deleted: named so, never offered to create again. */
 	hidden: Set<string>;
 	/** The ids of `ids` no longer in this reader's view after a role (or no-reason) reset: kept notes, never created again. */
 	leftView: Set<string>;
@@ -202,7 +202,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	}
 	foldDeletes(ids, hidden, leftView, walk.changes);
 	// The two lists stay apart: a hidden id is never on the deleted list (no
-	// delete review offers it back), and Download stubs its note (OW Infra #426).
+	// delete review offers it back), and Download stubs its note.
 	host.settings.deletedOnServer = { ...(host.settings.deletedOnServer ?? {}), [worldId]: [...ids].filter((id) => !hidden.has(id) && !leftView.has(id)) };
 	host.settings.hiddenOnServer = { ...(host.settings.hiddenOnServer ?? {}), [worldId]: [...hidden] };
 	host.settings.leftView = { ...(host.settings.leftView ?? {}), [worldId]: [...leftView] };
@@ -261,17 +261,17 @@ export async function forgetDeleted(host: DeletedListHost, worldId: string, crea
 }
 
 /**
- * How many of a walk's deletes left a note of their own in this vault (OW Infra
- * #411, Seethe on 3.5.1: a fresh vault's first download walks the world's whole
+ * How many of a walk's deletes left a note of their own in this vault
+ * (Seethe on 3.5.1: a fresh vault's first download walks the world's whole
  * history and said "7 elements deleted on the server — their notes were kept"
  * with no note in the vault). Counted against the notes' OWN ids, never the ids
  * their Properties link to: a stale raw-id link is not a kept note (Kael's read,
- * h37 #7470). `latest` is the walk folded to one change per id, later ops winning.
+ * 2026-10-19). `latest` is the walk folded to one change per id, later ops winning.
  */
 export function keptDeleteCount(latest: Iterable<FeedChange>, ownNoteIds: Set<string>): number {
 	let n = 0;
 	for (const change of latest) {
-		// A hidden row is counted apart, never as a delete (OW Infra #426).
+		// A hidden row is counted apart, never as a delete.
 		if (change.op === "delete" && change.reason !== "hidden" && ownNoteIds.has(change.id)) n++;
 	}
 	return n;

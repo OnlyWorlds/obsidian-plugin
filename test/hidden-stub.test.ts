@@ -1,6 +1,6 @@
 /**
- * OW Infra #426: an element hidden by the world's owner (keel's hidden mark,
- * Keel #421; the one rule's sheet §1 and §3, D124, D127). A feed delete row
+ * An element hidden by the world's owner (keel's hidden mark;
+ * the one rule's sheet §1 and §3, D124, D127). A feed delete row
  * with `reason: "hidden"` stubs the note: the element's fields go, the
  * person's own writing stays byte for byte, a line says why. A 409
  * resync_required with `reason: "view"` stubs the notes the fresh walk no

@@ -1,5 +1,5 @@
 /**
- * `records/` through the folder import and export (OW Obsidian #577; folder
+ * `records/` through the folder import and export (folder
  * format spec §4.5 rules 6 and 11, §4.7 OW-8), against the REAL import and
  * export commands through the in-memory vault (test/support/obsidian-mock.ts).
  *

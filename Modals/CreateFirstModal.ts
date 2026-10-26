@@ -5,16 +5,16 @@ import { applyMobileModal } from './mobile';
 export interface CreateFirstItem {
     type: string;
     name: string;
-    /** Left out because the world's owner hid it, not because it was deleted (OW Infra #426). */
+    /** Left out because the world's owner hid it, not because it was deleted. */
     hidden?: boolean;
-    /** Left out because a role reset took it out of this reader's view (Kael's read, h37 #8212). */
+    /** Left out because a role reset took it out of this reader's view (Kael's read, 2026-10-20). */
     leftView?: boolean;
 }
 
 /**
  * Before a manual Save Element creates a note's link targets on onlyworlds.com,
  * the user sees exactly what would be created, and chooses Create or Cancel
- * (OW Infra #166 row 8; Kael's cold read, blocker 1b). Targets the change feed
+ * (Kael's cold read, blocker 1b). Targets the change feed
  * reported deleted are listed as left out, never created.
  *
  * `choose` settles once: closing the dialog any other way is Cancel.

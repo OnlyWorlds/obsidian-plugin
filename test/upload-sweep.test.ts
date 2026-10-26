@@ -3,7 +3,7 @@
  * REAL ExportWorldCommand (collect + upload) through an in-memory vault, with
  * the v2 client's network methods stubbed on its prototype.
  *
- * ★ Row 9 of the data-paths ranking (OW Infra #166): after POST /bulk the
+ * ★ Row 9 of the data-paths ranking: after POST /bulk the
  * sweep set `created = toCreate.length` and never read the body. keel answers
  * /bulk with HTTP 200 ALWAYS and one result per item, in request order:
  * `{ errors, items: [{ status: 201 | 200 | <error status>, id, error? }] }`

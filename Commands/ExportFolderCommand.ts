@@ -59,16 +59,16 @@ import {
  * Conformance (R1, from the gold-standard writer azgaar-converter/src/folder.js):
  *   - world.json carries id + name + every key the world has: World.md's
  *     lines, plus what an import kept in the folder sidecar (spec §4.1);
- *   - all 22 types under elements/<type>/ (spec §4; OW Infra #166 row 13).
+ *   - all 22 types under elements/<type>/ (spec §4).
  *     Export never writes into an existing folder (both sinks refuse), so an
  *     old export's spatial/ copy can never sit beside a new elements/ one;
  *   - every element body carries `type`; no timestamp is minted, and the
  *     server/sync fields an import carried go back out as received (spec
- *     §4.1, §4.2, §5; OW Infra #166 row 6); a downloaded note's seven
+ *     §4.1, §4.2, §5); a downloaded note's seven
  *     server keys go out as Download wrote them, a null one as null (3.10);
  *   - folder = <slug>-<id8>, files = spec §3.2: <slug>--<id-tail>.json (slug
  *     cap 40), <full-id>.json for an unsluggable name, and the full-id
- *     fallback on a same-type collision (OW Infra #166 row 14).
+ *     fallback on a same-type collision.
  *
  * Prose (R3): note body -> description (story for Narrative); [[WikiLink]] ->
  * [Label](ow://type/uuid) where the name resolves. Extension fields round-trip
@@ -82,7 +82,7 @@ import {
  * downloaded world, the producer line on a world made in the vault, an
  * imported world's lines as it came (vault/world-json.ts buildWorldJson).
  *
- * Records (spec §4.5 rules 6 and 11, §4.7 OW-8; OW Obsidian #577): the
+ * Records (spec §4.5 rules 6 and 11, §4.7 OW-8): the
  * world's `records/` (where the import put it, vault/records-store.ts) goes
  * out byte for byte, `RECORDS.json` whole, except the producer directories
  * its manifest marks private, which stay out whole unless the person turns
@@ -112,7 +112,7 @@ export interface ExportOptions {
 export class ExportFolderCommand {
 	private app: App;
 	/**
-	 * The plugin: its settings, for the hidden lists (OW Infra #426; absent,
+	 * The plugin: its settings, for the hidden lists (absent,
 	 * only stubs are known), and its manifest, for the producer line (absent,
 	 * none is written).
 	 */
@@ -154,7 +154,7 @@ export class ExportFolderCommand {
 	}
 
 	/**
-	 * world.json (OW Infra #166 row 5, spec §4.1): World.md's lines plus what an
+	 * world.json (spec §4.1): World.md's lines plus what an
 	 * import kept in the folder sidecar, so every key the world carries goes out
 	 * (vault/world-json.ts buildWorldJson says which source wins).
 	 */
@@ -188,12 +188,12 @@ export class ExportFolderCommand {
 	}
 
 	/**
-	 * The slice a downloaded world's key reads (spec §4.2 `exported_as`, OW
-	 * Obsidian #557): one GET /me with the key this world's World.md holds.
+	 * The slice a downloaded world's key reads (spec §4.2 `exported_as`):
+	 * one GET /me with the key this world's World.md holds.
 	 * An `ow_` key reads with no PIN (and a member key's wrong PIN would be
 	 * refused); a classic 10-digit key on a world with a PIN is refused a read
 	 * without it, so it sends the PIN the plugin already holds for saves,
-	 * never prompting for one (Kael, h69 #10539). Null, and nothing said, when the world has
+	 * never prompting for one (Kael, 2026-10-22). Null, and nothing said, when the world has
 	 * no key (a folder opened with none, a local world), when /me does not
 	 * answer, or when it answers for another world: absent, never guessed.
 	 * A guest's Character is named from this world's notes, else by one read
@@ -270,7 +270,7 @@ export class ExportFolderCommand {
 		// Element notes of this world refused for an open fence: a link that
 		// lands on one is left as written, never sent to a same-name note.
 		const refusedPaths = new Set<string>();
-		// Hidden by the world's owner (OW Infra #426): a stub, or an id on a
+		// Hidden by the world's owner: a stub, or an id on a
 		// hidden list, is no element to carry; counted on its own line.
 		let hidden = 0;
 		for (const file of files) {
@@ -297,7 +297,7 @@ export class ExportFolderCommand {
 					continue;
 				}
 				// A known-of note is written as the stub it is: `known_of: true`
-				// and only what it keeps (the folder spec §4.4 rule 1, OW Infra #454).
+				// and only what it keeps (the folder spec §4.4 rule 1).
 				const payload: Record<string, unknown> = { ...parsed.fields, id: parsed.id, name: parsed.name };
 				if (parsed.knownOf) payload.known_of = true;
 				// The server's keys the note carries go out beside its fields (3.10).
@@ -357,7 +357,7 @@ export class ExportFolderCommand {
 				);
 			}
 			// What an import carried, then the server's keys the note holds:
-			// the note's are the newer pull's and win (3.10, OW Obsidian #564).
+			// the note's are the newer pull's and win (3.10).
 			const body = buildFolderElementBody(
 				el.type,
 				payload,

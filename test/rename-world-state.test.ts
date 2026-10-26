@@ -1,7 +1,7 @@
 /**
  * Round C, item 12: Rename World left the old folder's name in the once-only
  * Notice list (basesKeptNoticed). The old name is cleared. The type folders
- * carry no count since OW Obsidian #560: an old `Character (4)` moves with the
+ * carry no count: an old `Character (4)` moves with the
  * world as it is, and the next Download renames it.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS } from "../settings/settings";
 
 const note = (id: string, name: string) => `---\nname: ${name}\nid: ${id}\n---\n\n### Description\n\n${name}.\n`;
 
-test("★ Rename World clears the old name from the once-only Notice list and leaves the type folders' names alone (no count since OW Obsidian #560)", async () => {
+test("★ Rename World clears the old name from the once-only Notice list and leaves the type folders' names alone (no count)", async () => {
 	const { app, vault } = makeApp();
 	(app as unknown as { realRenames: boolean }).realRenames = true;
 	await vault.seed("OnlyWorlds/Worlds/Old/World.md", "- **Name:** Old\n");

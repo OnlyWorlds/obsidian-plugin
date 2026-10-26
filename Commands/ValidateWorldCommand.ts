@@ -75,7 +75,7 @@ export class ValidateWorldCommand {
             // A type's folder is `Location`, or `Location (2)` in a vault from
             // 3.8.1 or earlier that no Download has renamed yet, or both: every one is
             // read (an exact path once skipped every counted folder and
-            // validated nothing: Seethe, h57 #4846, 3.3.1).
+            // validated nothing: Seethe, 3.3.1).
             const categoryFolders = await this.worldService.findCategoryFolders(worldFolderName, category);
 
             const files = ([] as TAbstractFile[]).concat(...categoryFolders.map((folder) => folder.children));
@@ -113,7 +113,7 @@ export class ValidateWorldCommand {
         // two checks that hold in that format: an id, and a name that matches the
         // file. Number and link rules below read the legacy <span> format only.
         // Until 3.3.2 these notes were skipped and still counted, so "No issues"
-        // was said over a world nobody had checked (Seethe, h57 #4864).
+        // was said over a world nobody had checked (Seethe, 2026-10-15).
         if (content.startsWith('---')) {
             this.validateFrontmatterElement(category, fileName, content);
             return;

@@ -6,9 +6,9 @@
  * "Location (2)" (a vault not downloaded since may still hold one); the
  * validator looked for "Location" exactly, skipped every folder and reported
  * "Total elements scanned: 0" on a world of real notes (Seethe's walk of the
- * journey's Obsidian chapter, h57 #4846, on 3.3.1). Then, with the folders
+ * journey's Obsidian chapter, on 3.3.1). Then, with the folders
  * found, it counted frontmatter notes and checked none of them, so a note with
- * no id passed as "No issues" (h57 #4864). Frontmatter notes now get the two
+ * no id passed as "No issues". Frontmatter notes now get the two
  * checks that hold in that format: an id, and a name that matches the file.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock

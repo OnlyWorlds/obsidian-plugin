@@ -1,6 +1,6 @@
 /**
- * One element's relationships as a JSON Canvas 1.0 file (OW Infra #188, round
- * 2, phase 2) — PURE logic, no Obsidian imports. The Obsidian-facing half,
+ * One element's relationships as a JSON Canvas 1.0 file —
+ * PURE logic, no Obsidian imports. The Obsidian-facing half,
  * which reads the world and resolves the links, is vault/relationship-graph.ts.
  *
  * JSON Canvas 1.0 (https://jsoncanvas.org/spec/1.0/): a top level of `nodes`

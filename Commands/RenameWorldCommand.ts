@@ -41,7 +41,7 @@ export class RenameWorldCommand {
         // A read key (ow_r_) can never rename the world on onlyworlds.com:
         // such worlds are not offered, and a vault whose every world is
         // read-only is refused before the dialog opens, with nothing renamed
-        // and nothing sent (Seethe's walk of rc-next, h37 #6462).
+        // and nothing sent (Seethe's walk of rc-next, 2026-10-17).
         const { writable, readOnly } = await splitWorldsByWrite(this.app, this.plugin?.settings.apiKey);
         if (writable.length === 0 && readOnly.length > 0) {
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
@@ -146,7 +146,7 @@ export class RenameWorldCommand {
                 await this.plugin.saveSettings();
             }
             // The world's Bases file moved with the folder, but its filters still
-            // name the old one (OW Infra #188): rewrite the plugin's own file.
+            // name the old one: rewrite the plugin's own file.
             await moveWorldBasesFileAfterRename(this.app, oldWorldName, newWorldName, this.plugin ?? undefined);
         } else {
             new Notice('World folder does not exist.');

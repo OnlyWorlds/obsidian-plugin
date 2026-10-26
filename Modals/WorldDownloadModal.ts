@@ -9,7 +9,7 @@ export interface WorldDownloadData {
     pin: string;
 }
 
-/** The signed-in account's worlds, offered beside the key-and-PIN form (OW Infra #358). */
+/** The signed-in account's worlds, offered beside the key-and-PIN form. */
 export interface WorldDownloadAccount {
     username: string;
     loadWorlds: () => Promise<AccountWorld[]>;

@@ -43,7 +43,7 @@ export function isExtensionKey(key: string): boolean {
 /**
  * The user's own custom fields: `x_` only. Only these become body sections;
  * `atlas_` and `shadow_` are tools' namespaces and stay in the frontmatter
- * verbatim (OW Infra #166 row 12; spec §3.3, foreign fields are read-only).
+ * verbatim (spec §3.3, foreign fields are read-only).
  */
 export function isUserCustomKey(key: string): boolean {
 	return key.startsWith(EXTENSION_NAMESPACES[2]);
@@ -68,9 +68,9 @@ export function toolShadowHeadings(frontmatter: Record<string, unknown>): Set<st
  * The server's own keys on every element body (keel sets them; the standard
  * does not declare them): when it was made and last changed, its change
  * number, who made and changed it, through which door and which client
- * (keel D72, #299, #520). Download writes them into the note under these
+ * (keel D72). Download writes them into the note under these
  * names, as the folder spec §4 has an element body carry every key the
- * server serves (3.10, OW Obsidian #564); they are read-only: a save never
+ * server serves (3.10); they are read-only: a save never
  * sends one (NON_PAYLOAD_KEYS), and the stale-save guard reads its own
  * record (vault/change-seq-index.ts), never the note's `change_seq`.
  */
@@ -113,7 +113,7 @@ export function carriesServerFields(body: unknown): body is Record<string, unkno
 /**
  * `content` (a whole note) with its server keys replaced by `data`'s, by
  * serverFieldsFrom's rule, written by serializeFrontmatter as Download writes
- * them, last in the block (3.10, Seethe's walk of PR 11, h69 #11009: a save
+ * them, last in the block (3.10, Seethe's walk of PR 11, 2026-10-23: a save
  * left `change_seq` at the pulled number, and the folder export wrote that
  * stale number, or a hand-typed `created_at`, as the server's). Only those
  * lines change: every other line of the block, and the body, stay byte for
@@ -159,10 +159,10 @@ export function serverFieldsOf(frontmatter: Record<string, unknown>): Record<str
 }
 
 /** Meta keys that never belong in an outbound API payload. */
-// `known_of` marks a stub (the folder spec §4.4, OW Infra #454): never a field,
+// `known_of` marks a stub (the folder spec §4.4): never a field,
 // never adopted as `x_known_of`; keel refuses it in a write body with a 422.
-// `known_of_written` is the stub writer's record of what it wrote (h37 #9280,
-// N1): the plugin's bookkeeping, never a field, never sent or exported.
+// `known_of_written` is the stub writer's record of what it wrote:
+// the plugin's bookkeeping, never a field, never sent or exported.
 // The server's seven (SERVER_FIELDS) are the server's to set: never sent,
 // never adopted as `x_created_at` (3.10).
 const NON_PAYLOAD_KEYS = new Set([
@@ -246,7 +246,7 @@ export function normalizeCategory(category: string): string {
 
 /**
  * The note body maps to `story` for Narrative, `description` for every other
- * type (R5, Captain ruling 2026-07-13 §7.3). On read body -> this field; on
+ * type (R5, Titus's ruling 2026-07-13 §7.3). On read body -> this field; on
  * write this field -> body.
  */
 export function bodyFieldForCategory(category: string): "story" | "description" {
@@ -268,14 +268,14 @@ export function bodyFieldForCategory(category: string): "story" | "description" 
 /**
  * The heading level field sections are WRITTEN at. `###` rather than `##`:
  * a note is 3-7 sections of usually-short prose, and h2 renders large enough
- * to dominate the content it labels (Captain, 2026-08-22).
+ * to dominate the content it labels (Titus, 2026-08-22).
  *
  * ★ READING takes ONLY this level as a field boundary. Any other heading in a
  * field's text (`#`, `##`, `####` and deeper) is the user's prose and stays in
  * that field. Reading `##` as a boundary too split a description at a
  * `## Notes` line into an `x_notes` field, and let a `## Background` line in a
- * description be overwritten by the real Background section (OW Infra #166
- * row 1, hop 9 #4). Every released 3.2+ build writes `###` (3.2.0 onward).
+ * description be overwritten by the real Background section.
+ * Every released 3.2+ build writes `###` (3.2.0 onward).
  */
 const SECTION_HEADING = "###";
 
@@ -347,7 +347,7 @@ export function buildElementBody(
 	for (const key of keys) {
 		const label = fieldToHeading(isExtensionKey(key) ? stripExtensionPrefix(key) : key);
 		const raw = values[key];
-		// The value as it is, never trimmed (OW Infra #166 row 16): sectionValue
+		// The value as it is, never trimmed: sectionValue
 		// strips exactly the layout written here and nothing of the value. A
 		// value line that would read as a `###` heading is escaped (round C, 1).
 		const text = escapeSectionValue(typeof raw === "string" ? raw : raw == null ? "" : String(raw));
@@ -523,8 +523,7 @@ function lastSectionEol(body: string): string {
  * A body with one more, empty `### Label` section at its end (Add Custom
  * Field). The last value already there keeps its trailing whitespace: the body
  * is closed with the layout's blank line only where it lacks one, which reads
- * back the same value (sectionValue), instead of being trimmed (OW Infra #166
- * row 16).
+ * back the same value (sectionValue), instead of being trimmed.
  */
 export function appendBodySection(body: string, label: string): string {
 	const eol = lastSectionEol(body);
@@ -648,8 +647,8 @@ function isBlockListItem(item: unknown): boolean {
  * ★ Obsidian's parser is js-yaml 4 (read off the shipped asar, hop 10). Plain
  * `2024-01-01` came back a timestamp, `1e3` the number 1000, and ` #` started
  * a comment that cut the value; a raw newline inside quotes broke the whole
- * block, so the note could not be read and the save failed (OW Infra #166
- * row 3, hop 9 #8). Quoting more than strictly needed costs nothing: quoted
+ * block, so the note could not be read and the save failed.
+ * Quoting more than strictly needed costs nothing: quoted
  * and plain read back as the same string.
  */
 function yamlScalar(value: unknown): string {
@@ -704,8 +703,8 @@ export function dateToFieldString(value: unknown): unknown {
 /**
  * The value of a schema TEXT field as the string the user typed, where
  * recoverable: a hand-typed `supertype: 5` or `subtype: true` parses as a
- * number or boolean and goes to the server as "5" / "true", never as 5 / true
- * (OW Infra #166 row 3). Dates as dateToFieldString. Only for text fields:
+ * number or boolean and goes to the server as "5" / "true", never as 5 / true.
+ * Dates as dateToFieldString. Only for text fields:
  * link, number and extension values pass through untouched.
  */
 export function textFieldString(value: unknown): unknown {
@@ -761,8 +760,8 @@ export interface ParsedBody {
  * `### Heading` EOL, EOL (the blank line), the value, EOL, and one more EOL
  * before the next heading (writeElement adds that last one after the final
  * section). Exactly that layout is stripped, so the value comes back byte for
- * byte: its own edge whitespace, CRLF and lone CR included (OW Infra #166 row
- * 16; it used to be trimmed and CRLF folded to LF).
+ * byte: its own edge whitespace, CRLF and lone CR included (it used
+ * to be trimmed and CRLF folded to LF).
  *
  * A value line that starts with `### `, and a fence line that never closes in
  * its value, are written escaped (`\### `, `\~~~`: escapeSectionValue) and
@@ -869,7 +868,7 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 
 	// A body with no field heading at all IS the body field's value (a hand-made
 	// or 3.0/3.1 note): its bytes are kept, but for the file's final line ending
-	// (Seethe's mark 2, h37 #6632: the trim here was the strip she saw on the
+	// (Seethe's mark 2, 2026-10-17: the trim here was the strip she saw on the
 	// server). Prose before a first heading is the description too (round C,
 	// 2): its bytes are kept, but for the one blank line (or line ending)
 	// before that heading, the layout's; a preamble of whitespace alone is
@@ -950,7 +949,7 @@ export function bodySpans(body: string): BodySpan[] {
  * The key rides in the frontmatter verbatim, as every extension key does
  * (apiDataToFrontmatter), so the graph draws nothing for it. A note whose
  * element carries it gains one generated section at Download, last in the
- * body: `### Depends on`, one `[[note]]` line per id (OW Obsidian #676).
+ * body: `### Depends on`, one `[[note]]` line per id.
  *
  * ★ The section is owned by its HEADING ALONE: a `###` section headed
  * "Depends on" (trimmed, any case) is the plugin's in every note, whether or
@@ -1422,8 +1421,7 @@ export interface ReadLinkOptions {
 	/**
 	 * Collects `[[Name]]` targets in a generic-target link field (target `any`)
 	 * that matched notes of more than one type. Each is left out of the payload
-	 * (its field omitted on the upload path) and the caller names it to the user
-	 * (OW Infra #166 row 2).
+	 * (its field omitted on the upload path) and the caller names it to the user.
 	 */
 	ambiguous?: string[];
 	/**
@@ -1535,7 +1533,7 @@ export function frontmatterToPayloadFields(
 		// A value that is no link at all (another plugin's `location: [12.3,
 		// 45.6]`, a number, an object with no id) is LEFT OUT, never read as
 		// "no link": sent as null or [] it cleared the element's real link on
-		// the server (Boss's save-path walk, h69 #10369). An empty value still
+		// the server (Boss's save-path walk, 2026-10-22). An empty value still
 		// clears, as before.
 		if ((field.type === "single_link" || field.type === "multi_link") && holdsNonLinkValue(value)) continue;
 		if (field.type === "single_link") {

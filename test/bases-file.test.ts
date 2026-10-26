@@ -1,5 +1,5 @@
 /**
- * A world's Bases file (OW Infra #188): the text the plugin writes as
+ * A world's Bases file: the text the plugin writes as
  * `<world>.base` beside World.md, so each element type gets a table and a card
  * view in Obsidian's core Bases. Pure: vault/bases-file.ts.
  */

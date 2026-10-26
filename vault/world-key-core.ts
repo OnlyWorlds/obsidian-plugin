@@ -63,7 +63,7 @@ export const READ_ONLY_WORLD_MESSAGE =
     'so nothing was sent to onlyworlds.com. Your edits stay in your notes. ' +
     'To write, download the world again with an account that can write.';
 
-/** The line a world picker that writes shows when it left read-only worlds out (Kael's cold read, h37 #6484). */
+/** The line a world picker that writes shows when it left read-only worlds out (Kael's cold read, 2026-10-17). */
 export const READ_ONLY_WORLDS_NOT_LISTED =
     'Read-only worlds are not listed: their key can read but not write.';
 

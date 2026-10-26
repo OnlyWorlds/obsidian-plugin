@@ -1,12 +1,12 @@
 /**
- * Elements hidden from this reader by the world's owner (OW Infra #426; keel's
- * hidden mark, Keel #421: the one rule's sheet §1 and §3, D124, D127, D128).
+ * Elements hidden from this reader by the world's owner (keel's
+ * hidden mark: the one rule's sheet §1 and §3, D124, D127, D128).
  * The pure core: no Obsidian import, tested under test/.
  *
  * keel answers a hidden id with 404, exactly as a missing one, so a member's
  * plugin learns of a hide in two ways only:
  *   - a feed delete row with `reason: "hidden"` (a contributor whose view
- *     started before the hide). The Captain's ruling (B12, h20 #8014): "A hide
+ *     started before the hide). Titus's ruling (B12, 2026-10-20): "A hide
  *     is the exception by its own row: `reason: hidden` says drop the copy and
  *     never offer to keep it";
  *   - a 409 `resync_required` with `reason: "view"` (a guest, or a contributor
@@ -41,7 +41,7 @@ export const HIDDEN_NOT_SAVED = "Hidden by the world's owner: not saved.";
 /**
  * What a save of a note kept by a role (or no-reason) reset says: keel answers
  * its id 404, and the note is the person's now, never created again (Kael's
- * read, h37 #8212).
+ * read, 2026-10-20).
  */
 export const LEFT_VIEW_NOT_SAVED = "No longer in your view: not saved.";
 
@@ -172,7 +172,7 @@ export function isStubNote(content: string): boolean {
  * The person's writing a stub kept: its body without the stub line (and the
  * blank line after it), every other byte as it is; "" for a note that is no
  * stub, or a stub that kept nothing. An unhide's Download carries it into the
- * rewritten note, above its first field section (Kael's read, h37 #8212).
+ * rewritten note, above its first field section (Kael's read, 2026-10-20).
  */
 export function stubKeptText(content: string): string {
 	if (!isStubNote(content)) return "";
@@ -205,7 +205,7 @@ export interface HiddenPlan {
 	/**
 	 * The world's left-view list after this walk: ids a role (or no-reason)
 	 * reset's walk no longer named, whose notes stay the person's and are never
-	 * sent; an id the feed names again leaves it (Kael's read, h37 #8212).
+	 * sent; an id the feed names again leaves it (Kael's read, 2026-10-20).
 	 */
 	leftView: Set<string>;
 }

@@ -1,7 +1,7 @@
 import { App, normalizePath } from "obsidian";
 
 /**
- * The folder sidecar: `.ow-folder.json` inside a world folder (OW Infra #166).
+ * The folder sidecar: `.ow-folder.json` inside a world folder.
  *
  * What an imported OnlyWorlds folder carried that the notes have no home for,
  * kept so the folder export writes it back instead of dropping it (spec §4.1:

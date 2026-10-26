@@ -1,5 +1,5 @@
 /**
- * OW Infra #426, the coordinator's addendum: the folder export, Copy World and
+ * Hidden elements: the folder export, Copy World and
  * Paste World never carry a stub (a hidden element's note) as an element with
  * empty fields, nor an element whose id is on a hidden list; Paste never
  * writes a hidden id's old copy over its stub.

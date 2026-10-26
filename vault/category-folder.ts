@@ -1,9 +1,9 @@
 /**
- * A world's category folder, `Elements/<Type>` (OW Obsidian #560) — PURE, no
+ * A world's category folder, `Elements/<Type>` — PURE, no
  * Obsidian imports.
  *
  * The Markdown profile of the folder format puts one note per element at
- * `<Type>/<Name>.md`, with no count in any address (Skeld, h69 #10512): a
+ * `<Type>/<Name>.md`, with no count in any address (Skeld, 2026-10-22): a
  * count lives in a view, never in a name that Sync, git and a link carry.
  * Up to 3.8.1 the plugin wrote `<Type> (<count>)` (`Location (2)`) and renamed
  * the folder at every new note. Download renames such a folder once

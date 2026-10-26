@@ -1,6 +1,6 @@
 /**
  * world.json <-> the vault — PURE logic, NO Obsidian imports (unit-tested
- * under `npm test`). OW Infra #166 row 5.
+ * under `npm test`).
  *
  * The folder format (spec §4.1) says a writer MUST NOT invent data and MUST NOT
  * drop data it has: every world.json key the source carried comes back out.
@@ -78,8 +78,8 @@ export const WORLD_MD_LINES: readonly WorldLine[] = [
 // id (0.3.11), writes no `records/` (0.3.12) and no `.owworld` (0.3.13).
 // 0.3.15 since 3.10: its change is records marked private (§4.7's OW-8
 // clause, §4.5 rules 11 and 12), and the plugin wrote no `records/` at all,
-// so no private record could travel (OW Obsidian #564).
-// 0.3.16 since 3.11 (OW Obsidian #577): a server export carries `origin` as
+// so no private record could travel.
+// 0.3.16 since 3.11: a server export carries `origin` as
 // served (§4.2; a downloaded world's `GET /world` body goes out whole, so
 // `origin` travels as keel served it, both members, `null` kept), and the
 // folder export now carries `records/` byte for byte, private producers left
@@ -97,7 +97,7 @@ export interface ExportedAs {
 }
 
 /**
- * GET /me's answer mapped as spec §4.2 spells it (Kael's table, h50 #7909):
+ * GET /me's answer mapped as spec §4.2 spells it (Kael's table, 2026-10-19):
  * the owner (an owner-minted or classic key) → owner, role owner, no
  * character; a co-builder or contributor → member with its role, no
  * character; a guest of any kind (person, agent seat, player) → character,

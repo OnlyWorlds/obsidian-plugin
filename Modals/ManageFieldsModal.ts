@@ -21,7 +21,7 @@ export interface FieldChoice {
 /**
  * "Manage fields" — tick the fields this element should carry.
  *
- * Both directions in one place (Captain's ask): ticking adds a field's section,
+ * Both directions in one place (Titus's ask): ticking adds a field's section,
  * unticking removes it. A field WITH CONTENT is never silently removable — its
  * row is disabled and says so, because the alternative is a tickbox that
  * destroys prose. Clearing real content stays a deliberate act in the note.
@@ -87,7 +87,7 @@ export class ManageFieldsModal extends Modal {
 
 		// No Apply button: every toggle writes immediately. The button used to sit
 		// below a long scrolling list, so a user could tick a dozen fields and lose
-		// all of it by closing the modal (Captain, 2026-08-22). Live-apply removes
+		// all of it by closing the modal (Titus, 2026-08-22). Live-apply removes
 		// the failure instead of relocating it.
 		contentEl.createEl('p', {
 			text: 'Changes are applied to the note as you toggle.',

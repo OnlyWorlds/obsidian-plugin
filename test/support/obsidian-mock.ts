@@ -11,7 +11,7 @@
  *     delete (a file, or an empty folder only; recorded in `deletes`),
  *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write,list},
  *     and adapter.{readBinary,writeBinary,mkdir}: bytes written as bytes read
- *     back exactly (OW Obsidian #577's records).
+ *     back exactly (the folder's `records/`).
  *     `create` refuses an existing path, as Obsidian does.
  *   - metadataCache.getFileCache: parses the frontmatter synchronously from the
  *     current content (an always-warm cache) — UNLESS `coldCache` is set, in

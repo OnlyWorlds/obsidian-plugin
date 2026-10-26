@@ -1,11 +1,11 @@
 /**
- * OW Obsidian #560: a type folder is `<Type>/`, no count (the Markdown
- * profile's address, Skeld h69 #10512). A fresh download writes plain folders;
+ * A type folder is `<Type>/`, no count (the Markdown
+ * profile's address). A fresh download writes plain folders;
  * every reader still reads a vault with the old `Location (2)` spelling; a
  * download into such a vault renames each counted folder once, through
  * Obsidian's renameFile so links are kept, and merges a counted folder into a
- * plain one beside it note by note. The Captain's rule binds every case: never
- * a deleted note, never an overwrite, never a renamed note (h69 #10556).
+ * plain one beside it note by note. Titus's rule binds every case: never
+ * a deleted note, never an overwrite, never a renamed note.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";

@@ -16,7 +16,7 @@ import {
 import { JoinConfirmModal, JoinLinkModal } from '../Modals/JoinWorldModal';
 
 /**
- * "Join a world with a link" (OW Infra #358). The link (or its bare code) is
+ * "Join a world with a link". The link (or its bare code) is
  * previewed first, with no credential, and said: who invites, to which world,
  * as what. Then, by whose code it is:
  *   - person: accepted into the signed-in account, then downloaded as from

@@ -1,5 +1,5 @@
 /**
- * A stale save, refused (OW Obsidian #557; Boss's walk D1 claim 1). A save
+ * A stale save, refused (Boss's walk D1 claim 1). A save
  * sends the change_seq its note was last pulled or saved at as `If-Match`
  * (vault/change-seq-index.ts); when another writer changed the element since,
  * keel answers 412 and writes nothing, and the plugin writes nothing either:
@@ -18,7 +18,7 @@ export function staleSaveMessage(category: string, label: string): string {
 /**
  * The first save of a note with no recorded change_seq (a vault from before
  * 3.8.1): sent without If-Match, so a newer change on onlyworlds.com was not
- * checked for; said once per element (Seethe's walk, h69 #10546).
+ * checked for; said once per element (Seethe's walk, 2026-10-22).
  */
 export function unguardedSaveMessage(category: string, label: string): string {
 	return `This note had no recorded version from onlyworlds.com, so ${category} "${label}" was saved without checking for newer changes there. ` +

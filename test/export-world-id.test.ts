@@ -163,7 +163,7 @@ test("★ a world made in the vault mints its id, and the export's report says s
 	assert.equal(again.idNote, null);
 });
 
-// --- exported_as from GET /me (3.8.1, OW Obsidian #557 Fix 3; spec §4.2, v0.3.9) ----
+// --- exported_as from GET /me (3.8.1; spec §4.2, v0.3.9) ----
 
 const CHAR_ID = "019e0000-0000-7000-8000-0000000000c7";
 
@@ -257,7 +257,7 @@ test("★ without a key, an export writes no exported_as, asks nothing and says 
 	assert.deepEqual(seen, []);
 });
 
-test("★ a classic 10-digit key on a world with a PIN: the /me read sends the PIN the plugin holds, so the line is written (Kael, h69 #10539)", async () => {
+test("★ a classic 10-digit key on a world with a PIN: the /me read sends the PIN the plugin holds, so the line is written (Kael)", async () => {
 	const { app, vault } = makeApp();
 	serveWithMe(ME({ kind: "owner", role: "owner" }));
 	const host = plugin();
@@ -276,8 +276,8 @@ test("★ a classic 10-digit key on a world with a PIN: the /me read sends the P
 	assert.deepEqual(world.exported_as, { kind: "owner", role: "owner", character: null });
 });
 
-// --- origin (folder format 0.3.16, spec §4.2; OW Obsidian #577) --------------------
-// keel serves `origin` on GET /world (Keel #571): where the world first came
+// --- origin (folder format 0.3.16, spec §4.2) --------------------
+// keel serves `origin` on GET /world: where the world first came
 // from, both members, null when not known. A server export writes it as served.
 
 /** keel's GET /world for Moppetopia with `origin` where keel puts it, and the same feed as serve(). */
@@ -304,7 +304,7 @@ function serveOrigin(origin: Record<string, unknown>) {
 	return served;
 }
 
-test("★ 0.3.16: a downloaded world's export carries `origin` as GET /world served it, in its place, beside this export's own provenance (#577)", async () => {
+test("★ 0.3.16: a downloaded world's export carries `origin` as GET /world served it, in its place, beside this export's own provenance", async () => {
 	const ORIGIN = {
 		source: null,
 		producer: { tool: "atlas", version: "1.80.0", input: "json" },
@@ -323,7 +323,7 @@ test("★ 0.3.16: a downloaded world's export carries `origin` as GET /world ser
 	assert.equal(world.format_version, "0.3.16");
 });
 
-test("★ 0.3.16: origin served with both members null goes out so, never dropped as empty (#577)", async () => {
+test("★ 0.3.16: origin served with both members null goes out so, never dropped as empty", async () => {
 	const { app, vault } = makeApp();
 	serveOrigin({ source: null, producer: null });
 	const host = plugin();
@@ -332,7 +332,7 @@ test("★ 0.3.16: origin served with both members null goes out so, never droppe
 	assert.deepEqual(world.origin, { source: null, producer: null });
 });
 
-test("0.3.16: a world never downloaded from a server writes no origin (#577)", async () => {
+test("0.3.16: a world never downloaded from a server writes no origin", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/Native/World.md", "# World Overview: Native\n\n- **API Key:** local\n");
 	await vault.seed("OnlyWorlds/Worlds/Native/Elements/Character/Ireena.md", `---\nname: Ireena\nid: ${PIN_ID}\n---\n`);

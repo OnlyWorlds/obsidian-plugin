@@ -23,13 +23,13 @@ export class CreateWorldCommand {
 
     /**
      * The signed-in account, or null. Create World online goes through the
-     * account only (OW Infra #358; since 3.11 the only door, OW Obsidian #577:
+     * account only (since 3.11 the only door:
      * keel #134 froze the old email-and-PIN route): signed out, the plugin
      * asks to sign in, or makes a local-only world.
      */
     private account: () => { token: string; username: string } | null;
 
-    /** Whether a new world gets its Bases file (the setting; on by default, OW Infra #188). */
+    /** Whether a new world gets its Bases file (the setting; on by default). */
     private writeBases: () => boolean;
 
     constructor(
@@ -193,10 +193,10 @@ export class CreateWorldCommand {
 
     /**
      * Signed in: POST /api/v2/account/worlds through the SDK's
-     * createAccountWorld (OW Obsidian #577), the PIN only if keel says the
+     * createAccountWorld, the PIN only if keel says the
      * account has none yet, the world's write key named for the vault as
-     * Download World names its keys (`obsidian: <vault>`, Seethe's walk, h37
-     * #6462), so the keys page holds one named key per vault. keel shows that
+     * Download World names its keys (`obsidian: <vault>`, Seethe's walk,
+     * 2026-10-17), so the keys page holds one named key per vault. keel shows that
      * key once; it goes into World.md (the caller) and is shown nowhere else.
      * Should the answer carry no full key, the vault mints its own named key
      * (mintVaultKey) and `afterLanding`, called once that key is in World.md,
@@ -331,7 +331,7 @@ export class CreateWorldCommand {
         const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
         await createCoreFilesCommand.execute();
 
-        // The world's Bases file (OW Infra #188), behind its setting.
+        // The world's Bases file, behind its setting.
         if (this.writeBases()) {
             await writeWorldBasesFileQuietly(this.app, safeWorldFolderName(worldName));
         }

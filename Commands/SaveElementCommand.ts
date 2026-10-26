@@ -32,12 +32,11 @@ interface WorldFileData {
  * What a save did. `ok` is true only when the server holds the note's state
  * afterwards (created, updated, or already equal); every early return and every
  * refused call is `ok: false` with the reason the user was shown. Auto-sync sets
- * its status from this — a failure must never end on "synced" (OW Infra #166
- * row 7).
+ * its status from this — a failure must never end on "synced".
  */
 export type SaveResult =
     | { ok: true; outcome: 'created' | 'updated' | 'unchanged' }
-    /** `local`: nothing is wrong, the note is never sent (a known-of note, OW Infra #454): auto-sync stays idle. */
+    /** `local`: nothing is wrong, the note is never sent (a known-of note): auto-sync stays idle. */
     | { ok: false; reason: string; local?: true };
 
 /**
@@ -107,29 +106,29 @@ const misnamedShown = new Set<string>();
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
 
-/** Note paths whose kept Depends on lines auto-sync has named this session (OW Obsidian #676). */
+/** Note paths whose kept Depends on lines auto-sync has named this session. */
 const dependsOnShown = new Set<string>();
 
-/** Note paths whose hidden refusal auto-sync has shown this session (OW Infra #426). */
+/** Note paths whose hidden refusal auto-sync has shown this session. */
 const hiddenShown = new Set<string>();
 
-/** Note paths whose left-view refusal auto-sync has shown this session (Kael's read, h37 #8212). */
+/** Note paths whose left-view refusal auto-sync has shown this session (Kael's read, 2026-10-20). */
 const leftViewShown = new Set<string>();
 
-/** Note paths whose known-of notice auto-sync has shown this session (OW Infra #454). */
+/** Note paths whose known-of notice auto-sync has shown this session. */
 const knownOfShown = new Set<string>();
 
 /**
- * Element ids whose stale-save notice auto-sync has shown this session (OW
- * Obsidian #557): once per element, not at every pause; a save of that
+ * Element ids whose stale-save notice auto-sync has shown this session:
+ * once per element, not at every pause; a save of that
  * element that lands clears it, so a later conflict is said again.
  */
 const staleShown = new Set<string>();
 
-/** Element ids whose unguarded first save (no recorded change_seq) has been said this session (Seethe, h69 #10546). */
+/** Element ids whose unguarded first save (no recorded change_seq) has been said this session (Seethe, 2026-10-22). */
 const unguardedShown = new Set<string>();
 
-/** Per note path, the save running now: the next save of that note waits for it (Kael, h69 #10539). */
+/** Per note path, the save running now: the next save of that note waits for it (Kael, 2026-10-22). */
 const saveChains = new Map<string, Promise<void>>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
@@ -157,7 +156,7 @@ const OVERFLOW_MESSAGE =
 /** What a cancelled create-first dialog leaves the user with. */
 const CANCELLED_MESSAGE = 'Save cancelled: nothing was created or saved.';
 
-/** A local note created before the note that links to it (OW Infra #166 row 8). */
+/** A local note created before the note that links to it. */
 interface PendingCreate {
     type: string;
     id: string;
@@ -251,7 +250,7 @@ function strippedFirsts(plan: CreateFirstPlan): PendingCreate[] {
     return plan.firsts.map((f) => ({ ...f, payload: withoutLinks(f.type, f.payload, plan.leftOutIds) }));
 }
 
-/** The notice for links a save left out because their targets were deleted (N5) or hidden by the world's owner (OW Infra #426). */
+/** The notice for links a save left out because their targets were deleted (N5) or hidden by the world's owner. */
 function leftOutNotice(plan: CreateFirstPlan): void {
     const say = (items: CreateFirstItem[], why: string) => {
         if (items.length === 0) return;
@@ -266,7 +265,7 @@ function leftOutNotice(plan: CreateFirstPlan): void {
 /**
  * `{ hidden: true }` for an id the world's owner hid, `{ leftView: true }` for
  * one a role reset left out of view, else nothing: a deleted item keeps its
- * shape (OW Infra #426; Kael's read, h37 #8212).
+ * shape (Kael's read, 2026-10-20).
  */
 function hiddenMark(hidden: Set<string> | undefined, id: string, leftView?: Set<string>): { hidden?: true; leftView?: true } {
     if (hidden?.has(id)) return { hidden: true };
@@ -311,10 +310,10 @@ export class SaveElementCommand {
      * ⚑ Never read `workspace.getActiveFile()` in here. Auto-sync used to swap
      * the active note and let this method read it back; timers for several
      * notes edited in the same second then all saved whichever note was active
-     * (one id hit ten times, seven never — OW Infra #166 row 4).
+     * (one id hit ten times, seven never).
      */
     async execute(activeFile: TFile | null, opts: { manual?: boolean } = {}): Promise<SaveResult> {
-        // One save of a note at a time (Kael, h69 #10539): a second save of a
+        // One save of a note at a time (Kael, 2026-10-22): a second save of a
         // note whose PATCH is still in flight (the person's Save element over
         // auto-sync's, or the next pause's) waits for it, then reads the
         // change_seq it recorded. Otherwise both read the same number and the
@@ -350,12 +349,12 @@ export class SaveElementCommand {
         const v2 = await readElement(this.app, activeFile);
         if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
         // A known-of note is never sent, by any path (the folder spec §4.4
-        // rule 3, OW Infra #454): before any read of the server, so no create,
+        // rule 3): before any read of the server, so no create,
         // re-create or update can follow.
         if (v2?.knownOf) return this.knownOfRefusal(activeFile, manual);
         // A whole note kept as last known: keel serves its element as a stub
         // now, and a diff against that stub would read its blanks as values
-        // (rule 2). Refused up front, as a known-of note is (h37 #8936, 4).
+        // (rule 2). Refused up front, as a known-of note is.
         if (v2?.id && isLastKnownId(this.plugin.settings, v2.id)) return this.knownOfRefusal(activeFile, manual, LAST_KNOWN_NOT_SAVED);
         if (v2 && v2.id) {
             // A fence that never closes swallowed the sections after it: the
@@ -381,8 +380,8 @@ export class SaveElementCommand {
             });
             if (slips.length > 0) new Notice(likelyMisnamedMessage(v2.category, slips), 12000);
             // Lines a person wrote under the generated `### Depends on`: never
-            // sent, kept in the note, and said, never dropped without a word
-            // (OW Obsidian #676). Auto-sync says it once a session per note.
+            // sent, kept in the note, and said, never dropped without a word.
+            // Auto-sync says it once a session per note.
             if (v2.dependsOnKept && (manual || !dependsOnShown.has(activeFile.path))) {
                 if (!manual) dependsOnShown.add(activeFile.path);
                 new Notice(dependsOnKeptMessage(activeFile.basename), 12000);
@@ -396,8 +395,7 @@ export class SaveElementCommand {
                 new Notice(unresolvedLinksMessage([...new Set(v2.unresolvedLinks)], this.worldNoteNames(worldName)), 12000);
             }
             // A generic link field (a Pin's element) whose name matches notes of
-            // more than one type is never guessed: left out, and named here
-            // (OW Infra #166 row 2).
+            // more than one type is never guessed: left out, and named here.
             if (v2.ambiguousLinks.length > 0) {
                 new Notice(ambiguousLinksMessage(v2.ambiguousLinks), 12000);
             }
@@ -462,8 +460,8 @@ export class SaveElementCommand {
         // wholesale overwrite from the local parse. A GET 404 means the element
         // was never pushed — create it (the server preserves client-supplied ids).
         //
-        // The change_seq this note was last pulled or saved at (OW Obsidian
-        // #557): sent as If-Match, so a note pulled before another writer's
+        // The change_seq this note was last pulled or saved at:
+        // sent as If-Match, so a note pulled before another writer's
         // change is refused (412) instead of reverting it. None recorded (a
         // vault from before 3.8.1, a note never saved): saved as before, once,
         // and the answer's change_seq is recorded for the next save.
@@ -481,13 +479,13 @@ export class SaveElementCommand {
                     // a deleted element is never recreated by auto-sync, and
                     // only on the user's word by Save Element
                     // (Kael's second read, N1). A 410 is keel saying this
-                    // world deleted it: no feed read (OW Infra #403).
+                    // world deleted it: no feed read.
                     // A note a role reset kept: keel answers its id 404, and
-                    // it is never created again (Kael's read, h37 #8212).
+                    // it is never created again (Kael's read, 2026-10-20).
                     if (!gone && isLeftViewId(this.plugin.settings, elementUuid)) return this.leftViewRefusal(activeFile, manual);
                     const view = gone ? null : await readDeletedOnServer(this.plugin, client);
                     // The feed says the world's owner hid it: never created
-                    // again, never asked (OW Infra #426).
+                    // again, never asked.
                     if (view?.hidden.has(elementUuid)) return this.hiddenRefusal(activeFile, manual);
                     let recreated = false;
                     if (!view || view.ids.has(elementUuid)) {
@@ -603,7 +601,7 @@ export class SaveElementCommand {
         }
         // The element moved past the change_seq this note was pulled or saved
         // at: the If-Match below would be refused (412), so nothing is sent,
-        // the create-first walk included (OW Obsidian #557, ruling 2).
+        // the create-first walk included.
         if (knownSeq !== null && serverSeq !== null && serverSeq !== knownSeq) {
             return this.staleRefusal(elementUuid, category, String(label), manual);
         }
@@ -652,7 +650,7 @@ export class SaveElementCommand {
             // one clears the old number, which is no longer the element's.
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved));
             // The note's seven server keys follow the answer (Seethe's walk of
-            // PR 11, h69 #11009); the guard above reads its own record.
+            // PR 11, 2026-10-23); the guard above reads its own record.
             await this.refreshServerFields(activeFile, saved);
             // Sent without the check (no number recorded yet): said once per element.
             if (knownSeq === null && !unguardedShown.has(elementUuid)) {
@@ -693,7 +691,7 @@ export class SaveElementCommand {
      * first and never returned. A target that is no note here, or that the
      * server already has (or answers with anything but 404), is left alone.
      * `keep` narrows the payload's own links (the update path: only the ids
-     * the server's copy lacks). OW Infra #166 row 8.
+     * the server's copy lacks).
      */
     private async unsyncedTargets(
         client: { get(type: string, id: string): Promise<Record<string, unknown>> } & DeletedListClient,
@@ -740,8 +738,8 @@ export class SaveElementCommand {
                     continue; // already on the server
                 } catch (error) {
                     // A 410: keel says this world deleted it, so it is left
-                    // out as a feed-reported delete is, with no feed read
-                    // (OW Infra #403). Any other non-404 stays "on the server".
+                    // out as a feed-reported delete is, with no feed read.
+                    // Any other non-404 stays "on the server".
                     if (this.isGone(error)) {
                         leftOut.push({ type: parsed.category, name: parsed.name });
                         leftOutIds.push(id);
@@ -761,7 +759,7 @@ export class SaveElementCommand {
                     continue;
                 }
                 // A stub is never created first, even with the hidden list
-                // lost: its fields are not the element's (OW Infra #426).
+                // lost: its fields are not the element's.
                 if (await this.isHidden(file, id)) {
                     leftOut.push({ type: parsed.category, name: file.basename, hidden: true });
                     leftOutIds.push(id);
@@ -770,7 +768,7 @@ export class SaveElementCommand {
                 // A known-of target is never created from its stub. One keel
                 // serves stays linked (the GET above answered); one it answers
                 // 404 for, not deleted, is out of this reader's view: the link
-                // is left out, or keel refuses the whole save (h37 #8936, 1).
+                // is left out, or keel refuses the whole save.
                 if (parsed.knownOf) {
                     leftOut.push({ type: parsed.category, name: parsed.name, leftView: true });
                     leftOutIds.push(id);
@@ -818,7 +816,7 @@ export class SaveElementCommand {
 
     /**
      * After a save that changed the element's name, give its note that name
-     * (Seethe's finding 4, h37 #6503: the server took the new name, the file
+     * (Seethe's finding 4, 2026-10-17: the server took the new name, the file
      * kept the old one). Through fileManager.renameFile, so the user's own
      * "update internal links" setting applies. A name another note holds gets
      * the twin suffix Download uses (`Name (1)`, WorldService
@@ -926,7 +924,7 @@ export class SaveElementCommand {
     /**
      * The plan that leaves out the links of `fields` (narrowed by `keep`) to ids
      * in `deleted`, each named by its note or its id; those in `hidden` are
-     * named as hidden by the world's owner (OW Infra #426).
+     * named as hidden by the world's owner.
      */
     private leftOutOf(
         worldName: string,
@@ -948,7 +946,7 @@ export class SaveElementCommand {
         return { firsts: [], leftOut, leftOutIds: hit };
     }
 
-    /** True when the note is a stub, or its id is on a hidden list: never sent (OW Infra #426). */
+    /** True when the note is a stub, or its id is on a hidden list: never sent. */
     private async isHidden(file: TFile, id: string): Promise<boolean> {
         if (isHiddenId(this.plugin.settings, id)) return true;
         try {
@@ -968,7 +966,7 @@ export class SaveElementCommand {
     /**
      * A save of a known-of note: nothing sent, and said; Save Element says it
      * each time it is asked, auto-sync once a session per note. Not an error:
-     * the edits are the person's, kept in this vault (OW Infra #454).
+     * the edits are the person's, kept in this vault.
      */
     private knownOfRefusal(file: TFile, manual: boolean, reason: string = KNOWN_OF_NOT_SAVED): SaveResult {
         const local = { ok: false as const, reason, local: true as const };
@@ -979,8 +977,8 @@ export class SaveElementCommand {
     }
 
     /**
-     * A save from a note pulled before another writer's change (OW Obsidian
-     * #557): nothing sent, the note untouched, one notice. Save element says it
+     * A save from a note pulled before another writer's change:
+     * nothing sent, the note untouched, one notice. Save element says it
      * each time; auto-sync once a session per element.
      */
     private staleRefusal(id: string, category: string, label: string, manual: boolean): SaveResult {
@@ -1111,7 +1109,7 @@ export class SaveElementCommand {
 
     // keel answers 410 `gone` on a GET of an id this world deleted as this
     // type (a never-uploaded id, another type, a guest key and v1 still get
-    // 404): the server has said "deleted", no feed read needed (OW Infra #403).
+    // 404): the server has said "deleted", no feed read needed.
     private isGone(error: unknown): boolean {
         return error instanceof V2ApiError && error.status === 410;
     }

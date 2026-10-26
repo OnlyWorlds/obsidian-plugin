@@ -71,10 +71,10 @@ export class UpdateWorldFormatCommand {
 			const content = await this.app.vault.read(file);
 			// A known-of note leaves out what its reader does not know, and a
 			// hidden element's stub holds no field of it: no scaffold is added
-			// to either (the folder spec §4.4, OW Infra #454; #426, h37 #8936, 9).
+			// to either (the folder spec §4.4).
 			if (isKnownOfNote(content) || isStubNote(content)) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
-			// The spine list's generated section is no field (OW Obsidian #676).
+			// The spine list's generated section is no field.
 			const { body } = ownBody(content);
 			const textFields = bodyTextFields(category);
 
@@ -153,7 +153,7 @@ export class UpdateWorldFormatCommand {
 			const content = await this.app.vault.read(file);
 			// A known-of note leaves out what its reader does not know, and a
 			// hidden element's stub holds no field of it: no scaffold is added
-			// to either (the folder spec §4.4, OW Infra #454; #426, h37 #8936, 9).
+			// to either (the folder spec §4.4).
 			if (isKnownOfNote(content) || isStubNote(content)) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
 			// The fields are rebuilt; the generated section goes back last as it

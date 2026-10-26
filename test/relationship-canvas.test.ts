@@ -1,5 +1,5 @@
 /**
- * Draw relationships on a canvas (OW Infra #188, round 2, phase 2; build 6 of
+ * Draw relationships on a canvas (build 6 of
  * the reach analysis): the active element's note, every element it links to
  * and (a setting, on by default) every element linking to it, as a JSON
  * Canvas 1.0 file beside the note, each edge labelled by its field.

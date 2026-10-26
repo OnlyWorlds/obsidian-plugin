@@ -1,5 +1,5 @@
 /**
- * Known-of elements (OW Infra #454; the folder spec §4.4, ruled 2026-10-20;
+ * Known-of elements (the folder spec §4.4, ruled 2026-10-20;
  * keel PR 113 and PR 117, the one rule §7g). The pure core: no Obsidian
  * import, tested under test/.
  *
@@ -19,7 +19,7 @@
  *   5. a whole note whose element arrives as a stub follows the reset that
  *      brought it: after a `view` reset the stub replaces the whole copy;
  *      after a `role` reset, or with no reset, the whole copy is kept as last
- *      known (the Captain's B12 ruling: a member keeps what they had).
+ *      known (Titus's B12 ruling: a member keeps what they had).
  *
  * The kept keys are never listed here: a stub keeps every key whose value is
  * not an unset one, whatever keel decides a stub keeps.
@@ -36,13 +36,13 @@ export const KNOWN_OF_LINE = "Known of: you know of this element, not all of it.
 /** What a save of a known-of note says (Save Element always; auto-sync once a session per note). */
 export const KNOWN_OF_NOT_SAVED = "Known of: this note is not sent. What you write above its fields, or under a ### heading of your own, stays in this vault; its fields follow the next Download. Once the element arrives whole, what you added is part of its note, and Save sends it.";
 
-/** What Manage Fields says on a known-of note, which it leaves as it is (h37 #9280, N3). */
+/** What Manage Fields says on a known-of note, which it leaves as it is. */
 export const KNOWN_OF_NO_MANAGE = "Known of: fields are not managed on this note. They follow the next Download.";
 
 /**
  * What a save of a whole note kept as last known says (rule 5, a role reset
  * or none): keel now serves its element as a stub, and the note is the
- * person's record of what they had (h37 #8936, 4).
+ * person's record of what they had.
  */
 export const LAST_KNOWN_NOT_SAVED = "Known of now: this note keeps what you knew in full, and is not sent.";
 
@@ -54,7 +54,7 @@ export function isKnownOfElement(element: unknown): boolean {
 /**
  * The keys every stub keeps, written even when empty (keel's `KNOWN_OF_BASE`;
  * ow-folder-store's `knownOfBody` and Python's `known_of_for_disk` write the
- * same set: h37 #8936, 6). A note holds the nine of them that are note keys
+ * same set). A note holds the nine of them that are note keys
  * (the three server keys since 3.10, when the server set them).
  */
 export const KNOWN_OF_KEEPS: ReadonlySet<string> = new Set([
@@ -94,7 +94,7 @@ export function isKnownOfNote(content: string): boolean {
 	const { frontmatter, body } = splitNote(content);
 	if (!frontmatter) return false;
 	// YAML true as the plugin's reader (js-yaml 4, the core schema) reads it:
-	// `true`, `True` or `TRUE`, unquoted, a comment allowed after it (h37 #8936, 7).
+	// `true`, `True` or `TRUE`, unquoted, a comment allowed after it.
 	if (/^known_of[ \t]*:[ \t]*(?:true|True|TRUE)[ \t]*(?:#.*)?\r?$/m.test(frontmatter)) return true;
 	const fm = parseRawFrontmatterScalars(frontmatter, ["id"]);
 	return !!fm.id && linesOf(body).includes(KNOWN_OF_LINE);
@@ -130,8 +130,8 @@ export function knownOfKeptText(content: string): string {
 }
 
 /**
- * The Properties key a stub write records what it wrote under (h37 #9280,
- * N1): the extension keys and the text fields (each a `###` section) it put
+ * The Properties key a stub write records what it wrote under:
+ * the extension keys and the text fields (each a `###` section) it put
  * on the note. The next write over the note drops exactly those and keeps
  * everything else, the person's own. The writer's alone, like `known_of`:
  * never sent, never exported, gone when the note is written whole.
@@ -166,13 +166,13 @@ export interface KnownOfOwn {
 /**
  * The sections of a known-of note that are the person's own, byte for byte.
  * With the note's record (`written`, KNOWN_OF_WRITTEN_KEY): every `###`
- * section the last stub did not write, whatever its name (h37 #9280, N1 and
- * N4). With no record (a note made by hand): every `###` section whose
+ * section the last stub did not write, whatever its name.
+ * With no record (a note made by hand): every `###` section whose
  * heading names no text field of the type (round 3's rule; nothing is lost).
  * The arriving element wins a heading it sets: an own section headed as a
  * custom field `data` carries (`### Looks` when `x_looks` arrives) or as a
  * text field `data` sets is dropped. The next write puts the rest back after
- * its fields, as stubBody keeps a hidden stub's (h37 #8936, 3). Empty for
+ * its fields, as stubBody keeps a hidden stub's. Empty for
  * any other note.
  */
 export function knownOfOwnSections(
@@ -189,7 +189,7 @@ export function knownOfOwnSections(
 	for (const span of bodySpans(body)) {
 		if (span.heading === null) continue;
 		// The spine list's generated section is the plugin's, never the
-		// person's: the write puts it back from the arriving list (OW Obsidian #676).
+		// person's: the write puts it back from the arriving list.
 		if (isDependsOnHeading(span.heading)) continue;
 		const key = headingToFieldKey(span.heading);
 		if (wrote ? wrote.has(key) || wrote.has(`x_${key}`) : fields.has(key)) continue;

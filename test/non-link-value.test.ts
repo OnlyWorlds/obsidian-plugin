@@ -1,6 +1,6 @@
 /**
  * A non-link value never clears a link field (3.8.0, Amendment B; Boss's
- * save-path walk, h69 #10369). Another plugin's `location: [12.3, 45.6]` on
+ * save-path walk). Another plugin's `location: [12.3, 45.6]` on
  * a Character note read as "no link", was sent as `location: null`, and keel
  * cleared the Character's real location (PATCH 200). Now a link field whose
  * note value is not a link is left out of the save payload, as an unresolved

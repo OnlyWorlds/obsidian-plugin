@@ -15,7 +15,7 @@ export class PasteWorldCommand {
     manifest: any;
     private worldService: WorldService;
 
-    /** The plugin's settings, for the hidden lists (OW Infra #426); absent, only stubs are known. */
+    /** The plugin's settings, for the hidden lists; absent, only stubs are known. */
     private host: HiddenListHost | null;
 
     constructor(app: App, manifest: any, host?: HiddenListHost) {
@@ -120,7 +120,7 @@ export class PasteWorldCommand {
 
             const elements = data[category];
             // The type's folders, plain first (an older vault may hold a counted
-            // one too, OW Obsidian #560): a new note goes in the first, a note
+            // one too): a new note goes in the first, a note
             // this element has is found in any of them and written where it is.
             const typeFolders = await this.worldService.findCategoryFolders(worldName, category);
             const categoryDirectory = typeFolders.length > 0
@@ -131,7 +131,7 @@ export class PasteWorldCommand {
 
             for (const element of elements) {
                 if (!element || typeof element.id !== 'string') continue;
-                // Hidden by the world's owner (OW Infra #426): an id on a
+                // Hidden by the world's owner: an id on a
                 // hidden list is never written, and a stub never overwritten
                 // by an old copy of the element.
                 if (this.host && isHiddenId(this.host.settings, element.id)) continue;
@@ -143,7 +143,7 @@ export class PasteWorldCommand {
                     if (existingElementPath) break;
                 }
                 if (existingElementPath && (await this.isStub(existingElementPath))) continue;
-                // A known-of stub (the folder spec §4.4, OW Infra #454) is
+                // A known-of stub (the folder spec §4.4) is
                 // written as one, never over a whole note (no reset brought it:
                 // the whole copy is kept); the person's writing a known-of note
                 // holds stays above its fields.

@@ -198,7 +198,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * The OnlyWorlds account (OW Infra #358): sign in with an account token, or
+	 * The OnlyWorlds account: sign in with an account token, or
 	 * Signed in as <username> with Sign out. The token is kept like the API key
 	 * (masked, in data.json). Signed out, nothing else in the plugin changes.
 	 */

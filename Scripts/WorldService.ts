@@ -103,7 +103,7 @@ export class WorldService {
      * `getWorldName()` answers "which world is primary", which is the wrong
      * question whenever a note is open — with several worlds in a vault it kept
      * preselecting the top one while the user was editing something else
-     * (Captain, 2026-08-22). Any command acting ON a note should call this.
+     * (Titus, 2026-08-22). Any command acting ON a note should call this.
      */
     async getActiveWorldName(): Promise<string> {
         const file = this.app.workspace.getActiveFile();
@@ -179,7 +179,7 @@ export class WorldService {
 
     /**
      * A type's category folder in this world: `Elements/<Type>`, the profile's
-     * address (OW Obsidian #560); else a folder of the old spelling (3.8.1 and earlier),
+     * address; else a folder of the old spelling (3.8.1 and earlier),
      * `<Type> (<count>)`, which Download renames once. Null when the world has
      * neither.
      */
@@ -205,7 +205,7 @@ export class WorldService {
      * `taken` (lowercased paths) holds names a caller has already handed to
      * OTHER elements but not yet written — Download plans a whole pull before
      * writing, so two same-name elements in one pull get `Twin.md` and
-     * `Twin (1).md` instead of both planning `Twin.md` (OW Infra #166 row 2).
+     * `Twin (1).md` instead of both planning `Twin.md`.
      */
     /**
      * The note file name for an element, from noteNameCandidates: the first

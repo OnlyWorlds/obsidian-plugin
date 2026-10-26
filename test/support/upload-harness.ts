@@ -19,14 +19,14 @@ export interface UploadOpts {
 	changes: unknown[];
 	/** The plugin's deleted list for the world. */
 	deleted?: string[];
-	/** The plugin's hidden list for the world (OW Infra #426). */
+	/** The plugin's hidden list for the world. */
 	hidden?: string[];
 	/** The plugin's left-view list for the world. */
 	leftView?: string[];
-	/** The plugin's last-known list for the world (OW Infra #454). */
+	/** The plugin's last-known list for the world. */
 	lastKnown?: string[];
 	answer?: boolean;
-	/** The world's change_seq index (`.ow-seq.json`, OW Obsidian #557). */
+	/** The world's change_seq index (`.ow-seq.json`). */
 	seqs?: Record<string, number>;
 	/** Ids whose PATCH keel refuses with 412 (changed since the note was pulled). */
 	stale?: string[];

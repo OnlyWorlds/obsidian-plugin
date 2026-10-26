@@ -1,6 +1,6 @@
 /**
- * The bytes a save puts on the wire (Seethe's walk of round B, mark 2, h37
- * #6632). Her note's file was byte-unchanged after the save, and the server held
+ * The bytes a save puts on the wire (Seethe's walk of round B, mark 2).
+ * Her note's file was byte-unchanged after the save, and the server held
  * the description with its leading and trailing double spaces stripped (CRLF and
  * tabs kept). keel does not trim: a PATCH of "  edge  \n\tsecond line  " comes
  * back byte-equal (Skeld's probe on production, 2026-10-17). So the strip is the

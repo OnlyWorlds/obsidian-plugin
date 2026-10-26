@@ -2,7 +2,7 @@ import { V2ApiError } from "../client-v2";
 import { owRequest } from "./account-api";
 
 /**
- * Joining a world with a link (OW Infra #358): https://www.onlyworlds.com/join#ow_j_…,
+ * Joining a world with a link: https://www.onlyworlds.com/join#ow_j_…,
  * the code after the #. Routes as keel's OpenAPI document declares them
  * (accounts/join_api.py, accounts/api.py):
  *
@@ -14,7 +14,7 @@ import { owRequest } from "./account-api";
  *   POST /api/v2/join           {code}  no credential: a player code answers
  *        201 `kind: player` with a read key (ow_r_), shown once; the code is spent.
  *
- * Reference: Lantern's src/join.ts (Forge).
+ * Reference: Lantern's src/join.ts.
  */
 
 export interface JoinPreview {
@@ -64,7 +64,7 @@ export function joinRoleWords(role: string): string {
  * What the joining vault's key can do, by the invite's role: a guest (a
  * player) gets a read key (mintVaultKey mints read for a guest), every other
  * role a write key. Said before the join, so a read key is not a surprise
- * (Seethe's walk of rc-next, h37 #6503).
+ * (Seethe's walk of rc-next, 2026-10-17).
  */
 export function joinKeyWords(role: string): string {
 	if (role === "guest") return "This vault then downloads the world with its own read key: you can read it here, not change it.";

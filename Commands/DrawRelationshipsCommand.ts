@@ -5,7 +5,7 @@ import { gatherRelationshipGraph } from "../vault/relationship-graph";
 import { buildRelationshipCanvas, canvasStatus, withoutCanvasMarker, type CanvasVaultView } from "../vault/relationship-canvas";
 
 /**
- * Draw relationships on a canvas (OW Infra #188, round 2, phase 2): the active
+ * Draw relationships on a canvas: the active
  * element's note, what it links to and (the setting, on by default) what links
  * to it, as `<Element name> — relationships.canvas` beside the note, then
  * opens it. Running it again redraws the plugin's own canvas; one the user

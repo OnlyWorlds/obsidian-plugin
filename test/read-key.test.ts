@@ -83,7 +83,7 @@ test("Upload with a read key refuses before the PIN is asked", async () => {
 	assert.ok(__notices.some((n) => /^This world is read-only in this vault:/.test(n)));
 });
 
-// --- Delete Element and Rename World refuse BEFORE their dialogs (Seethe's walk of rc-next, h37 #6462) ---
+// --- Delete Element and Rename World refuse BEFORE their dialogs (Seethe's walk of rc-next) ---
 
 const READ_ONLY_LINE = /^This world is read-only in this vault:/;
 
@@ -157,7 +157,7 @@ test("Rename World in a vault holding a read-key world and a write-key world off
 	assert.deepEqual(__requests, []);
 });
 
-// --- Upload World's picker offers only writable worlds (Kael's cold read, h37 #6484) ---
+// --- Upload World's picker offers only writable worlds (Kael's cold read) ---
 
 function uploadCommand(h: Awaited<ReturnType<typeof setup>>, activeWorld: string, pin: string | null) {
 	const asked = { pin: false };
@@ -193,7 +193,7 @@ test("Upload in a vault whose every world is read-only refuses up front: the rea
 	assert.ok(__notices.some((n) => READ_ONLY_LINE.test(n)), __notices.join(" / "));
 });
 
-// --- Both pickers say when read-only worlds were left out (Kael's cold read, h37 #6484) ---
+// --- Both pickers say when read-only worlds were left out (Kael's cold read) ---
 
 const NOT_LISTED = "Read-only worlds are not listed: their key can read but not write.";
 

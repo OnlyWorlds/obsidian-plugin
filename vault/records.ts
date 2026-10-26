@@ -1,6 +1,6 @@
 /**
  * `records/` in a world folder — PURE logic, NO Obsidian imports (unit-tested
- * under `npm test`). OW Obsidian #577.
+ * under `npm test`).
  *
  * The folder format (spec §4.5) keeps world data that is not elements under
  * `records/` at the world's root: one directory per producer, in the
@@ -19,7 +19,7 @@
  *
  * A manifest the plugin cannot read leaves nothing out by guess and carries
  * nothing by guess either (§4.7 OW-8: the writer refuses, or the caller asks;
- * Amendment A, Kael h69 #11140): the export asks with one switch, off by
+ * Amendment A, Kael, 2026-10-23): the export asks with one switch, off by
  * default; off, no producer directory goes out and `RECORDS.json` still
  * travels byte-exact (the label travels, never the notes); on, everything
  * travels whole. With no manifest at all nothing can be private, so every

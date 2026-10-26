@@ -9,8 +9,8 @@ export interface OnlyWorldsPluginSettings {
 	apiKey: string;
 	apiPin: string;
 	defaultWorld: string;
-	// `defaultEmail` went with the email-and-PIN create (3.11, OW Obsidian
-	// #577); an older data.json that still holds it loads as before (the key
+	// `defaultEmail` went with the email-and-PIN create (3.11);
+	// an older data.json that still holds it loads as before (the key
 	// is carried along by loadSettings' Object.assign and read by nothing).
 	defaultCategory: string;
 	individualElementCommands: boolean;
@@ -20,7 +20,7 @@ export interface OnlyWorldsPluginSettings {
 	showStatusBar: boolean;
 	/**
 	 * After Save Element changed an element's name, rename its note to that name
-	 * (Seethe's finding 4, h37 #6503). On by default.
+	 * (Seethe's finding 4, 2026-10-17). On by default.
 	 */
 	renameNoteOnNameChange: boolean;
 
@@ -34,7 +34,7 @@ export interface OnlyWorldsPluginSettings {
 	/**
 	 * Per world id: element ids the change feed reported deleted on the server,
 	 * kept by Download (whose notes stay, on purpose). A save never recreates
-	 * them as link targets (OW Infra #166 row 8; Kael's cold read, blocker 1c).
+	 * them as link targets (Kael's cold read, blocker 1c).
 	 */
 	deletedOnServer: Record<string, string[]>;
 
@@ -42,14 +42,14 @@ export interface OnlyWorldsPluginSettings {
 	 * Per world id: element ids the world's owner hid from this reader (a feed
 	 * delete row with reason `hidden`, or a 409 with reason `view` whose walk no
 	 * longer names them). Download keeps each note as a stub; a save or an
-	 * upload never sends the id (OW Infra #426, sync/hidden-on-server.ts).
+	 * upload never sends the id (sync/hidden-on-server.ts).
 	 */
 	hiddenOnServer: Record<string, string[]>;
 
 	/**
 	 * Per world id: the element ids Download's walks found on the server, so a
 	 * 409 with reason `view` stubs only notes whose element was there, never a
-	 * note made here and not yet saved (OW Infra #426).
+	 * note made here and not yet saved.
 	 */
 	knownOnServer: Record<string, string[]>;
 
@@ -57,7 +57,7 @@ export interface OnlyWorldsPluginSettings {
 	 * Per world id: element ids a role (or no-reason) reset's walk no longer
 	 * named. Their notes are kept, the person's now: keel answers the id 404, and
 	 * a save or an upload never creates it again. An upsert of the id later
-	 * takes it off (Kael's read, h37 #8212).
+	 * takes it off (Kael's read, 2026-10-20).
 	 */
 	leftView: Record<string, string[]>;
 	/**
@@ -65,7 +65,7 @@ export interface OnlyWorldsPluginSettings {
 	 * as a known-of stub after a role reset, or with none (the folder spec §4.4
 	 * rule 5). keel now serves a stub for them, so a save or an upload never
 	 * sends them; the id leaves the list when the element arrives whole or the
-	 * note becomes a stub (OW Infra #454, h37 #8936, 4).
+	 * note becomes a stub.
 	 */
 	lastKnown: Record<string, string[]>;
 
@@ -79,8 +79,8 @@ export interface OnlyWorldsPluginSettings {
 
 	/**
 	 * Download World and Create World write `<world>.base` beside World.md: a
-	 * table and a card view per element type in Obsidian's core Bases (OW Infra
-	 * #188). A file the user changed is never overwritten.
+	 * table and a card view per element type in Obsidian's core Bases.
+	 * A file the user changed is never overwritten.
 	 */
 	writeBasesFile: boolean;
 
@@ -94,7 +94,7 @@ export interface OnlyWorldsPluginSettings {
 	/**
 	 * Per world folder, the ids of element notes whose new name auto-sync saved
 	 * without renaming the note: the next Save Element renames it, after a
-	 * restart too (OW Infra #166 round C).
+	 * restart too.
 	 */
 	pendingRenames: Record<string, string[]>;
 

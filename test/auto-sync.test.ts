@@ -3,7 +3,7 @@
  * against the REAL AutoSyncEngine and SaveElementCommand through an in-memory
  * vault (test/support/obsidian-mock.ts) and a recording fake of the v2 client.
  *
- * ★ Row 4 of the data-paths ranking (OW Infra #166): every auto-sync timer
+ * ★ Row 4 of the data-paths ranking: every auto-sync timer
  * saved `workspace.getActiveFile()`, not its own file. Eight notes modified in
  * one burst hit one id ten times and seven never (hop 10 live part 1).
  */

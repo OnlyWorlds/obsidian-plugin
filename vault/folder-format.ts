@@ -14,16 +14,16 @@
  *
  *   (a) world.json carries `id` + `name` (+ world meta).
  *   (b) all 22 types live under elements/<type>/, map/pin/zone/marker included
- *       (spec §4, ruled 2026-07-28; OW Infra #166 row 13). The import still
+ *       (spec §4, ruled 2026-07-28). The import still
  *       reads the legacy spatial/<type>/ layout, which Atlas through v1.0 and
  *       this plugin through 3.3 wrote.
  *   (c) every element body carries in-file `type` (the FOLDER dialect only; it
  *       never rides the API/bulk). No timestamp is minted: server and sync
  *       fields an import carried are written back as received, nothing else
- *       (OW Infra #166 row 6, spec §4.1/§5).
+ *       (spec §4.1/§5).
  *   (d) folder name = <slug>-<first 8 chars of world id>; element files follow
  *       spec §3.2's RECOMMENDED profile (slugify, filenameFor,
- *       planElementPaths; OW Infra #166 row 14). Filename = presentation,
+ *       planElementPaths). Filename = presentation,
  *       id = identity: the import reads any filename (§3.1).
  *
  * ow:// mention scheme (R3): body prose carries element references as
@@ -36,7 +36,7 @@ import { getCategorySchema, isExtensionKey, SERVER_FIELDS, type SchemaField } fr
 
 /**
  * The server's keys a note carries (SERVER_FIELDS), as a folder body writes
- * them (3.10, OW Obsidian #564): keel serves all seven on every element, and
+ * them (3.10): keel serves all seven on every element, and
  * a note leaves out only the null ones (R3), so for a whole note that carries
  * any of them, each one it lacks goes out `null`, as the server serves it
  * (spec §5: a writer that read a field writes it as the server serves it).
@@ -69,7 +69,7 @@ export const SPATIAL_TYPES = new Set(["map", "pin", "zone", "marker"]);
  * its notes since 3.10, never sent either), so the import keeps them in the folder
  * sidecar and the export writes them back as received (spec §4.1: a writer MUST
  * NOT drop data it has, MUST NOT synthesize a timestamp it does not have;
- * §4.2/§5: server fields kept as received). OW Infra #166 row 6.
+ * §4.2/§5: server fields kept as received).
  *
  * An unknown type (no schema) carries nothing here: the note passes every key
  * of an unknown type through as it is.
@@ -148,7 +148,7 @@ export function elementRelPath(type: string, element: { id: string; name?: unkno
  * second write would destroy the first. Ids go in ascending order; the first
  * keeps the short name and every later one falls back to the full id, so the
  * choice is the same on every run and in every writer (Atlas's open-time tidy
- * walks ids the same way). OW Infra #166 row 14.
+ * walks ids the same way).
  */
 export function planElementPaths(
 	elements: { type: string; id: string; name?: unknown }[]
@@ -192,7 +192,7 @@ export interface ElementRef {
  * fabricate a reference), byte for byte. A wikilink of the `[[Name|Alias]]`
  * form keeps Alias as the visible label, exactly as written (everything after
  * the first pipe, spaces and an empty alias included), and resolves on Name.
- * OW Infra #166 row 15: a label is never trimmed or altered.
+ * A label is never trimmed or altered.
  */
 export function wikilinksToOwMentions(
 	body: string,
@@ -213,7 +213,7 @@ export function wikilinksToOwMentions(
  * a known element; an unresolved mention is KEPT VERBATIM (R3 — never destroy a
  * reference). When the resolved name differs from the label, an alias is kept so
  * the visible text is preserved: `[[Name|Label]]`. The label is never trimmed
- * or altered (OW Infra #166 row 15): `[ Name ]` keeps its spaces as
+ * or altered: `[ Name ]` keeps its spaces as
  * `[[Name| Name ]]`, and an empty label stays empty as `[[Name|]]`.
  */
 export function owMentionsToWikilinks(
@@ -233,7 +233,7 @@ export function owMentionsToWikilinks(
  * What the server serves for an unset field (keel elements/serialize.py
  * `serialize`): `""` for text, `[]` for a multi-link, `null` for a single
  * link and for a number. Reading folds absent, `null` and `""` as one value
- * (spec §5); writing uses the server's own form (OW Infra #166 row 18).
+ * (spec §5); writing uses the server's own form.
  */
 export function serverEmptyValue(def: SchemaField): unknown {
 	if (def.type === "multi_link") return [];
@@ -253,10 +253,10 @@ export function serverEmptyValue(def: SchemaField): unknown {
  *
  * No timestamp is minted (spec §4.1: a writer MUST NOT synthesize
  * `local_updated_at`/`created_at` it does not have; §5: new files carry
- * neither sync stamp). OW Infra #166 row 6.
+ * neither sync stamp).
  *
  * Every field of the type is written, as the server serves it (spec §5,
- * ruled 2026-10-12; OW Infra #166 row 18): a field the note left out because
+ * ruled 2026-10-12): a field the note left out because
  * it was empty (frontmatter omits empties) goes out as the server's empty,
  * from serverEmptyValue. The note may omit; the folder drops nothing.
  */
@@ -269,7 +269,7 @@ export function buildFolderElementBody(
 	const { type: _stray, ...rest } = payload;
 	const body: Record<string, unknown> = { type, ...rest };
 	// A known-of stub keeps only its keys: what it leaves out is unknown, never
-	// an empty to write (§4.4 rule 1, OW Infra #454).
+	// an empty to write (§4.4 rule 1).
 	const knownOf = body.known_of === true;
 	for (const [k, def] of Object.entries(getCategorySchema(type) ?? {})) {
 		if (!knownOf && !(k in body)) body[k] = serverEmptyValue(def);
@@ -317,7 +317,7 @@ export function parseFolderElementBody(
  *   - a file directly in `elements/`, `elements/character_twin-01.json`: the
  *     filename's leading word when it is an element type, followed by `_`,
  *     `-` or the extension. Not the spec's layout, but one a hand-made folder
- *     uses (Seethe's mark 4 fixture, h37 #6632).
+ *     uses (Seethe's mark 4 fixture, 2026-10-17).
  *   - anything else: null. The caller reports the file, never filing it under
  *     a folder named after the file (mark 4: `Character_twin-01.json/Twin.md`).
  */

@@ -79,7 +79,7 @@ export class PinInputModal extends Modal {
         contentEl.empty();
         // Closed unanswered (Escape, the X): the same answer as Cancel, so
         // whatever waits on the prompt ends with its cancel line instead of
-        // waiting forever (Seethe's walk of PR 11, h69 #11009).
+        // waiting forever (Seethe's walk of PR 11, 2026-10-23).
         this.answer(null);
     }
 } 

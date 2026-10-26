@@ -140,7 +140,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         // 2.2.0 had restored this pull path on the legacy worldsync route.
         const downloadWorldCommand = new DownloadWorldCommand(this.app, this.manifest, this);
         const sendWorldCommand = new ExportWorldCommand(this.app, this.manifest, this.worldService, this);
-        // Signed in (OW Infra #358), Create World online goes through the account.
+        // Signed in, Create World online goes through the account.
         const createWorldCommand = new CreateWorldCommand(this.app, this.manifest, sendWorldCommand, () =>
             this.settings.accountToken
                 ? { token: this.settings.accountToken, username: this.settings.accountUsername }
@@ -207,13 +207,13 @@ export default class OnlyWorldsPlugin extends Plugin {
         name: 'Validate world',
         callback: () => validateWorldCommand.execute(),
     });
-      // A table and cards per element type in Obsidian's core Bases (OW Infra #188)
+      // A table and cards per element type in Obsidian's core Bases
       this.addCommand({
         id: 'write-bases-file',
         name: 'Write Bases file',
         callback: () => writeBasesFileCommand.execute(),
     });
-      // The active element's links on an Obsidian canvas, labelled by field (OW Infra #188)
+      // The active element's links on an Obsidian canvas, labelled by field
       this.addCommand({
         id: 'draw-relationships-canvas',
         name: 'Draw relationships on a canvas',
@@ -240,7 +240,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       name: 'Save element',
       // No default hotkey — Obsidian guidelines recommend letting users bind their own
       // to avoid conflicts. Suggest Ctrl/Cmd+Shift+S in the README/docs.
-      // manual: only this command creates link targets first (OW Infra #166 row 8).
+      // manual: only this command creates link targets first.
       callback: () => saveElementCommand.execute(this.app.workspace.getActiveFile(), { manual: true }),
   });
 
@@ -287,7 +287,7 @@ export default class OnlyWorldsPlugin extends Plugin {
   });
 
 
-    // Type folders carry no count since OW Obsidian #560 (the profile's
+    // Type folders carry no count (the profile's
     // `<Type>/<Name>.md`); Download renames an older vault's once.
 
     this.registerEvent(

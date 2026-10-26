@@ -1,6 +1,6 @@
 /**
  * An element deleted on onlyworlds.com is never recreated by a save (Kael's
- * cold read, blocker 1c, OW Infra #166 row 8). Download keeps a deleted
+ * cold read, blocker 1c). Download keeps a deleted
  * element's note on purpose ("Notes are never auto-deleted"), so a note can
  * still link to it, and a GET answers 404 for "deleted" exactly as for "not
  * pushed yet". Download now keeps the ids the change feed reported deleted,
@@ -86,7 +86,7 @@ interface SaveOpts {
 	answer?: boolean;
 	/** The manual Save Element (default), or auto-sync's save. */
 	manual?: boolean;
-	/** Ids keel answers 410 gone for on a GET (this world deleted them; OW Infra #403). */
+	/** Ids keel answers 410 gone for on a GET (this world deleted them). */
 	gone?: string[];
 }
 
@@ -364,7 +364,7 @@ test("Create again recreates it and takes it off the deleted list", async () => 
 	assert.deepEqual(r.settings.deletedOnServer[WID], []);
 });
 
-// --- OW Infra #403: keel answers 410 for an id this world deleted ----------
+// --- keel answers 410 for an id this world deleted ----------
 
 const feedReads = (calls: string[]) => calls.filter((c) => c.startsWith("changes"));
 

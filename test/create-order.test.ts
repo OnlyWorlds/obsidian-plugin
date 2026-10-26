@@ -1,6 +1,6 @@
 /**
  * A note is never refused for linking to a sibling note the plugin could
- * create (OW Infra #166 row 8, hop 10 live part 1): keel 400s a write whose
+ * create: keel 400s a write whose
  * link names an element it does not have ("location references Location ...
  * which does not exist"), and a vault of new notes linking among themselves
  * failed note by note until the targets happened to save first.

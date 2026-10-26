@@ -34,13 +34,13 @@ import {
  *     clear message (never merge two worlds). The target world's id is recorded
  *     in a `.ow-world-id` marker note on first import so the check is stable.
  *
- * World fields (OW Infra #166 row 5, spec §4.1 no-drop): a world new to this
+ * World fields (spec §4.1 no-drop): a world new to this
  * vault gets a World.md showing its description, time settings and units, and
  * the world.json itself (minus `api`) is kept in the folder sidecar so the
  * export writes every key back. An existing World.md or sidecar is never
  * overwritten.
  *
- * Records (spec §4.5, OW Obsidian #577): the folder's `records/` is copied
+ * Records (spec §4.5): the folder's `records/` is copied
  * whole into the world's folder, byte for byte (importRecords), and the
  * folder export writes it back from there.
  */
@@ -214,7 +214,7 @@ export class ImportFolderCommand {
 		const existingIds = await this.existingElementIds(targetWorld);
 
 		// Plan every note's name before writing any, and render link fields as
-		// `[[Name]]` from that plan, as Download does (OW Infra #166 row 17). The
+		// `[[Name]]` from that plan, as Download does. The
 		// metadata cache is not consulted: it is cold for notes written moments
 		// ago in this run, so links came in as raw uuids (hop 9: 43%).
 		const idToName = await this.planNoteNames(targetWorld, parsed, existingIds);
@@ -256,7 +256,7 @@ export class ImportFolderCommand {
 				}
 				const planned = idToName.get(id);
 				// A `known_of` file is a stub: written as a known-of note, never
-				// a whole one (the folder spec §4.4 rule 2, OW Infra #454). The
+				// a whole one (the folder spec §4.4 rule 2). The
 				// note carries the mark, so the sidecar does not.
 				const knownOf = isKnownOfElement(el.carried);
 				if (knownOf) {
@@ -299,7 +299,7 @@ export class ImportFolderCommand {
 		}
 
 		// What each created element carried that its note has no home for (server
-		// and sync fields; OW Infra #166 row 6), and its file's key order (spec
+		// and sync fields), and its file's key order (spec
 		// §5: an export writes keys as received; Kael's review), kept for the
 		// folder export. Skipped elements keep whatever an earlier import recorded.
 		if (carriedById.size > 0) {
@@ -324,7 +324,7 @@ export class ImportFolderCommand {
 	}
 
 	/**
-	 * The folder's `records/` (spec §4.5, OW Obsidian #577): copied whole into
+	 * The folder's `records/` (spec §4.5): copied whole into
 	 * the world's folder in the vault (vault/records-store.ts), every producer
 	 * directory and `RECORDS.json`, byte for byte, nothing parsed or renamed.
 	 * Only into a world folder that exists (some element was written now or
@@ -350,7 +350,7 @@ export class ImportFolderCommand {
 
 	/**
 	 * The id -> note name (basename) map for link rendering, built from the
-	 * folder before any note is written (OW Infra #166 row 17):
+	 * folder before any note is written:
 	 *   - an element this import creates: the note name it will get, the way
 	 *     writeElement claims it (`<name>`, or `<name> (N)` from 1 when another
 	 *     note, or an earlier element of this run, holds that path, compared

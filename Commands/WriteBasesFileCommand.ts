@@ -3,7 +3,7 @@ import { WorldService } from "../Scripts/WorldService";
 import { basesFilePath, rebuildWorldBasesFile, type BasesMemory } from "../vault/bases-writer";
 
 /**
- * Write Bases file (OW Infra #188): `<world>.base` beside World.md, a table and
+ * Write Bases file: `<world>.base` beside World.md, a table and
  * a card view per element type in Obsidian's core Bases. The world is the one
  * the active note sits in, else the primary world.
  * Run by hand, it rebuilds a base the user changed too, keeping their version

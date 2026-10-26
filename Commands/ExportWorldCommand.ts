@@ -35,13 +35,13 @@ export class ExportWorldCommand {
     private ambiguousLinks: string[] = [];
     /** Notes this sweep does not send whole (an unclosed code fence), each with why (round C, 1). */
     private refusedNotes: string[] = [];
-    /** Notes whose `### Depends on` holds lines a person wrote: kept in the note, never sent, named in the summary (OW Obsidian #676). */
+    /** Notes whose `### Depends on` holds lines a person wrote: kept in the note, never sent, named in the summary. */
     private dependsOnKept: string[] = [];
-    /** The ids of this sweep's stubs: notes of elements hidden by the world's owner, never sent (OW Infra #426). */
+    /** The ids of this sweep's stubs: notes of elements hidden by the world's owner, never sent. */
     private stubIds = new Set<string>();
     /** Each stub's `Type "note name"`, to name a link left out to it. */
     private stubNames = new Map<string, string>();
-    /** The ids of this sweep's known-of notes: never sent (OW Infra #454). */
+    /** The ids of this sweep's known-of notes: never sent. */
     private knownOfIds = new Set<string>();
     /** Each known-of note's `Type "note name"`, to name a link left out to it. */
     private knownOfNames = new Map<string, string>();
@@ -66,7 +66,7 @@ export class ExportWorldCommand {
 
         // The picker offers only worlds this vault can write to, and a vault
         // whose every world is read-only is refused here, before any PIN or
-        // dialog (Kael's cold read, h37 #6484). Same split as Rename World.
+        // dialog (Kael's cold read, 2026-10-17). Same split as Rename World.
         const { writable, readOnly } = await splitWorldsByWrite(this.app, this.plugin?.settings.apiKey);
         if (writable.length === 0 && readOnly.length > 0) {
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
@@ -176,7 +176,7 @@ export class ExportWorldCommand {
             }
             for (const [id, op] of latestOp) if (op === 'upsert') serverIds.add(id);
 
-            // Hidden by the world's owner (OW Infra #426): a hidden row's id,
+            // Hidden by the world's owner: a hidden row's id,
             // an id on a hidden list the walk does not show again, and every
             // stub. Never created, never updated, and links to them left out.
             const hiddenIds = new Set<string>(this.stubIds);
@@ -190,7 +190,7 @@ export class ExportWorldCommand {
             let hiddenSkipped = this.stubIds.size;
             // Kept by a role (or no-reason) reset: keel answers the id 404, and
             // the note is never created again until the feed names it (Kael's
-            // read, h37 #8212).
+            // read, 2026-10-20).
             const leftViewIds = new Set<string>();
             for (const list of Object.values(this.plugin?.settings.leftView ?? {})) {
                 for (const id of list) if (!latestOp.has(id) && !hiddenIds.has(id)) leftViewIds.add(id);
@@ -219,8 +219,7 @@ export class ExportWorldCommand {
                         continue;
                     }
                     // A whole note kept as last known over a stub keel now
-                    // serves: never sent, counted with the known-of notes
-                    // (h37 #8936, 4).
+                    // serves: never sent, counted with the known-of notes.
                     if (this.plugin && isLastKnownId(this.plugin.settings, id)) {
                         lastKnownSkipped++;
                         continue;
@@ -269,8 +268,8 @@ export class ExportWorldCommand {
             let linksStripped = 0;
             const strippedTargets = new Set<string>();
             // A known-of note keel does not serve (out of view, or never on
-            // this world's server): a link to it is refused, so it is left out
-            // (h37 #8936, 2). One keel serves stays linked.
+            // this world's server): a link to it is refused, so it is left out.
+            // One keel serves stays linked.
             const knownOfAbsent = [...this.knownOfIds].filter(id => !serverIds.has(id));
             const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds, ...leftViewIds, ...knownOfAbsent];
             if (stripIds.length > 0) {
@@ -301,8 +300,8 @@ export class ExportWorldCommand {
             // non-atomic by default, with one result per item in request order:
             // { errors, items: [{ status: 201 created | 200 replaced | <error>,
             // id, error? }] } (keel core/bulk_api.py BulkResult). Counting
-            // toCreate.length reported every refused item as created (OW Infra
-            // #166 row 9). An item with no result is a failure, never a guess.
+            // toCreate.length reported every refused item as created.
+            // An item with no result is a failure, never a guess.
             let created = 0;
             let replaced = 0;
             const landed: string[] = [];
@@ -331,7 +330,7 @@ export class ExportWorldCommand {
 
             // Updates, per element; collect failures instead of aborting the sweep.
             // Each PATCH carries the change_seq its note was last pulled or
-            // saved at as If-Match (OW Obsidian #557): an element another
+            // saved at as If-Match: an element another
             // writer changed since is refused (412), not reverted, and named.
             const knownSeqs = await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
@@ -476,7 +475,7 @@ export class ExportWorldCommand {
                     const fileContent = await fs.read(file.path);
                     if (isKnownOfNote(fileContent) && !isStubNote(fileContent)) {
                         // Known of: a stub of the server's element, never sent
-                        // (the folder spec §4.4 rule 3, OW Infra #454). Links to
+                        // (the folder spec §4.4 rule 3). Links to
                         // it are real and travel; it is counted in the summary.
                         const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
                         if (id) {
@@ -487,7 +486,7 @@ export class ExportWorldCommand {
                     }
                     if (isStubNote(fileContent)) {
                         // Hidden by the world's owner: the stub holds no field
-                        // of the element, and is never sent (OW Infra #426).
+                        // of the element, and is never sent.
                         const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
                         if (id) {
                             this.stubIds.add(id);
@@ -564,7 +563,7 @@ export class ExportWorldCommand {
             if (op === 'delete') deleted.add(id);
             else deleted.delete(id);
         }
-        // A hidden id is never offered back, nor kept on the deleted list (OW Infra #426).
+        // A hidden id is never offered back, nor kept on the deleted list.
         for (const id of hiddenIds) deleted.delete(id);
         if (worldId && this.plugin) {
             // Kept: only ids with a note in this vault or linked from one, the

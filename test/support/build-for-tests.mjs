@@ -1,6 +1,5 @@
 /**
- * The test build's two bundles, run by `pretest` after tsc (3.10, OW
- * Obsidian #564):
+ * The test build's two bundles, run by `pretest` after tsc (3.10):
  *
  * 1. @onlyworlds/sdk 4.x is ESM only (a sealed `exports` map with no
  *    `require` entry), and the tests are compiled to CommonJS, so a test's

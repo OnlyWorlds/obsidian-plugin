@@ -3,7 +3,7 @@ import { OwApiError, OwV2Client } from "@onlyworlds/sdk";
 import { V2ApiError } from "../client-v2";
 
 /**
- * Signing a vault in with an OnlyWorlds account (OW Infra #358).
+ * Signing a vault in with an OnlyWorlds account.
  *
  * The credential is an account token (`ow_a_`, made on onlyworlds.com in
  * Account settings under Account tokens), sent as `Authorization: Bearer`. It
@@ -16,12 +16,12 @@ import { V2ApiError } from "../client-v2";
  *   GET  /api/v2/account                        the profile (username)
  *   GET  /api/v2/account/worlds                 owned and member worlds
  *   POST /api/v2/account/worlds                 create a world {name, pin?, key_name?}
- *        (through the SDK's createAccountWorld since 3.11, OW Obsidian #577)
+ *        (through the SDK's createAccountWorld since 3.11)
  *   POST /api/v2/account/worlds/{id}/keys       mint a key {scope, name}; for a
  *        member keel binds it to their own membership (409 pin_required when a
  *        member without an account PIN asks for a write key)
  *
- * Reference: Lantern's src/account.ts (Forge), which does the same on a phone.
+ * Reference: Lantern's src/account.ts, which does the same on a phone.
  */
 
 export const API_V2 = "https://www.onlyworlds.com/api/v2";
@@ -134,7 +134,7 @@ export function isAccountToken(token: string): boolean {
 export const NOT_A_TOKEN = "That is not an account token. Account tokens start with ow_a_.";
 
 /**
- * `fetch` over Obsidian's requestUrl, for the SDK's client (OW Obsidian #577):
+ * `fetch` over Obsidian's requestUrl, for the SDK's client:
  * requestUrl is not held to the browser's cross-origin rules, as every other
  * request of the plugin is not, and a 429 or 503 carrying Retry-After is
  * retried once as owRequest retries it. Only what the SDK reads of an answer
@@ -405,7 +405,7 @@ export const REVOKE_BY_HAND = (world: string) =>
 
 /**
  * Create a world on the account: POST /api/v2/account/worlds through the
- * SDK's createAccountWorld (4.65.0 and later; OW Obsidian #577), the account
+ * SDK's createAccountWorld (4.65.0 and later), the account
  * token as the Bearer. keel wants `pin` only from an account that has none yet
  * (it becomes the account PIN) and refuses it from one that has (422, param
  * pin both ways), so the PIN is sent only when keel says the account has none.
@@ -435,7 +435,7 @@ export async function createAccountWorld(
 
 /**
  * Creating a world on onlyworlds.com goes through the account (keel #134 froze
- * the old email-and-PIN route; OW Obsidian #577): signed out, the plugin says so.
+ * the old email-and-PIN route): signed out, the plugin says so.
  */
 export const CREATE_SIGN_IN_FIRST =
 	"Creating a world on onlyworlds.com goes through your account: sign in first (Settings, OnlyWorlds account), then create it again. " +

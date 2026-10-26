@@ -1,5 +1,5 @@
 /**
- * Signing in with an OnlyWorlds account token (OW Infra #358): the token check,
+ * Signing in with an OnlyWorlds account token: the token check,
  * the account's worlds, a key minted per vault, the join link, and Create World
  * online on the account route. Every call goes through the mock's requestUrl
  * (test/support/obsidian-mock.ts), answered by `keel` below, whose routes and
@@ -486,7 +486,7 @@ test("a person code, declined at the preview, accepts nothing", async () => {
 	assert.equal(sent("/account/join").length, 0);
 });
 
-test("a person code's preview says the key by role: a guest's is a read key, a role that writes keeps the plain line (Seethe's walk, h37 #6503)", async () => {
+test("a person code's preview says the key by role: a guest's is a read key, a role that writes keeps the plain line (Seethe's walk)", async () => {
 	const READ_LINE = "This vault then downloads the world with its own read key: you can read it here, not change it.";
 	const WRITE_LINE = "This vault then downloads the world with its own key.";
 	for (const [role, line] of [["guest", READ_LINE], ["co_builder", WRITE_LINE], ["contributor", WRITE_LINE]] as const) {
@@ -555,8 +555,8 @@ test("an agent code is refused with words: it is for an AI, not a vault", async 
 });
 
 // --- 4. Create World online ----------------------------------------------------
-// Through the SDK's createAccountWorld on POST /api/v2/account/worlds only (OW
-// Obsidian #577): keel #134 froze the old email-and-PIN route, which the plugin
+// Through the SDK's createAccountWorld on POST /api/v2/account/worlds only:
+// keel #134 froze the old email-and-PIN route, which the plugin
 // no longer names anywhere.
 
 const OLD_ROUTE = "/api/worldsync/";
@@ -574,7 +574,7 @@ function createAnswer(r: MockRequest, key: string | null = "ow_w_created_by_crea
 	};
 }
 
-test("★ Create World online, signed in: the account's create route through the SDK, the world's one key named for the vault as Download World names it; nothing minted, nothing revoked, never the old route (#577)", async () => {
+test("★ Create World online, signed in: the account's create route through the SDK, the world's one key named for the vault as Download World names it; nothing minted, nothing revoked, never the old route", async () => {
 	keel({
 		answers: accountAnswers(),
 		route: (r, path) => (r.method === "POST" && path === "/account/worlds" ? createAnswer(r) : undefined),
@@ -596,7 +596,7 @@ test("★ Create World online, signed in: the account's create route through the
 	noOldRoute();
 });
 
-test("★ Create World, signed in, the whole command: the shown-once key goes into World.md and is shown nowhere else (#577)", async () => {
+test("★ Create World, signed in, the whole command: the shown-once key goes into World.md and is shown nowhere else", async () => {
 	keel({
 		answers: accountAnswers(),
 		route: (r, path) => (r.method === "POST" && path === "/account/worlds" ? createAnswer(r) : undefined),
@@ -616,7 +616,7 @@ test("★ Create World, signed in, the whole command: the shown-once key goes in
 	noOldRoute();
 });
 
-test("★ Create World online, not signed in: nothing is sent anywhere, and the person is asked to sign in (#577)", async () => {
+test("★ Create World online, not signed in: nothing is sent anywhere, and the person is asked to sign in", async () => {
 	keel({ answers: {} });
 	const { app } = makeApp();
 	__modals.length = 0;
@@ -630,7 +630,7 @@ test("★ Create World online, not signed in: nothing is sent anywhere, and the 
 	assert.match(CREATE_SIGN_IN_FIRST, /sign in first/);
 });
 
-test("★ the plugin's bundle names the old create route nowhere (#577)", () => {
+test("★ the plugin's bundle names the old create route nowhere", () => {
 	const code = readFileSync(join(__dirname, "..", "main.js"), "utf8");
 	assert.ok(!code.includes("create-world-external"), "the bundle still carries the old create route");
 	assert.ok(!code.includes(OLD_ROUTE), "the bundle still calls a worldsync route");

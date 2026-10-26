@@ -65,7 +65,7 @@ export class ManageFieldsCommand {
 		const { file, category } = active;
 		const content = await this.app.vault.read(file);
 		if (refusedForKnownOf(content)) return;
-		// The spine list's generated section is no field to manage (OW Obsidian #676).
+		// The spine list's generated section is no field to manage.
 		const { body } = ownBody(content);
 		const parsed = parseElementBody(body, category);
 		if (refusedForFence(file, category, content, body, parsed)) return;
@@ -199,7 +199,7 @@ export class ManageFieldsCommand {
 			}
 		}
 		// The body ends as writeElement ends it (one newline after the last
-		// section), so the last value reads back exactly (OW Infra #166 row 16).
+		// section), so the last value reads back exactly.
 		const finalContent = joinNote(serializeFrontmatter(fmOut), withDependsOn(`${newBody}\n`, section));
 		if (finalContent !== current) {
 			this.markSelfWrite?.(file.path);
@@ -248,7 +248,7 @@ export class ManageFieldsCommand {
 			}
 			const content = await this.app.vault.read(file);
 			// The heading is the plugin's own section, written from a dependency
-			// list at each download and never sent (OW Obsidian #676).
+			// list at each download and never sent.
 			if (isDependsOnHeading(label)) {
 				new Notice(`"${label}" is the section the plugin writes from a dependency list, so it cannot be a custom field.`);
 				return;
@@ -310,7 +310,7 @@ function refusedForFence(
 
 /**
  * A known-of note is not managed: its fields are the ones keel serves, and a
- * field added here would read as an empty one (h37 #9280, N3; the folder
+ * field added here would read as an empty one (the folder
  * spec §4.4, rule 1). Says so; true when refused.
  */
 function refusedForKnownOf(content: string): boolean {

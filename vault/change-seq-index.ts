@@ -1,8 +1,8 @@
 import { App, normalizePath } from "obsidian";
 
 /**
- * The change_seq index: `.ow-seq.json` inside a world folder (OW Obsidian
- * #557). Per element id, the `change_seq` its note was last pulled or saved
+ * The change_seq index: `.ow-seq.json` inside a world folder.
+ * Per element id, the `change_seq` its note was last pulled or saved
  * at. A save sends it as `If-Match`, so keel refuses (412) a save from a note
  * pulled before another writer's change instead of reverting that change.
  *

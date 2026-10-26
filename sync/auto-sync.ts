@@ -106,16 +106,16 @@ export class AutoSyncEngine {
 			// path parsing, content parsing, API key lookup, PIN caching, SDK call.
 			// ★ It saves THIS timer's file, passed in. Swapping the active note and
 			// letting the command read it back made every timer in a burst save
-			// whichever note was active (OW Infra #166 row 4).
+			// whichever note was active.
 			const cmd = new SaveElementCommand(this.app, this.plugin);
 			const result = await cmd.execute(file);
 			// The command already showed its Notice; the status must agree with it.
 			// A refused save (a 422, no key, the PIN prompt cancelled) ends on
-			// error, never on synced (OW Infra #166 row 7).
+			// error, never on synced.
 			if (result.ok) {
 				this.plugin.setSyncStatus("synced");
 			} else if (result.local) {
-				// A note that is never sent (a known-of note, OW Infra #454):
+				// A note that is never sent (a known-of note):
 				// nothing failed and nothing synced.
 				this.plugin.setSyncStatus("idle");
 			} else {

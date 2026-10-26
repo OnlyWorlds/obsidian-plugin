@@ -49,7 +49,7 @@ test("R1b: every type, spatial ones included, lives under elements/<type>/ (spec
 	assert.ok(elementRelPath("character", el).startsWith("elements/character/"));
 });
 
-// --- R1c: body keys (folder dialect only; OW Infra #166 row 6) ----------------
+// --- R1c: body keys (folder dialect only) ----------------
 test("R1c: an element body leads with type and mints no timestamp", () => {
 	const body = buildFolderElementBody("character", { id: WID, name: "Aria", traits: ["t1"] });
 	assert.equal(body.type, "character");
@@ -173,7 +173,7 @@ test("R3: mention whose label already equals the name reduces to a bare wikilink
 	assert.equal(back, "[[Strahd]]");
 });
 
-// --- Row 15 (OW Infra #166, hop 9 #10): prose is never rewritten at the boundary
+// --- Row 15: prose is never rewritten at the boundary
 // beyond the documented link mechanism. A mention's label is kept exactly; an
 // unresolved [[X]] stays byte for byte.
 const STRAHD = "018f2a3b-4c5d-7e6f-8a9b-0c1d2e3f4a01";

@@ -2,7 +2,7 @@ import { App, normalizePath } from "obsidian";
 import { RECORDS_DIR, type RecordFile } from "./records";
 
 /**
- * Where a world's `records/` lives in the vault (OW Obsidian #577): inside the
+ * Where a world's `records/` lives in the vault: inside the
  * world's folder, as `OnlyWorlds/Worlds/<world>/records/`, the same tree the
  * folder had, so the person sees their records beside World.md and Elements/,
  * a world renamed or moved in the vault takes them along, and the export finds
