@@ -8,7 +8,7 @@ export interface SignInHost extends SignInStore {
 
 /** The Sign in command's notice when the vault is already signed in. */
 export function signedInElsewhere(username: string): string {
-    return `${signedInLabel(username)}. To switch accounts, sign out in Settings first.`;
+    return `${signedInLabel(username)}. To use another account, sign out in Settings first.`;
 }
 
 export const SIGNUP_OPENED = 'Opened the sign-up page. When you have an account, come back and run Sign in.';

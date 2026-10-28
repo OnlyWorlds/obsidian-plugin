@@ -129,7 +129,7 @@ test("Sign in, signed in: a notice with the account's name and no dialog", () =>
 	const commands: Record<string, () => void> = {};
 	registerAccountCommands({ ...host(app, true), addCommand: (c: { id: string; callback: () => void }) => (commands[c.id] = c.callback) } as never);
 	commands["sign-in"]();
-	assert.deepEqual(__notices, ["Signed in as tess. To switch accounts, sign out in Settings first."]);
+	assert.deepEqual(__notices, ["Signed in as tess. To use another account, sign out in Settings first."]);
 	assert.equal(__modals.length, 0);
 });
 
