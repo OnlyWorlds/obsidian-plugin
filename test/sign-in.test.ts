@@ -13,7 +13,7 @@ import { builtinModules } from "node:module";
 import { join } from "node:path";
 import { makeApp, setRequestUrl, __requests, __notices, __modals, type MockResponse } from "./support/obsidian-mock";
 import { FakeEl } from "./support/fake-dom";
-import { NOT_A_TOKEN, CREATE_SIGN_IN_FIRST, type AccountWorld } from "../account/account-api";
+import { NOT_A_TOKEN, CREATE_SIGN_IN_FIRST, TOKEN_STORAGE_NOTE, type AccountWorld } from "../account/account-api";
 import { openSignIn, registerAccountCommands } from "../account/sign-in";
 import { SignInModal } from "../Modals/SignInModal";
 import { WorldDownloadModal } from "../Modals/WorldDownloadModal";
@@ -129,7 +129,7 @@ test("Sign in, signed in: a notice with the account's name and no dialog", () =>
 	const commands: Record<string, () => void> = {};
 	registerAccountCommands({ ...host(app, true), addCommand: (c: { id: string; callback: () => void }) => (commands[c.id] = c.callback) } as never);
 	commands["sign-in"]();
-	assert.deepEqual(__notices, ["Signed in as tess"]);
+	assert.deepEqual(__notices, ["Signed in as tess. To switch accounts, sign out in Settings first."]);
 	assert.equal(__modals.length, 0);
 });
 
@@ -148,6 +148,8 @@ test("Sign in, signed out: the Sign in to OnlyWorlds dialog", async () => {
 	assert.equal(field.length, 1);
 	assert.equal(field[0].attrs.type, "password");
 	assert.equal(field[0].attrs.placeholder, "ow_a_…");
+	const note = el.all().findIndex((c) => c.text === TOKEN_STORAGE_NOTE);
+	assert.equal(note, el.all().indexOf(field[0]) + 1, "the token storage note sits under the field");
 	assert.ok(byText(el, "button", "Sign in"));
 	const seen = closes(__modals[0]);
 	byText(el, "button", "Cancel")!.click();
@@ -306,7 +308,7 @@ test("Create world, signed out: Create with account opens the Sign in dialog, an
 	assert.ok(cw instanceof CreateWorldModal);
 	const cwSeen = closes(cw);
 	const el = await render(cw);
-	assert.match(el.allText(), /Creating a world on onlyworlds\.com goes through your account\. Sign in with the button below, then create it\./);
+	assert.match(el.allText(), /Creating a world on onlyworlds\.com goes through your account\. Create with account signs you in first; then create it\./);
 	assert.doesNotMatch(el.allText(), /Settings, OnlyWorlds account/);
 	inputs(el)[0].value = "Atlas";
 	byText(el, "button", "Create with account")!.click();

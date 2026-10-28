@@ -6,6 +6,11 @@ export interface SignInHost extends SignInStore {
     app: App;
 }
 
+/** The Sign in command's notice when the vault is already signed in. */
+export function signedInElsewhere(username: string): string {
+    return `${signedInLabel(username)}. To switch accounts, sign out in Settings first.`;
+}
+
 export const SIGNUP_OPENED = 'Opened the sign-up page. When you have an account, come back and run Sign in.';
 
 /**
@@ -16,7 +21,7 @@ export const SIGNUP_OPENED = 'Opened the sign-up page. When you have an account,
  */
 export function openSignIn(host: SignInHost, opts: { then?: (username: string) => void } = {}): void {
     if (host.settings.accountToken) {
-        new Notice(signedInLabel(host.settings.accountUsername || 'your account'));
+        new Notice(signedInElsewhere(host.settings.accountUsername || 'your account'));
         return;
     }
     new SignInModal(host.app, host, opts.then).open();

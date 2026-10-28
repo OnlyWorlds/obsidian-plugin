@@ -439,7 +439,7 @@ export async function createAccountWorld(
  */
 /** The Create world dialog's signed-out sentence when it can sign you in itself. */
 export const CREATE_SIGN_IN_BELOW =
-	"Creating a world on onlyworlds.com goes through your account. Sign in with the button below, then create it.";
+	"Creating a world on onlyworlds.com goes through your account. Create with account signs you in first; then create it.";
 
 export const CREATE_SIGN_IN_FIRST =
 	"Creating a world on onlyworlds.com goes through your account: sign in first (Settings, OnlyWorlds account), then create it again. " +

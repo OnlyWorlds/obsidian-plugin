@@ -1,6 +1,6 @@
 import { App, Modal, Notice } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
-import { signIn, signedInLabel } from '../account/account-api';
+import { TOKEN_STORAGE_NOTE, signIn, signedInLabel } from '../account/account-api';
 
 /** Account settings on onlyworlds.com; a signed-out visitor goes through the login page and back. */
 export const ACCOUNT_SETTINGS_URL = 'https://www.onlyworlds.com/account/settings';
@@ -46,6 +46,7 @@ export class SignInModal extends Modal {
             placeholder: 'ow_a_…',
             cls: 'ow-sign-in-token',
         });
+        contentEl.createEl('p', { text: TOKEN_STORAGE_NOTE, cls: 'ow-account-hint' });
         const message = contentEl.createEl('p', { cls: 'ow-sign-in-message' });
 
         const links = contentEl.createDiv({ cls: 'ow-sign-in-links' });
