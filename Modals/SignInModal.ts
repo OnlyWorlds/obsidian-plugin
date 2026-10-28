@@ -60,6 +60,8 @@ export class SignInModal extends Modal {
         link('Make a free account', SIGNUP_URL);
 
         const buttons = contentEl.createDiv({ cls: 'ow-sign-in-buttons' });
+        const cancel = buttons.createEl('button', { text: 'Cancel' });
+        cancel.addEventListener('click', () => this.close());
         const submit = buttons.createEl('button', { text: 'Sign in', cls: 'mod-cta' });
         const go = () => {
             void this.submit(tokenInput.value, submit, message);

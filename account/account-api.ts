@@ -437,6 +437,10 @@ export async function createAccountWorld(
  * Creating a world on onlyworlds.com goes through the account (keel #134 froze
  * the old email-and-PIN route): signed out, the plugin says so.
  */
+/** The Create world dialog's signed-out sentence when it can sign you in itself. */
+export const CREATE_SIGN_IN_BELOW =
+	"Creating a world on onlyworlds.com goes through your account. Sign in with the button below, then create it.";
+
 export const CREATE_SIGN_IN_FIRST =
 	"Creating a world on onlyworlds.com goes through your account: sign in first (Settings, OnlyWorlds account), then create it again. " +
 	"Or create a local-only world: everything stays in your vault.";

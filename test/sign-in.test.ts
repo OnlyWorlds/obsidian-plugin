@@ -149,6 +149,9 @@ test("Sign in, signed out: the Sign in to OnlyWorlds dialog", async () => {
 	assert.equal(field[0].attrs.type, "password");
 	assert.equal(field[0].attrs.placeholder, "ow_a_…");
 	assert.ok(byText(el, "button", "Sign in"));
+	const seen = closes(__modals[0]);
+	byText(el, "button", "Cancel")!.click();
+	assert.equal(seen.closed, true, "Cancel closes the dialog");
 });
 
 test("Create account opens the sign-up page in the browser and says to come back and sign in", () => {
@@ -303,6 +306,8 @@ test("Create world, signed out: Create with account opens the Sign in dialog, an
 	assert.ok(cw instanceof CreateWorldModal);
 	const cwSeen = closes(cw);
 	const el = await render(cw);
+	assert.match(el.allText(), /Creating a world on onlyworlds\.com goes through your account\. Sign in with the button below, then create it\./);
+	assert.doesNotMatch(el.allText(), /Settings, OnlyWorlds account/);
 	inputs(el)[0].value = "Atlas";
 	byText(el, "button", "Create with account")!.click();
 	assert.equal(__modals.length, 2);
@@ -316,6 +321,35 @@ test("Create world, signed out: Create with account opens the Sign in dialog, an
 	const fields = inputs(el);
 	assert.equal(fields[0].value, "Atlas", "the name is kept");
 	assert.equal(fields[1].hidden, false, "the PIN field is shown, signed in");
+	assert.match(el.allText(), /Signed in as tess: the world is created under that account/);
+});
+
+test("Create world, signed out: Take online opens the Sign in dialog, and after it the dialog is signed in with the name and the local world kept", async () => {
+	reset();
+	keel();
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/Atlas/World.md", "- **API Key:** local\n");
+	await vault.seed("OnlyWorlds/Worlds/Brume/World.md", "- **API Key:** local\n");
+	const h = host(app, false);
+	let submitted: unknown = null;
+	const cw = new CreateWorldModal(app as never, (d) => (submitted = d), undefined, (then) => openSignIn(asPlugin(h), { then }));
+	const cwSeen = closes(cw);
+	const el = await render(cw);
+	inputs(el)[0].value = "Draft name";
+	const select = el.all().find((c) => c.tag === "select")!;
+	select.value = "Brume";
+	byText(el, "button", "Take online")!.click();
+	assert.equal(__modals.length, 1);
+	assert.ok(__modals[0] instanceof SignInModal);
+	assert.ok(!__notices.includes(CREATE_SIGN_IN_FIRST), "no longer only the sentence");
+	assert.equal(submitted, null, "nothing submitted signed out");
+	const sel = await render(__modals[0]);
+	inputs(sel)[0].value = TOKEN;
+	byText(sel, "button", "Sign in")!.click();
+	await flush();
+	assert.equal(cwSeen.closed, false, "the Create dialog stays");
+	assert.equal(inputs(el)[0].value, "Draft name", "the name is kept");
+	assert.equal(el.all().find((c) => c.tag === "select")!.value, "Brume", "the local world is kept");
 	assert.match(el.allText(), /Signed in as tess: the world is created under that account/);
 });
 
