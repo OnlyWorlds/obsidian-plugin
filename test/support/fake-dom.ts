@@ -11,16 +11,19 @@ export class FakeEl {
 	attrs: Record<string, string> = {};
 	style: Record<string, string> = {};
 	disabled = false;
+	hidden = false;
 	value = "";
-	private listeners: Record<string, Array<() => void>> = {};
+	private listeners: Record<string, Array<(e: { preventDefault(): void }) => void>> = {};
 
 	constructor(public tag = "div") {}
 
-	createEl(tag: string, o?: { text?: string; cls?: string | string[]; type?: string; placeholder?: string; value?: string }): FakeEl {
+	createEl(tag: string, o?: { text?: string; cls?: string | string[]; type?: string; placeholder?: string; value?: string; href?: string }): FakeEl {
 		const el = new FakeEl(tag);
 		if (o?.text) el.text = o.text;
 		if (o?.cls) el.classes.push(...(Array.isArray(o.cls) ? o.cls : o.cls.split(" ")));
 		if (o?.type) el.attrs.type = o.type;
+		if (o?.placeholder) el.attrs.placeholder = o.placeholder;
+		if (o?.href) el.attrs.href = o.href;
 		if (o?.value) el.value = o.value;
 		this.children.push(el);
 		return el;
@@ -44,12 +47,19 @@ export class FakeEl {
 		this.children = [];
 		this.text = "";
 	}
-	addEventListener(ev: string, fn: () => void): void {
+	addEventListener(ev: string, fn: (e: { preventDefault(): void }) => void): void {
 		(this.listeners[ev] ??= []).push(fn);
 	}
 	focus(): void {}
+	hide(): void {
+		this.hidden = true;
+	}
+	show(): void {
+		this.hidden = false;
+	}
+	/** A click, with an event whose preventDefault does nothing. */
 	click(): void {
-		for (const fn of this.listeners.click ?? []) fn();
+		for (const fn of this.listeners.click ?? []) fn({ preventDefault(): void {} });
 	}
 	/** Every descendant, depth first. */
 	all(): FakeEl[] {

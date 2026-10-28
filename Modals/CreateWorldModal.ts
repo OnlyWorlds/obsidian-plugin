@@ -21,11 +21,25 @@ export class CreateWorldModal extends Modal {
      * the account, so the modal says to sign in first.
      */
     private account: { username: string } | null;
+    /**
+     * Signed out: Create with account opens the Sign in dialog over this one;
+     * once signed in, this dialog draws itself again, signed in, the typed
+     * name kept.
+     */
+    private signIn: ((then: (username: string) => void) => void) | null;
+    private nameInput: HTMLInputElement | null = null;
+    private keptName = '';
 
-    constructor(app: App, onSubmit: (data: WorldCreationData | null) => void, account?: { username: string }) {
+    constructor(
+        app: App,
+        onSubmit: (data: WorldCreationData | null) => void,
+        account?: { username: string },
+        signIn?: (then: (username: string) => void) => void
+    ) {
         super(app);
         this.onSubmit = onSubmit;
         this.account = account ?? null;
+        this.signIn = signIn ?? null;
     }
 
     async onOpen() {
@@ -45,6 +59,8 @@ export class CreateWorldModal extends Modal {
         });
         nameInput.style.width = '100%';
         nameInput.style.marginBottom = '15px';
+        nameInput.value = this.keptName;
+        this.nameInput = nameInput;
 
         // PIN Field
         const pinLabel = contentEl.createEl('label', { text: 'OnlyWorlds PIN' });
@@ -172,6 +188,12 @@ export class CreateWorldModal extends Modal {
     }
     
     validateAndSubmit(name: string, pinStr: string) {
+        // Signed out, with sign-in on offer: sign in first, then back here.
+        if (!this.account && this.signIn) {
+            this.signIn((username) => this.redrawSignedIn(username));
+            return;
+        }
+
         // Validate name
         if (!name.trim()) {
             new Notice('World name is required');
@@ -199,6 +221,14 @@ export class CreateWorldModal extends Modal {
         });
     }
     
+    /** After a sign-in from this dialog: draw it again under the account, the typed name kept. */
+    private redrawSignedIn(username: string) {
+        this.keptName = this.nameInput?.value ?? '';
+        this.account = { username };
+        this.contentEl.empty();
+        void this.onOpen();
+    }
+
     validateAndSubmitLocal(name: string) {
         if (!name.trim()) {
             new Notice('World name is required');

@@ -11,6 +11,7 @@ import {
     mintWriteKey,
     revokeAccountKey,
 } from '../account/account-api';
+import { openSignIn } from '../account/sign-in';
 import { LOCAL_WORLD_KEY_TOKEN, isReadKey, worldFileApiKey, writeWorldFileApiKey } from '../vault/world-key';
 import { safeWorldFolderName } from '../vault/world-name';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
@@ -57,7 +58,22 @@ export class DownloadWorldCommand {
             } else {
                 new Notice('API key is required.');
             }
-        }, this.accountChoice()).open();
+        }, this.accountChoice(), this.signInChoice(overwrite)).open();
+    }
+
+    /**
+     * Signed out: the Download dialog's sign-in line. Once signed in, the
+     * signed-out dialog closes and Download runs again, into the account's worlds.
+     */
+    private signInChoice(overwrite: boolean): ((signedIn: () => void) => void) | undefined {
+        const plugin = this.plugin;
+        if (!plugin || plugin.settings.accountToken) return undefined;
+        return (closeDialog) => openSignIn(plugin, {
+            then: () => {
+                closeDialog();
+                void this.execute(overwrite);
+            },
+        });
     }
 
     /**

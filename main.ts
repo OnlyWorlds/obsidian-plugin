@@ -31,6 +31,7 @@ import { AutoSyncEngine } from './sync/auto-sync';
 import { SyncRibbon } from './sync/ribbon';
 import { SyncStatusBar } from './sync/status-bar';
 import { UnitDisplay } from './vault/unit-display';
+import { openSignIn, registerAccountCommands } from './account/sign-in';
 
 export default class OnlyWorldsPlugin extends Plugin {
     noteLinker: NoteLinker;
@@ -145,7 +146,9 @@ export default class OnlyWorldsPlugin extends Plugin {
             this.settings.accountToken
                 ? { token: this.settings.accountToken, username: this.settings.accountUsername }
                 : null,
-            () => this.settings.writeBasesFile !== false
+            () => this.settings.writeBasesFile !== false,
+            // Signed out, Create with account opens the Sign in dialog first.
+            (then) => openSignIn(this, { then })
         );
         const writeBasesFileCommand = new WriteBasesFileCommand(this.app, this);
         const drawRelationshipsCommand = new DrawRelationshipsCommand(this.app, () => this.settings.canvasIncomingLinks !== false);
@@ -184,6 +187,9 @@ export default class OnlyWorldsPlugin extends Plugin {
             name: 'Create world',
             callback: () => createWorldCommand.execute(),
         });
+
+        // Sign in with an account token; Create account opens the sign-up page.
+        registerAccountCommands(this);
       
 
         this.addCommand({

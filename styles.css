@@ -395,6 +395,39 @@
     margin: 15px 0;
 }
 
+/* The Sign in dialog, and the Download dialog's sign-in line */
+.ow-sign-in-token {
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.ow-sign-in-message {
+    font-size: 0.85em;
+    color: var(--text-error);
+    margin: 0 0 8px 0;
+}
+
+.ow-sign-in-message:empty {
+    display: none;
+}
+
+.ow-sign-in-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 0.9em;
+    margin-bottom: 15px;
+}
+
+.ow-sign-in-buttons {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.ow-sign-in-offer {
+    margin-bottom: 15px;
+}
+
 .ow-join-input {
     width: 100%;
     margin-bottom: 15px;
