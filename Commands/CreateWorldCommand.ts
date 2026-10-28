@@ -32,18 +32,23 @@ export class CreateWorldCommand {
     /** Whether a new world gets its Bases file (the setting; on by default). */
     private writeBases: () => boolean;
 
+    /** Opens the Sign in dialog; the Create dialog offers it to a signed-out vault. */
+    private signIn: ((then: (username: string) => void) => void) | null;
+
     constructor(
         app: App,
         manifest: PluginManifest,
         exportCommand?: ExportWorldCommand,
         account?: () => { token: string; username: string } | null,
-        writeBases?: () => boolean
+        writeBases?: () => boolean,
+        signIn?: (then: (username: string) => void) => void
     ) {
         this.app = app;
         this.manifest = manifest;
         this.exportCommand = exportCommand ?? null;
         this.account = account ?? (() => null);
         this.writeBases = writeBases ?? (() => true);
+        this.signIn = signIn ?? null;
     }
 
     async execute() { 
@@ -138,7 +143,7 @@ export class CreateWorldCommand {
     async getWorldCreationData(): Promise<WorldCreationData | null> {
         const account = this.activeAccount();
         return new Promise((resolve) => {
-            const modal = new CreateWorldModal(this.app, resolve, account ? { username: account.username } : undefined);
+            const modal = new CreateWorldModal(this.app, resolve, account ? { username: account.username } : undefined, this.signIn ?? undefined);
             modal.open();
         });
     }

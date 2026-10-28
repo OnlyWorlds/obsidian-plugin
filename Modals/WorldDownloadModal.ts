@@ -27,11 +27,23 @@ function isPinlessReadKey(apiKey: string): boolean {
 export class WorldDownloadModal extends Modal {
     onSubmit: (data: WorldDownloadData | null) => void;
     private account: WorldDownloadAccount | null;
+    /**
+     * Signed out: opens the Sign in dialog over this one; `signedIn` runs once
+     * the token is kept (the command then closes this dialog and opens the
+     * signed-in one, with the account's worlds).
+     */
+    private signIn: ((signedIn: () => void) => void) | null;
 
-    constructor(app: App, onSubmit: (data: WorldDownloadData | null) => void, account?: WorldDownloadAccount) {
+    constructor(
+        app: App,
+        onSubmit: (data: WorldDownloadData | null) => void,
+        account?: WorldDownloadAccount,
+        signIn?: (signedIn: () => void) => void
+    ) {
         super(app);
         this.onSubmit = onSubmit;
         this.account = account ?? null;
+        this.signIn = signIn ?? null;
     }
 
     onOpen() {
@@ -62,6 +74,11 @@ export class WorldDownloadModal extends Modal {
             );
             contentEl.createEl('hr', { cls: 'ow-account-divider' });
             contentEl.createEl('label', { text: 'Or with a key', cls: 'ow-account-label' });
+        } else if (this.signIn) {
+            // Signed out: one line above the key fields, to the account's worlds instead.
+            const signIn = this.signIn;
+            const offer = contentEl.createEl('button', { text: 'Sign in to pick from your worlds', cls: 'ow-sign-in-offer' });
+            offer.addEventListener('click', () => signIn(() => this.close()));
         }
 
         // Add description text

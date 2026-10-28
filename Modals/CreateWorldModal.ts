@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFolder, normalizePath } from 'obsidian';
 import { applyMobileModal, suppressAutofocus } from './mobile';
 import { classifyWorldKey, worldFileApiKey } from '../vault/world-key';
-import { CREATE_SIGN_IN_FIRST, signedInLabel } from '../account/account-api';
+import { CREATE_SIGN_IN_BELOW, CREATE_SIGN_IN_FIRST, signedInLabel } from '../account/account-api';
 
 export interface WorldCreationData {
     name: string;
@@ -21,11 +21,27 @@ export class CreateWorldModal extends Modal {
      * the account, so the modal says to sign in first.
      */
     private account: { username: string } | null;
+    /**
+     * Signed out: Create with account opens the Sign in dialog over this one;
+     * once signed in, this dialog draws itself again, signed in, the typed
+     * name kept.
+     */
+    private signIn: ((then: (username: string) => void) => void) | null;
+    private nameInput: HTMLInputElement | null = null;
+    private keptName = '';
+    private localWorldSelect: HTMLSelectElement | null = null;
+    private keptLocalWorld = '';
 
-    constructor(app: App, onSubmit: (data: WorldCreationData | null) => void, account?: { username: string }) {
+    constructor(
+        app: App,
+        onSubmit: (data: WorldCreationData | null) => void,
+        account?: { username: string },
+        signIn?: (then: (username: string) => void) => void
+    ) {
         super(app);
         this.onSubmit = onSubmit;
         this.account = account ?? null;
+        this.signIn = signIn ?? null;
     }
 
     async onOpen() {
@@ -45,6 +61,8 @@ export class CreateWorldModal extends Modal {
         });
         nameInput.style.width = '100%';
         nameInput.style.marginBottom = '15px';
+        nameInput.value = this.keptName;
+        this.nameInput = nameInput;
 
         // PIN Field
         const pinLabel = contentEl.createEl('label', { text: 'OnlyWorlds PIN' });
@@ -83,7 +101,7 @@ export class CreateWorldModal extends Modal {
                 ? `${signedInLabel(this.account.username)}: the world is created under that account. ` +
                   'The PIN is your account PIN; an account without one yet takes this one. ' +
                   'Or create a local-only world: everything stays in your vault.'
-                : CREATE_SIGN_IN_FIRST
+                : this.signIn ? CREATE_SIGN_IN_BELOW : CREATE_SIGN_IN_FIRST
         });
         description.style.fontSize = '0.85em';
         description.style.fontStyle = 'italic';
@@ -132,7 +150,8 @@ export class CreateWorldModal extends Modal {
                     ? 'Creates the world on onlyworlds.com under your account (the PIN above), ' +
                       'links this vault\'s copy to it, and uploads your elements.'
                     : 'Creates the world on onlyworlds.com under your account, links this vault\'s copy to it, ' +
-                      'and uploads your elements. Sign in first (Settings, OnlyWorlds account).'
+                      'and uploads your elements. ' +
+                      (this.signIn ? 'Take online signs you in first.' : 'Sign in first (Settings, OnlyWorlds account).')
             });
             publishDesc.style.fontSize = '0.85em';
             publishDesc.style.fontStyle = 'italic';
@@ -144,6 +163,8 @@ export class CreateWorldModal extends Modal {
             for (const w of localWorlds) {
                 worldSelect.createEl('option', { text: w, value: w });
             }
+            if (localWorlds.includes(this.keptLocalWorld)) worldSelect.value = this.keptLocalWorld;
+            this.localWorldSelect = worldSelect;
 
             const publishButton = contentEl.createEl('button', { text: 'Take online' });
             publishButton.addEventListener('click', () => {
@@ -172,6 +193,12 @@ export class CreateWorldModal extends Modal {
     }
     
     validateAndSubmit(name: string, pinStr: string) {
+        // Signed out, with sign-in on offer: sign in first, then back here.
+        if (!this.account && this.signIn) {
+            this.signIn((username) => this.redrawSignedIn(username));
+            return;
+        }
+
         // Validate name
         if (!name.trim()) {
             new Notice('World name is required');
@@ -199,6 +226,16 @@ export class CreateWorldModal extends Modal {
         });
     }
     
+    /** After a sign-in from this dialog: draw it again under the account, the typed name kept. */
+    private redrawSignedIn(username: string) {
+        this.keptName = this.nameInput?.value ?? '';
+        this.keptLocalWorld = this.localWorldSelect?.value ?? '';
+        this.localWorldSelect = null;
+        this.account = { username };
+        this.contentEl.empty();
+        void this.onOpen();
+    }
+
     validateAndSubmitLocal(name: string) {
         if (!name.trim()) {
             new Notice('World name is required');
@@ -231,6 +268,11 @@ export class CreateWorldModal extends Modal {
     validateAndSubmitFromLocal(worldName: string, pinStr: string) {
         if (!worldName) {
             new Notice('No local world selected');
+            return;
+        }
+        // Signed out, with sign-in on offer: sign in first, then back here.
+        if (!this.account && this.signIn) {
+            this.signIn((username) => this.redrawSignedIn(username));
             return;
         }
         if (!this.account) {
