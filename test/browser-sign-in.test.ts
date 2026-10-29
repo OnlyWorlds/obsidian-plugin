@@ -14,8 +14,11 @@ import {
 	beginBrowserSignIn,
 	completeFromUrl,
 	loopbackReturn,
+	SIGN_IN_CANCELLED_IN_BROWSER,
 	pendingStorage,
+	peekPending,
 	receiveSchemeReturn,
+	schemeReturnIsExpected,
 	schemeReturnUrl,
 	signInFailure,
 	waitForSchemeReturn,
@@ -91,7 +94,7 @@ test("a damaged record reads as nothing pending", () => {
 // --- the words ----------------------------------------------------------------
 
 test("what went wrong is said in the house words: what did not happen", () => {
-	assert.match(signInFailure(new OwSignInError("rate_limited", "x")).message, /^Too many requests\./);
+	assert.match(signInFailure(new OwSignInError("rate_limited", "x")).message, /^Too many sign-in attempts, so nothing was saved\./);
 	assert.match(signInFailure(new OwSignInError("offline", "x")).message, /could not be reached, so nothing was saved/);
 	for (const reason of ["state_mismatch", "invalid_grant", "failed"] as const) {
 		assert.match(signInFailure(new OwSignInError(reason, "x")).message, /did not accept that sign-in, so nothing was saved/);
@@ -107,6 +110,7 @@ test("what went wrong is said in the house words: what did not happen", () => {
 test("the listener answers one right request, hands back the address with its query, and closes", async () => {
 	const l = await listenOnce({ timeoutMs: 5_000 });
 	assert.ok(l.port > 0);
+	l.expect("s1");
 	const r = await get(l.port, "/onlyworlds-signin?code=c1&state=s1", { host: `127.0.0.1:${l.port}` });
 	assert.equal(r.status, 200);
 	assert.match(r.body, /You can close this tab/);
@@ -115,13 +119,17 @@ test("the listener answers one right request, hands back the address with its qu
 	assert.ok(await refused(l.port), "the port is closed after the answer");
 });
 
-test("a wrong path, a wrong method or a foreign Host header is a 404 and the wait goes on", async () => {
+test("a wrong path, method, Host header or state is a 404 and the wait goes on", async () => {
 	const l = await listenOnce({ timeoutMs: 5_000 });
 	const own = { host: `127.0.0.1:${l.port}` };
-	assert.equal((await get(l.port, "/other?code=x&state=y", own)).status, 404);
-	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=y", own, "POST")).status, 404);
-	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=y", { host: "evil.example" })).status, 404);
-	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=y", { host: `localhost:${l.port}` })).status, 404);
+	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=ok", own)).status, 404, "before the state is known every request is a 404");
+	l.expect("ok");
+	assert.equal((await get(l.port, "/other?code=x&state=ok", own)).status, 404);
+	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=ok", own, "POST")).status, 404);
+	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=ok", { host: "evil.example" })).status, 404);
+	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=ok", { host: `localhost:${l.port}` })).status, 404);
+	assert.equal((await get(l.port, "/onlyworlds-signin", own)).status, 404, "no state at all");
+	assert.equal((await get(l.port, "/onlyworlds-signin?code=x&state=forged", own)).status, 404, "another state");
 	let settled = false;
 	void l.done.then(() => (settled = true), () => (settled = true));
 	await new Promise((r) => setTimeout(r, 30));
@@ -186,7 +194,7 @@ test("desktop: the browser comes back to the loopback and the token comes out; n
 	assert.equal(auth.searchParams.get("client_id"), "obsidian");
 	assert.match(auth.searchParams.get("redirect_uri") ?? "", /^http:\/\/127\.0\.0\.1:\d+\/onlyworlds-signin$/);
 	assert.equal(auth.searchParams.get("code_challenge_method"), "S256");
-	assert.ok(holder.pendingSignIn.length > 0, "state and verifier are parked in the plugin's data");
+	assert.equal(holder.pendingSignIn, "", "on the loopback path the state and verifier stay in memory, not in the plugin's data");
 	// the browser comes back
 	const back = new URL(auth.searchParams.get("redirect_uri") as string);
 	const r = await get(Number(back.port), `${back.pathname}?code=thecode&state=${auth.searchParams.get("state")}`, { host: back.host });
@@ -199,16 +207,32 @@ test("desktop: the browser comes back to the loopback and the token comes out; n
 	assert.equal(holder.pendingSignIn, "", "nothing left pending");
 });
 
-test("desktop: a return with the wrong state is refused and sends nothing to keel", async () => {
+test("desktop: a stray request or a forged return does not end the wait; the real return still signs in", async () => {
 	const holder: PendingHolder = { pendingSignIn: "" };
 	const opened: string[] = [];
 	const log: { body: Record<string, string> }[] = [];
-	const s = await beginBrowserSignIn(env(holder, keelFetch(log, { status: 200, json: { token: "ow_a_x", account: { id: "a", username: "t" } } }), opened));
-	const back = new URL(new URL(opened[0]).searchParams.get("redirect_uri") as string);
-	void get(Number(back.port), `${back.pathname}?code=c&state=forged`, { host: back.host });
-	await assert.rejects(s.finished as Promise<string>, /did not accept that sign-in, so nothing was saved/);
-	assert.equal(log.length, 0, "the code was never traded");
-	assert.equal(holder.pendingSignIn, "");
+	const s = await beginBrowserSignIn(env(holder, keelFetch(log, { status: 200, json: { token: "ow_a_real", account: { id: "a", username: "t" } } }), opened));
+	const auth = new URL(opened[0]);
+	const back = new URL(auth.searchParams.get("redirect_uri") as string);
+	const own = { host: back.host };
+	assert.equal((await get(Number(back.port), `${back.pathname}`, own)).status, 404, "a bare request to the return path");
+	assert.equal((await get(Number(back.port), `${back.pathname}?code=c&state=forged`, own)).status, 404, "a forged state");
+	assert.equal(log.length, 0, "nothing was traded");
+	assert.equal((await get(Number(back.port), `${back.pathname}?code=c&state=${auth.searchParams.get("state")}`, own)).status, 200);
+	assert.equal(await (s.finished as Promise<string>), "ow_a_real");
+	assert.equal(log.length, 1);
+});
+
+test("desktop: Cancel on keel's page (an error return) ends the attempt in its own words and trades nothing", async () => {
+	const holder: PendingHolder = { pendingSignIn: "" };
+	const opened: string[] = [];
+	const log: { body: Record<string, string> }[] = [];
+	const s = await beginBrowserSignIn(env(holder, keelFetch(log, { status: 200, json: {} }), opened));
+	const auth = new URL(opened[0]);
+	const back = new URL(auth.searchParams.get("redirect_uri") as string);
+	void get(Number(back.port), `${back.pathname}?error=access_denied&state=${auth.searchParams.get("state")}`, { host: back.host });
+	await assert.rejects(s.finished as Promise<string>, new RegExp(SIGN_IN_CANCELLED_IN_BROWSER.slice(0, 30)));
+	assert.equal(log.length, 0);
 });
 
 test("desktop: keel refusing the code is said in the house words and leaves nothing pending", async () => {
@@ -246,12 +270,35 @@ test("mobile: no listener, the obsidian:// return is the address, and the protoc
 	assert.equal(s.finished, null);
 	const auth = new URL(opened[0]);
 	assert.equal(auth.searchParams.get("redirect_uri"), SCHEME_RETURN);
+	assert.ok(holder.pendingSignIn.length > 0, "on the obsidian:// path the sign-in is parked in the plugin's data (the phone may restart Obsidian)");
 	// no dialog is waiting (the phone restarted Obsidian): the handler finishes it from the parked record
 	const url = schemeReturnUrl({ action: "onlyworlds-signin", code: "pc", state: auth.searchParams.get("state") as string });
+	assert.equal(schemeReturnIsExpected(holder, url), true, "the parked state matches");
+	assert.equal(schemeReturnIsExpected(holder, schemeReturnUrl({ action: "x", code: "pc", state: "forged" })), false, "a forged state is not let through");
+	assert.equal(peekPending(holder)?.redirectUri, SCHEME_RETURN);
 	assert.equal(receiveSchemeReturn(url), false, "nobody was waiting");
 	assert.equal(await completeFromUrl(e, url), "ow_a_phone");
 	assert.equal(log[0].body.redirect_uri, SCHEME_RETURN);
 	assert.equal(holder.pendingSignIn, "");
+});
+
+test("an obsidian:// link is not let through when nothing is parked, when the parked sign-in used the loopback, or after the time limit", () => {
+	const none: PendingHolder = { pendingSignIn: "" };
+	assert.equal(schemeReturnIsExpected(none, "obsidian://onlyworlds-signin?code=c&state=s"), false, "nothing parked");
+	let t = 0;
+	const s = pendingStorage(none, () => undefined, () => t);
+	s.set("onlyworlds-signin:obsidian", JSON.stringify({ state: "s", verifier: "v", redirectUri: "http://127.0.0.1:5000/onlyworlds-signin" }));
+	assert.equal(schemeReturnIsExpected(none, "obsidian://onlyworlds-signin?code=c&state=s", () => t), false, "a loopback sign-in does not take an obsidian:// return");
+	s.set("onlyworlds-signin:obsidian", JSON.stringify({ state: "s", verifier: "v", redirectUri: SCHEME_RETURN }));
+	assert.equal(schemeReturnIsExpected(none, "obsidian://onlyworlds-signin?code=c&state=s", () => t), true);
+	assert.equal(schemeReturnIsExpected(none, "obsidian://onlyworlds-signin?code=c&state=s", () => t + 10 * 60_000), false, "after the time limit");
+	assert.equal(schemeReturnIsExpected(none, "not a url", () => t), false);
+});
+
+test("the scheme wait gives up after its time limit", async () => {
+	const w = waitForSchemeReturn(30);
+	await assert.rejects(w.url, /timeout/);
+	assert.equal(receiveSchemeReturn("obsidian://onlyworlds-signin?code=1&state=2"), false, "and takes nothing afterwards");
 });
 
 test("mobile: a dialog waiting for the scheme return takes the address, once", async () => {

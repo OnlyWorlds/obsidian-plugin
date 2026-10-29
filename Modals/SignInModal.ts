@@ -34,6 +34,8 @@ export class SignInModal extends Modal {
     private store: SignInStore;
     private then: ((username: string) => void) | null;
     private cancelBrowser: (() => void) | null = null;
+    private closed = false;
+    private finishing = false;
 
     constructor(app: App, store: SignInStore, then?: (username: string) => void) {
         super(app);
@@ -128,13 +130,20 @@ export class SignInModal extends Modal {
                 session.cancel();
                 scheme.cancel();
             };
+            if (this.closed) {
+                this.cancelBrowser(); // the dialog was closed while the sign-in was starting: stop it
+                return;
+            }
             message.setText(SIGN_IN_WAITING);
             const token = session.finished ? await session.finished : await completeFromUrl(env, await scheme.url);
+            if (this.closed) return; // closed while waiting: the sign-in was stopped, keep nothing
             const username = await signIn(this.store, token);
             new Notice(signedInLabel(username));
             this.cancelBrowser = null;
+            const dismissed = this.closed; // closed while signIn was running: the person is signed in, but the flow that asked is not resumed
+            this.finishing = true;
             this.close();
-            this.then?.(username);
+            if (!dismissed) this.then?.(username);
         } catch (e) {
             scheme.cancel();
             this.cancelBrowser = null;
@@ -144,6 +153,7 @@ export class SignInModal extends Modal {
     }
 
     onClose(): void {
+        if (!this.finishing) this.closed = true;
         this.cancelBrowser?.();
         this.cancelBrowser = null;
         this.contentEl.empty();

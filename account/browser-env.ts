@@ -1,7 +1,7 @@
 import { Notice, Platform } from 'obsidian';
 import { requestUrlFetch, signIn, signedInLabel } from './account-api';
 import { openInBrowser } from '../Modals/SignInModal';
-import { completeFromUrl, pendingStorage, receiveSchemeReturn, schemeReturnUrl, type BrowserSignInEnv, type Listen } from './browser-sign-in';
+import { completeFromUrl, pendingStorage, receiveSchemeReturn, schemeReturnIsExpected, schemeReturnUrl, type BrowserSignInEnv, type Listen } from './browser-sign-in';
 
 export interface BrowserHost {
 	settings: { accountToken: string; accountUsername: string; pendingSignIn: string };
@@ -19,7 +19,7 @@ export function makeBrowserEnv(host: BrowserHost): BrowserSignInEnv {
 	return {
 		fetch: requestUrlFetch,
 		storage: pendingStorage(host.settings, () => {
-			void host.saveSettings();
+			host.saveSettings().catch(() => undefined);
 		}),
 		openUrl: openInBrowser,
 		listen,
@@ -27,12 +27,15 @@ export function makeBrowserEnv(host: BrowserHost): BrowserSignInEnv {
 }
 
 /**
- * The obsidian://onlyworlds-signin return. A dialog that is waiting takes the
- * address; with none (a phone that restarted Obsidian while the browser was open)
- * the parked record finishes the sign-in here, and a notice says how it went.
+ * The obsidian://onlyworlds-signin return. Any website or program can open this link, so
+ * nothing happens unless a sign-in started with this return is parked and the link carries its
+ * state (the SDK would delete the parked record before judging a forged one). A dialog that is
+ * waiting takes the address; with none (a phone that restarted Obsidian while the browser was
+ * open) the parked record finishes the sign-in here, and a notice says how it went.
  */
 export async function handleSchemeReturn(host: BrowserHost, params: Record<string, string>): Promise<void> {
 	const url = schemeReturnUrl(params);
+	if (!schemeReturnIsExpected(host.settings, url)) return;
 	if (receiveSchemeReturn(url)) return;
 	try {
 		const token = await completeFromUrl(makeBrowserEnv(host), url);

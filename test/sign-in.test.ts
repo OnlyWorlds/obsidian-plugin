@@ -187,7 +187,7 @@ test("pressing the browser button sends the browser and waits; closing the dialo
 		fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
 		storage: pendingStorage(holder, () => undefined),
 		openUrl: (u: string) => urls.push(u),
-		listen: async () => ({ port: 54321, done: new Promise<string>(() => undefined), close: () => closed.push("closed") }),
+		listen: async () => ({ port: 54321, done: new Promise<string>(() => undefined), expect: () => undefined, close: () => closed.push("closed") }),
 	};
 	const m = new SignInModal(app as never, { ...host(app, false), browserEnv: () => env } as never);
 	const el = await render(m);
@@ -196,10 +196,35 @@ test("pressing the browser button sends the browser and waits; closing the dialo
 	assert.equal(urls.length, 1, "the browser was sent once");
 	assert.match(urls[0], /^https:\/\/www\.onlyworlds\.com\/signin\/authorize\?client_id=obsidian&redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A54321%2Fonlyworlds-signin&/);
 	assert.match(el.allText(), /Waiting for the browser/);
-	assert.ok(holder.pendingSignIn.length > 0, "the sign-in is parked");
+	assert.equal(holder.pendingSignIn, "", "on the loopback path nothing is parked in the plugin's data");
 	(m as unknown as { onClose: () => void }).onClose(); // what Obsidian calls when the dialog closes, by Cancel or Escape
 	assert.deepEqual(closed, ["closed"], "closing the dialog closed the listener");
-	assert.equal(holder.pendingSignIn, "", "and cleared the parked sign-in");
+});
+
+test("closing the dialog while the sign-in is still starting stops it: the listener closes and nothing is kept", async () => {
+	reset();
+	const { app } = makeApp();
+	const closed: string[] = [];
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	const env = {
+		fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
+		storage: pendingStorage({ pendingSignIn: "" }, () => undefined),
+		openUrl: () => undefined,
+		listen: async () => {
+			await gate; // the bind is slow; the person presses Escape meanwhile
+			return { port: 54322, done: new Promise<string>(() => undefined), expect: () => undefined, close: () => closed.push("closed") };
+		},
+	};
+	const h = host(app, false);
+	const m = new SignInModal(app as never, { ...h, browserEnv: () => env } as never);
+	const el = await render(m);
+	byText(el, "button", BROWSER_BUTTON)!.click();
+	(m as unknown as { onClose: () => void }).onClose();
+	release();
+	await flush();
+	assert.deepEqual(closed, ["closed"], "the late listener was closed");
+	assert.equal(h.settings.accountToken, "", "and no account was kept");
 });
 
 test("Create account opens the sign-up page in the browser and says to come back and sign in", () => {
