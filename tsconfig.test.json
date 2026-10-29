@@ -19,6 +19,8 @@
 		"vault/world-units.ts",
 		"Scripts/WorldDataTemplate.ts",
 		"Commands/export-plan.ts",
+		"account/browser-sign-in.ts",
+		"account/loopback-listener.ts",
 		"test/**/*.ts"
 	]
 }
