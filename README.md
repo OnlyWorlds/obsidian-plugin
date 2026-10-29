@@ -23,7 +23,7 @@ A local-only world's `World.md` reads `API Key: local`. Nothing is sent anywhere
 **With an onlyworlds.com account:**
 
 1. Make an account at [onlyworlds.com](https://www.onlyworlds.com/accounts/signup/).
-2. Sign in: in Settings, under the OnlyWorlds account, paste an account token (made on onlyworlds.com, in Account settings under Account tokens).
+2. Sign in: run **Sign in** and press **Sign in with your browser** (desktop), or paste an account token (made on onlyworlds.com, in Account settings under Account tokens).
 3. Run **Create world** and choose **Create with account** (your account PIN; an account without one yet takes the one you type). The plugin creates the world on your account and writes its key, named for this vault, into `World.md`.
 4. Push edits with **Save element**, **Upload world**, or auto-sync (below).
 

@@ -15,7 +15,8 @@ import { makeApp, setRequestUrl, __requests, __notices, __modals, type MockRespo
 import { FakeEl } from "./support/fake-dom";
 import { NOT_A_TOKEN, CREATE_SIGN_IN_FIRST, TOKEN_STORAGE_NOTE, type AccountWorld } from "../account/account-api";
 import { openSignIn, registerAccountCommands } from "../account/sign-in";
-import { SignInModal } from "../Modals/SignInModal";
+import { BROWSER_BUTTON, BROWSER_HINT, SignInModal } from "../Modals/SignInModal";
+import { pendingStorage } from "../account/browser-sign-in";
 import { WorldDownloadModal } from "../Modals/WorldDownloadModal";
 import { CreateWorldModal } from "../Modals/CreateWorldModal";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
@@ -154,6 +155,76 @@ test("Sign in, signed out: the Sign in to OnlyWorlds dialog", async () => {
 	const seen = closes(__modals[0]);
 	byText(el, "button", "Cancel")!.click();
 	assert.equal(seen.closed, true, "Cancel closes the dialog");
+});
+
+// --- Sign in with your browser (the dialog's side; the flow itself is test/browser-sign-in.test.ts) ---
+
+test("the browser button shows only when the store offers a browser environment, above the paste field", async () => {
+	reset();
+	const { app } = makeApp();
+	const plain = new SignInModal(app as never, host(app, false) as never);
+	assert.ok(!byText(await render(plain), "button", BROWSER_BUTTON), "a store without one shows the paste field alone");
+	const none = new SignInModal(app as never, { ...host(app, false), browserEnv: () => null } as never);
+	assert.ok(!byText(await render(none), "button", BROWSER_BUTTON), "a store that returns none (a phone, for now) shows the paste field alone");
+	const env = { fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch, storage: pendingStorage({ pendingSignIn: "" }, () => undefined), openUrl: () => undefined };
+	const withBrowser = new SignInModal(app as never, { ...host(app, false), browserEnv: () => env } as never);
+	const el = await render(withBrowser);
+	assert.ok(byText(el, "button", BROWSER_BUTTON));
+	assert.ok(el.allText().includes(BROWSER_HINT));
+	assert.equal(inputs(el).length, 1, "the paste field is still there");
+	assert.ok(byText(el, "button", "Sign in"), "and its button");
+	const order = el.all();
+	assert.ok(order.indexOf(byText(el, "button", BROWSER_BUTTON)!) < order.indexOf(inputs(el)[0]), "the browser button sits above the paste field");
+});
+
+test("pressing the browser button sends the browser and waits; closing the dialog ends the wait and clears what was parked", async () => {
+	reset();
+	const { app } = makeApp();
+	const holder = { pendingSignIn: "" };
+	const urls: string[] = [];
+	const closed: string[] = [];
+	const env = {
+		fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
+		storage: pendingStorage(holder, () => undefined),
+		openUrl: (u: string) => urls.push(u),
+		listen: async () => ({ port: 54321, done: new Promise<string>(() => undefined), expect: () => undefined, close: () => closed.push("closed") }),
+	};
+	const m = new SignInModal(app as never, { ...host(app, false), browserEnv: () => env } as never);
+	const el = await render(m);
+	byText(el, "button", BROWSER_BUTTON)!.click();
+	await flush();
+	assert.equal(urls.length, 1, "the browser was sent once");
+	assert.match(urls[0], /^https:\/\/www\.onlyworlds\.com\/signin\/authorize\?client_id=obsidian&redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A54321%2Fonlyworlds-signin&/);
+	assert.match(el.allText(), /Waiting for the browser/);
+	assert.equal(holder.pendingSignIn, "", "on the loopback path nothing is parked in the plugin's data");
+	(m as unknown as { onClose: () => void }).onClose(); // what Obsidian calls when the dialog closes, by Cancel or Escape
+	assert.deepEqual(closed, ["closed"], "closing the dialog closed the listener");
+});
+
+test("closing the dialog while the sign-in is still starting stops it: the listener closes and nothing is kept", async () => {
+	reset();
+	const { app } = makeApp();
+	const closed: string[] = [];
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	const env = {
+		fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
+		storage: pendingStorage({ pendingSignIn: "" }, () => undefined),
+		openUrl: () => undefined,
+		listen: async () => {
+			await gate; // the bind is slow; the person presses Escape meanwhile
+			return { port: 54322, done: new Promise<string>(() => undefined), expect: () => undefined, close: () => closed.push("closed") };
+		},
+	};
+	const h = host(app, false);
+	const m = new SignInModal(app as never, { ...h, browserEnv: () => env } as never);
+	const el = await render(m);
+	byText(el, "button", BROWSER_BUTTON)!.click();
+	(m as unknown as { onClose: () => void }).onClose();
+	release();
+	await flush();
+	assert.deepEqual(closed, ["closed"], "the late listener was closed");
+	assert.equal(h.settings.accountToken, "", "and no account was kept");
 });
 
 test("Create account opens the sign-up page in the browser and says to come back and sign in", () => {

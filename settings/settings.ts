@@ -78,6 +78,13 @@ export interface OnlyWorldsPluginSettings {
 	accountUsername: string;
 
 	/**
+	 * A browser sign-in that has started and not finished: the state and the PKCE
+	 * verifier the SDK parks between the two steps (account/browser-sign-in.ts).
+	 * Empty when nothing is pending; cleared on every outcome and after five minutes.
+	 */
+	pendingSignIn: string;
+
+	/**
 	 * Download World and Create World write `<world>.base` beside World.md: a
 	 * table and a card view per element type in Obsidian's core Bases.
 	 * A file the user changed is never overwritten.
@@ -132,6 +139,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 
 	accountToken: "",
 	accountUsername: "",
+	pendingSignIn: "",
 
 	writeBasesFile: true,
 	basesKeptNoticed: [],

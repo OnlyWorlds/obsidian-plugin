@@ -32,6 +32,8 @@ import { SyncRibbon } from './sync/ribbon';
 import { SyncStatusBar } from './sync/status-bar';
 import { UnitDisplay } from './vault/unit-display';
 import { openSignIn, registerAccountCommands } from './account/sign-in';
+import { handleSchemeReturn, makeBrowserEnv } from './account/browser-env';
+import { SIGN_IN_ACTION, type BrowserSignInEnv } from './account/browser-sign-in';
 
 export default class OnlyWorldsPlugin extends Plugin {
     noteLinker: NoteLinker;
@@ -190,6 +192,9 @@ export default class OnlyWorldsPlugin extends Plugin {
 
         // Sign in with an account token; Create account opens the sign-up page.
         registerAccountCommands(this);
+        this.registerObsidianProtocolHandler(SIGN_IN_ACTION, (params) => {
+          void handleSchemeReturn(this, params as unknown as Record<string, string>);
+        });
       
 
         this.addCommand({
@@ -400,6 +405,15 @@ parseSettingsForDefaultCategory(content: string): string | null {
               }
           });
       });
+  }
+
+  /**
+   * Sign in with your browser: the environment the Sign in dialog runs it in (account/browser-env.ts).
+   * Desktop only for now: the obsidian:// return that a phone would use is built and tested but not yet
+   * walked on a phone, so the button waits for that walk and the phone keeps the paste field.
+   */
+  browserEnv(): BrowserSignInEnv | null {
+    return Platform.isMobile ? null : makeBrowserEnv(this);
   }
 
   async loadSettings(): Promise<void> {
