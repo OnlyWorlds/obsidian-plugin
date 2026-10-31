@@ -556,7 +556,7 @@ test("an agent code is refused with words: it is for an AI, not a vault", async 
 
 // --- 4. Create World online ----------------------------------------------------
 // Through the SDK's createAccountWorld on POST /api/v2/account/worlds only:
-// keel #134 froze the old email-and-PIN route, which the plugin
+// The server froze the old email-and-PIN route, which the plugin
 // no longer names anywhere.
 
 const OLD_ROUTE = "/api/worldsync/";

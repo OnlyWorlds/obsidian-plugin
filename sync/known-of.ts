@@ -1,6 +1,6 @@
 /**
  * Known-of elements (the folder spec §4.4, ruled 2026-10-20;
- * keel PR 113 and PR 117, the one rule §7g). The pure core: no Obsidian
+ * the one rule, §7g). The pure core: no Obsidian
  * import, tested under test/.
  *
  * keel serves a guest some elements as "known of": a stub marked

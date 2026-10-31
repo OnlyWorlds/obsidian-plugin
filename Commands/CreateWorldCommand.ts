@@ -24,7 +24,7 @@ export class CreateWorldCommand {
     /**
      * The signed-in account, or null. Create World online goes through the
      * account only (since 3.11 the only door:
-     * keel #134 froze the old email-and-PIN route): signed out, the plugin
+     * the server froze the old email-and-PIN route): signed out, the plugin
      * asks to sign in, or makes a local-only world.
      */
     private account: () => { token: string; username: string } | null;

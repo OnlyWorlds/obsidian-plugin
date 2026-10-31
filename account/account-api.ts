@@ -434,7 +434,7 @@ export async function createAccountWorld(
 }
 
 /**
- * Creating a world on onlyworlds.com goes through the account (keel #134 froze
+ * Creating a world on onlyworlds.com goes through the account (the server froze
  * the old email-and-PIN route): signed out, the plugin says so.
  */
 /** The Create world dialog's signed-out sentence when it can sign you in itself. */
