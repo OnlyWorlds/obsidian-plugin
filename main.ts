@@ -409,11 +409,12 @@ parseSettingsForDefaultCategory(content: string): string | null {
 
   /**
    * Sign in with your browser: the environment the Sign in dialog runs it in (account/browser-env.ts).
-   * Desktop only for now: the obsidian:// return that a phone would use is built and tested but not yet
-   * walked on a phone, so the button waits for that walk and the phone keeps the paste field.
+   * Offered on desktop and on a phone. Desktop returns through a one-request loopback listener; a phone
+   * returns through the obsidian:// link (the parked record finishes the sign-in even when Obsidian was
+   * closed while the browser was open). The paste field stays on both.
    */
   browserEnv(): BrowserSignInEnv | null {
-    return Platform.isMobile ? null : makeBrowserEnv(this);
+    return makeBrowserEnv(this);
   }
 
   async loadSettings(): Promise<void> {
