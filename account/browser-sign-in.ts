@@ -5,7 +5,7 @@ import { OwSignInError, OwV2Client, type OwSignInStorage } from '@onlyworlds/sdk
  * and the account token coming back to the vault. keel lists this plugin as a
  * native client (GET /api/v2/auth/clients): id `obsidian`, returns
  * http://127.0.0.1/onlyworlds-signin (any port at run time) and
- * obsidian://onlyworlds-signin. The SDK (4.104.0) does the PKCE, the state and
+ * obsidian://onlyworlds-signin. The SDK (4.104.2) does the PKCE, the state and
  * the token exchange; this file picks the return, keeps the pending record
  * between the two steps and says what went wrong in the house words.
  *
@@ -109,7 +109,7 @@ export function pendingStorage(holder: PendingHolder, save: () => void, now: () 
 	};
 }
 
-/** The sign-in parked in the plugin's data, if one is live: the state and the return it was started with. Reads only; the SDK would delete the record before judging it. */
+/** The sign-in parked in the plugin's data, if one is live: the state and the return it was started with. Reads only; the SDK removes the record itself once a return carries its state. */
 export function peekPending(holder: PendingHolder, now: () => number = Date.now, ttl: number = PENDING_MS): { state: string; redirectUri: string } | null {
 	const r = readRec(holder);
 	if (!Object.keys(r.items).length || now() - r.at > ttl) return null;
@@ -277,9 +277,10 @@ export function receiveSchemeReturn(url: string): boolean {
 }
 
 /**
- * Is this obsidian:// return one we are waiting for? The SDK deletes the parked record before it judges a
- * return, so a forged link must not reach it: the state has to be the parked one, on a sign-in started with
- * the obsidian:// return.
+ * Is this obsidian:// return one we are waiting for? The SDK (4.104.2) keeps the parked record when a
+ * return's state is wrong, but removes it the moment the state matches, before the code is exchanged. So
+ * the plugin judges first: the state has to be the parked one, on a sign-in started with the obsidian://
+ * return, and anything else never reaches the SDK or the person.
  */
 export function schemeReturnIsExpected(holder: PendingHolder, url: string, now: () => number = Date.now): boolean {
 	const parked = peekPending(holder, now);
