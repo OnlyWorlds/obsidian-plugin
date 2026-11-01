@@ -29,7 +29,8 @@ export function makeBrowserEnv(host: BrowserHost): BrowserSignInEnv {
 /**
  * The obsidian://onlyworlds-signin return. Any website or program can open this link, so
  * nothing happens unless a sign-in started with this return is parked and the link carries its
- * state (the SDK would delete the parked record before judging a forged one). A dialog that is
+ * state (a link with another state is ignored; one with the right state makes the SDK consume the parked
+ * record). A dialog that is
  * waiting takes the address; with none (a phone that restarted Obsidian while the browser was
  * open) the parked record finishes the sign-in here, and a notice says how it went.
  */
