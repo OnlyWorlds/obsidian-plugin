@@ -16,6 +16,7 @@ import { FakeEl } from "./support/fake-dom";
 import { NOT_A_TOKEN, CREATE_SIGN_IN_FIRST, TOKEN_STORAGE_NOTE, type AccountWorld } from "../account/account-api";
 import { openSignIn, registerAccountCommands } from "../account/sign-in";
 import { BROWSER_BUTTON, BROWSER_HINT, SignInModal } from "../Modals/SignInModal";
+import { receiveSchemeReturn } from "../account/browser-sign-in";
 import { pendingStorage } from "../account/browser-sign-in";
 import { WorldDownloadModal } from "../Modals/WorldDownloadModal";
 import { CreateWorldModal } from "../Modals/CreateWorldModal";
@@ -225,6 +226,28 @@ test("closing the dialog while the sign-in is still starting stops it: the liste
 	await flush();
 	assert.deepEqual(closed, ["closed"], "the late listener was closed");
 	assert.equal(h.settings.accountToken, "", "and no account was kept");
+});
+
+test("a phone sign-in that fails in the dialog clears the parked record, so nothing stays live to be finished later", async () => {
+	reset();
+	const { app } = makeApp();
+	const holder = { pendingSignIn: "" };
+	const urls: string[] = [];
+	const env = {
+		fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
+		storage: pendingStorage(holder, () => undefined),
+		openUrl: (u: string) => urls.push(u),
+	};
+	const m = new SignInModal(app as never, { ...host(app, false), browserEnv: () => env } as never);
+	const el = await render(m);
+	byText(el, "button", BROWSER_BUTTON)!.click();
+	await flush();
+	assert.ok(holder.pendingSignIn, "the obsidian:// path parked the record in the plugin's data");
+	// a return with another state reaches the dialog's wait and the SDK refuses it, keeping the record: the dialog's catch runs
+	receiveSchemeReturn("obsidian://onlyworlds-signin?code=c&state=not-the-parked-one");
+	await flush();
+	assert.match(el.allText(), /did not accept that sign-in, so nothing was saved/);
+	assert.equal(holder.pendingSignIn, "", "the failure cleared what it parked");
 });
 
 test("Create account opens the sign-up page in the browser and says to come back and sign in", () => {

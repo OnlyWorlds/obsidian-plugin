@@ -145,6 +145,8 @@ export class SignInModal extends Modal {
             this.close();
             if (!dismissed) this.then?.(username);
         } catch (e) {
+            // A timeout or a failed exchange ends this sign-in: clear what it parked (the cancel does) and stop listening.
+            this.cancelBrowser?.();
             scheme.cancel();
             this.cancelBrowser = null;
             message.setText(e instanceof Error ? e.message : String(e));
