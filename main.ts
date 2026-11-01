@@ -32,6 +32,7 @@ import { SyncRibbon } from './sync/ribbon';
 import { SyncStatusBar } from './sync/status-bar';
 import { UnitDisplay } from './vault/unit-display';
 import { openSignIn, registerAccountCommands } from './account/sign-in';
+import { registerWaymarkCommands } from './Commands/WaymarkCommands';
 import { handleSchemeReturn, makeBrowserEnv } from './account/browser-env';
 import { SIGN_IN_ACTION, type BrowserSignInEnv } from './account/browser-sign-in';
 
@@ -192,6 +193,7 @@ export default class OnlyWorldsPlugin extends Plugin {
 
         // Sign in with an account token; Create account opens the sign-up page.
         registerAccountCommands(this);
+        registerWaymarkCommands(this);
         this.registerObsidianProtocolHandler(SIGN_IN_ACTION, (params) => {
           void handleSchemeReturn(this, params as unknown as Record<string, string>);
         });

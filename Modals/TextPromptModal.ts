@@ -13,7 +13,8 @@ export class TextPromptModal extends Modal {
 		app: App,
 		private title: string,
 		private placeholder: string,
-		private onSubmit: (value: string) => void
+		private onSubmit: (value: string) => void,
+		private submitLabel = 'Add'
 	) {
 		super(app);
 	}
@@ -34,7 +35,7 @@ export class TextPromptModal extends Modal {
 
 		const row = this.contentEl.createDiv();
 		row.style.marginTop = '12px';
-		const ok = row.createEl('button', { text: 'Add' });
+		const ok = row.createEl('button', { text: this.submitLabel });
 		ok.addEventListener('click', () => this.submit());
 		const cancel = row.createEl('button', { text: 'Cancel' });
 		cancel.style.marginLeft = '8px';

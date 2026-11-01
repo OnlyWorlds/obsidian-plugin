@@ -20,6 +20,7 @@
 		"Scripts/WorldDataTemplate.ts",
 		"Commands/export-plan.ts",
 		"account/browser-sign-in.ts",
+		"account/waymark.ts",
 		"account/loopback-listener.ts",
 		"test/**/*.ts"
 	]
