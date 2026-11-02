@@ -1,7 +1,7 @@
 /**
  * 3.10: the SDK at 4.x and the server's seven keys.
  *
- * - FIELD_SCHEMA is @onlyworlds/sdk 4.x's (standard 00.33.00): no `number`
+ * - FIELD_SCHEMA is @onlyworlds/sdk 4.x's (standard 00.34.00): no `number`
  *   type anywhere (it is `integer`), and Zone has `shape`, a text field, so a
  *   body section like every other text field.
  * - Download writes the server's seven keys (`created_at`, `updated_at`,
@@ -86,8 +86,8 @@ function fmOf(content: string): string {
 
 // --- the schema ------------------------------------------------------------------
 
-test("★ FIELD_SCHEMA is the SDK 4.x table at 00.33.00: no `number` type the plugin reads, whole numbers are `integer`", () => {
-	assert.equal(ONLYWORLDS_VERSION, "00.33.00");
+test("★ FIELD_SCHEMA is the SDK 4.x table at 00.34.00: no `number` type the plugin reads, whole numbers are `integer`", () => {
+	assert.equal(ONLYWORLDS_VERSION, "00.34.00");
 	const types = new Set<string>();
 	for (const [cat, fields] of Object.entries(FIELD_SCHEMA as Record<string, Record<string, { type: string }>>)) {
 		for (const f of Object.values(fields)) types.add(f.type);
