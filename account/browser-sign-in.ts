@@ -33,6 +33,8 @@ export const LISTEN_MS = PENDING_MS;
 export const SIGN_IN_WAITING = 'Waiting for the browser. Finish signing in there, then come back to Obsidian.';
 export const SIGN_IN_TIMEOUT = 'Sign in did not finish, so nothing was saved. Try again, or paste an account token.';
 export const SIGN_IN_CANCELLED_IN_BROWSER = 'Sign in was cancelled in the browser, so nothing was saved.';
+/** What a phone says when the browser comes back to the app and no sign-in was waiting for it (it timed out, or was never started here). */
+export const SIGN_IN_NOTHING_WAITING = 'There is no sign-in waiting. Press Sign in with your browser again.';
 
 /** The loopback return with the port the listener bound for this sign-in. */
 export function loopbackReturn(port: number): string {

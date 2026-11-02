@@ -1,7 +1,7 @@
 import { Notice, Platform } from 'obsidian';
 import { requestUrlFetch, signIn, signedInLabel } from './account-api';
 import { openInBrowser } from '../Modals/SignInModal';
-import { completeFromUrl, pendingStorage, receiveSchemeReturn, schemeReturnIsExpected, schemeReturnUrl, type BrowserSignInEnv, type Listen } from './browser-sign-in';
+import { SIGN_IN_NOTHING_WAITING, completeFromUrl, pendingStorage, peekPending, receiveSchemeReturn, schemeReturnIsExpected, schemeReturnUrl, type BrowserSignInEnv, type Listen } from './browser-sign-in';
 
 export interface BrowserHost {
 	settings: { accountToken: string; accountUsername: string; pendingSignIn: string };
@@ -36,7 +36,12 @@ export function makeBrowserEnv(host: BrowserHost): BrowserSignInEnv {
  */
 export async function handleSchemeReturn(host: BrowserHost, params: Record<string, string>): Promise<void> {
 	const url = schemeReturnUrl(params);
-	if (!schemeReturnIsExpected(host.settings, url)) return;
+	if (!schemeReturnIsExpected(host.settings, url)) {
+		// Nothing parked on a phone: the obsidian:// return is that path's only way back, so say so. A link with another
+		// state while a sign-in IS parked stays silent, and on desktop (where a sign-in waits in memory, not here) so does this.
+		if (Platform.isMobile && !peekPending(host.settings)) new Notice(SIGN_IN_NOTHING_WAITING);
+		return;
+	}
 	if (receiveSchemeReturn(url)) return;
 	try {
 		const token = await completeFromUrl(makeBrowserEnv(host), url);

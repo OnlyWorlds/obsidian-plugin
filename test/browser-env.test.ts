@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Platform, __notices } from "./support/obsidian-mock";
 import { handleSchemeReturn, makeBrowserEnv, type BrowserHost } from "../account/browser-env";
-import { beginBrowserSignIn, SIGN_IN_CANCELLED_IN_BROWSER, waitForSchemeReturn } from "../account/browser-sign-in";
+import { beginBrowserSignIn, SIGN_IN_CANCELLED_IN_BROWSER, SIGN_IN_NOTHING_WAITING, waitForSchemeReturn } from "../account/browser-sign-in";
 
 function host(): BrowserHost {
 	return {
@@ -75,12 +75,31 @@ test("handleSchemeReturn: a link with another state is ignored, the parked sign-
 	assert.deepEqual(__notices, []);
 });
 
-test("handleSchemeReturn: with nothing parked a return does nothing at all (no request, no notice)", async () => {
-	const h = host();
-	__notices.length = 0;
-	await handleSchemeReturn(h, { action: "onlyworlds-signin", code: "c", state: "anything" });
-	assert.deepEqual(__notices, []);
-	assert.equal(h.settings.pendingSignIn, "");
+test("handleSchemeReturn: on a phone with nothing parked, a return says there is no sign-in waiting and starts nothing", async () => {
+	const was = Platform.isMobile;
+	Platform.isMobile = true;
+	try {
+		const h = host();
+		__notices.length = 0;
+		await handleSchemeReturn(h, { action: "onlyworlds-signin", code: "c", state: "anything" });
+		assert.deepEqual(__notices, [SIGN_IN_NOTHING_WAITING]);
+		assert.equal(h.settings.pendingSignIn, "");
+	} finally {
+		Platform.isMobile = was;
+	}
+});
+
+test("handleSchemeReturn: on desktop, where a sign-in waits in memory and not in the data, a stray return stays silent", async () => {
+	const was = Platform.isMobile;
+	Platform.isMobile = false;
+	try {
+		const h = host();
+		__notices.length = 0;
+		await handleSchemeReturn(h, { action: "onlyworlds-signin", code: "c", state: "anything" });
+		assert.deepEqual(__notices, []);
+	} finally {
+		Platform.isMobile = was;
+	}
 });
 
 test("handleSchemeReturn: a dialog that is waiting takes the address, and the parked record is left for its exchange", async () => {
