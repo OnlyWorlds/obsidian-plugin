@@ -2,12 +2,14 @@ import { Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
 import { V2Client } from '../client-v2';
 import { elementPathParts } from '../vault/category-folder';
-import { resolveWorldKey } from '../vault/world-key';
+import { resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { openInBrowser } from '../Modals/SignInModal';
 import { TextPromptModal } from '../Modals/TextPromptModal';
 import {
     LOCAL_HAS_NO_PAGE,
     NOT_AN_ELEMENT,
+    WORLD_NOT_TELLABLE,
+    keyFitsWorld,
     noNoteFor,
     noteIdOf,
     pickNote,
@@ -37,12 +39,17 @@ export async function openNoteOnSite(plugin: OnlyWorldsPlugin, file: TFile): Pro
         new Notice(NOT_AN_ELEMENT, 8000);
         return;
     }
-    const resolved = await resolveWorldKey(plugin.app, parts.worldName, plugin.settings.apiKey);
-    if (resolved.source === 'local-world' || !resolved.apiKey) {
-        new Notice(LOCAL_HAS_NO_PAGE, 8000);
-        return;
-    }
     try {
+        const resolved = await resolveWorldKey(plugin.app, parts.worldName, plugin.settings.apiKey);
+        if (resolved.source === 'local-world' || !resolved.apiKey) {
+            new Notice(LOCAL_HAS_NO_PAGE, 8000);
+            return;
+        }
+        const { writable, readOnly } = await splitWorldsByWrite(plugin.app, plugin.settings.apiKey);
+        if (!keyFitsWorld(resolved, writable.length + readOnly.length)) {
+            new Notice(WORLD_NOT_TELLABLE, 10000);
+            return;
+        }
         openInBrowser(siteAddressOf(await worldIdOf(resolved.apiKey), parts.type, id));
     } catch (e) {
         new Notice(e instanceof Error ? e.message : String(e), 10000);

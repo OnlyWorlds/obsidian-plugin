@@ -7,6 +7,17 @@ import { OwAddressError, elementAddress, parseOwLink } from '@onlyworlds/sdk';
  * by `elementAddress` and `parseOwLink`), never this file's own.
  */
 
+/** What a user reads when the note's world has no key of its own and the vault holds more than one world. */
+export const WORLD_NOT_TELLABLE = "This note's world has no key of its own, and this vault holds more than one world, so the plugin cannot tell which world the key in Settings opens. Add the world's key to its World.md, then try again.";
+
+/**
+ * May the key that was found be used to read this note's world id? Its own World.md key always;
+ * the key in Settings only when the vault holds a single world (with two, it could be the other's).
+ */
+export function keyFitsWorld(resolved: { ownWorld: boolean }, worldsInVault: number): boolean {
+	return resolved.ownWorld || worldsInVault <= 1;
+}
+
 /** What a user reads when a note has no element id yet. */
 export const NOT_AN_ELEMENT = 'This note has no OnlyWorlds id yet. Save it once, then try again.';
 
@@ -65,5 +76,6 @@ export interface AddressedNote {
 /** The note that holds the element: by id, and of that type (an id alone is one element, the type guards a stray copy). */
 export function pickNote(notes: AddressedNote[], wanted: { type: string; id: string }): AddressedNote | null {
 	const type = wanted.type.toLowerCase();
-	return notes.find((n) => n.id === wanted.id && n.type.trim().toLowerCase() === type) ?? null;
+	const id = wanted.id.toLowerCase();
+	return notes.find((n) => n.id.toLowerCase() === id && n.type.trim().toLowerCase() === type) ?? null;
 }

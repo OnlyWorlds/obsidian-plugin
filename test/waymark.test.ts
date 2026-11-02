@@ -4,10 +4,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { elementAddress } from "@onlyworlds/sdk";
+import { OwAddressError, elementAddress } from "@onlyworlds/sdk";
 import {
 	NOT_AN_ADDRESS,
 	NOT_ONE_ELEMENT,
+	keyFitsWorld,
 	noteIdOf,
 	pickNote,
 	readAddress,
@@ -28,7 +29,7 @@ test("a note's site address is the profile's human form, lowercase, from the wor
 });
 
 test("a world's slug is refused by the writer, not spelled by us", () => {
-	assert.throws(() => siteAddressOf("moppetopia", "Character", ELEMENT), /bad_world|world/i);
+	assert.throws(() => siteAddressOf("moppetopia", "Character", ELEMENT), (e: unknown) => e instanceof OwAddressError && e.reason === "bad_world");
 });
 
 test("both spellings of an element's address read to one element, and the site's address reads back to its own note", () => {
@@ -69,4 +70,16 @@ test("a note's id is its frontmatter's id when that is a non-empty string, and n
 	assert.equal(noteIdOf({}), null);
 	assert.equal(noteIdOf(null), null);
 	assert.equal(noteIdOf(undefined), null);
+});
+
+test("the key in Settings opens a note's world only when the vault holds one world; the world's own key always", () => {
+	assert.equal(keyFitsWorld({ ownWorld: true }, 3), true);
+	assert.equal(keyFitsWorld({ ownWorld: false }, 1), true);
+	assert.equal(keyFitsWorld({ ownWorld: false }, 2), false, "two worlds: the Settings key could be the other world's");
+});
+
+test("a note whose id is written in capitals is still found by an address, which the SDK reads in lowercase", () => {
+	const upper = ELEMENT.toUpperCase();
+	const notes = [{ path: "OnlyWorlds/Worlds/W/Elements/Character/Fluffington.md", type: "Character", id: upper }];
+	assert.equal(pickNote(notes, { type: "character", id: ELEMENT })?.path, notes[0].path);
 });
