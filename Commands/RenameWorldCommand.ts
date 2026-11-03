@@ -153,22 +153,11 @@ export class RenameWorldCommand {
         }
     }
 
+    /** The primary world was renamed: the setting follows it (it used to be a line in the Settings note). */
     async checkSettingsFile(oldWorldName: string, newWorldName: string) {
-        const settingsFilePath = normalizePath('OnlyWorlds/Settings.md');
-        const settingsFile = this.app.vault.getAbstractFileByPath(settingsFilePath);
-
-        if (settingsFile instanceof TFile) {
-            const content = await this.app.vault.read(settingsFile);
-            const updatedContent = this.updateWorldNameInSettings(content, oldWorldName, newWorldName);
-            await this.app.vault.modify(settingsFile, updatedContent);
-            new Notice('Settings file updated.');
-        } else {
-            new Notice('Settings file does not exist.');
+        if (this.plugin && this.plugin.settings.defaultWorld.trim() === oldWorldName.trim()) {
+            this.plugin.settings.defaultWorld = newWorldName;
+            await this.plugin.saveSettings();
         }
-    }
-
-    updateWorldNameInSettings(content: string, oldWorldName: string, newWorldName: string): string {
-        const regex = new RegExp(`^- \\*\\*Primary World Name:\\*\\*\\s+${oldWorldName.trim()}$`, 'm');
-        return content.replace(regex, `- **Primary World Name:** ${newWorldName}`);
     }
 }

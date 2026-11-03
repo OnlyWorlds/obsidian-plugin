@@ -89,6 +89,9 @@ function noteIdInText(content: string): string | null {
 }
 
 export class WorldService {
+    /** The settings' default world, set once by the plugin at load; null (tests, other hosts) reads as no setting. */
+    static defaultWorldProvider: (() => string) | null = null;
+
     private app: App;
     private defaultWorldName: string = 'DefaultWorld'; // Default world name as a fallback
 
@@ -123,23 +126,8 @@ export class WorldService {
     }
 
     private async getWorldNameFromSettings(): Promise<string | null> {
-        const settingsPath = normalizePath('OnlyWorlds/Settings.md');
-        try {
-            const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath);
-
-            if (!(settingsFile instanceof TFile)) {
-                console.error('Expected settings file not found.');
-                return "";  
-}
-            const content = await this.app.vault.read(settingsFile);
-            const match = content.match(/^- \*\*Primary World Name:\*\* (.+)$/m);
-            if (match && match[1].trim()) {
-                return match[1].trim();
-            }
-        } catch (error) {
-         
-        }
-        return null; // Return null if settings file is not found or no name is specified
+        const name = WorldService.defaultWorldProvider?.().trim();
+        return name ? name : null; // null when the setting is empty: the top folder decides
     }
 
     private async getWorldNameFromTopFolder(): Promise<string> {

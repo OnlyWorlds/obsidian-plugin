@@ -10,6 +10,7 @@ import {
 	NOT_ONE_ELEMENT,
 	keyFitsWorld,
 	noteIdOf,
+	withScheme,
 	pickNote,
 	readAddress,
 	siteAddressOf,
@@ -82,4 +83,22 @@ test("a note whose id is written in capitals is still found by an address, which
 	const upper = ELEMENT.toUpperCase();
 	const notes = [{ path: "OnlyWorlds/Worlds/W/Elements/Character/Fluffington.md", type: "Character", id: upper }];
 	assert.equal(pickNote(notes, { type: "character", id: ELEMENT })?.path, notes[0].path);
+});
+
+test("a paste without its scheme gains https:// before the reader; http, other hosts and the account page still refuse", () => {
+	const bare = `www.onlyworlds.com/w/${WORLD}/character/${ELEMENT}`;
+	assert.deepEqual(readAddress(bare), { ok: true, type: "character", id: ELEMENT });
+	assert.deepEqual(readAddress(`  ${bare}  `), { ok: true, type: "character", id: ELEMENT }, "padding is fine");
+	assert.equal(withScheme(`ow://${WORLD}/character/${ELEMENT}`), `ow://${WORLD}/character/${ELEMENT}`, "an ow:// text is left as it is");
+	assert.equal(readAddress(`http://www.onlyworlds.com/w/${WORLD}/character/${ELEMENT}`).ok, false, "http still refused");
+	assert.equal(readAddress(`www.example.com/w/${WORLD}/character/${ELEMENT}`).ok, false, "another host still refused");
+	// the Captain's paste, 11-03: the member's editing page, which the profile refuses by name and the reader does not learn
+	assert.deepEqual(readAddress(`www.onlyworlds.com/account/worlds/${WORLD}/elements/character/${ELEMENT}`), { ok: false, reason: NOT_AN_ADDRESS });
+	assert.deepEqual(readAddress(`https://www.onlyworlds.com/account/worlds/${WORLD}/elements/character/${ELEMENT}`), { ok: false, reason: NOT_AN_ADDRESS });
+});
+
+test("the refusal says what an address looks like, and that the browser bar's page address is not one", () => {
+	assert.match(NOT_AN_ADDRESS, /onlyworlds\.com\/w\/<world>\/<type>\/<element>/);
+	assert.match(NOT_AN_ADDRESS, /ow:\/\//);
+	assert.match(NOT_AN_ADDRESS, /browser bar/);
 });

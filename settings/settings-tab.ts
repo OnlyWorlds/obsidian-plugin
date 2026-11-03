@@ -103,8 +103,7 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Individual element creation commands")
 			.setDesc(
-				"Register a separate 'Create new <Category>' command for each element type. " +
-					"Reload Obsidian for changes to take effect."
+				"Offer a separate 'Create new <Category>' command for each element type in the command palette."
 			)
 			.addToggle((tog) =>
 				tog.setValue(this.plugin.settings.individualElementCommands).onChange(async (value) => {

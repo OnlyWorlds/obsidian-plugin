@@ -27,6 +27,7 @@ import { WorldService } from 'Scripts/WorldService';
 import { PinCache } from './auth/pin-cache';
 import { DEFAULT_SETTINGS, OnlyWorldsPluginSettings } from './settings/settings';
 import { OnlyWorldsSettingTab } from './settings/settings-tab';
+import { migrateSettingsNote } from './settings/settings-note';
 import { AutoSyncEngine } from './sync/auto-sync';
 import { SyncRibbon } from './sync/ribbon';
 import { SyncStatusBar } from './sync/status-bar';
@@ -45,10 +46,10 @@ export default class OnlyWorldsPlugin extends Plugin {
     statusBar: SyncStatusBar | null = null;
     ribbon: SyncRibbon | null = null;
     autoSync: AutoSyncEngine | null = null;
-    private defaultCategory: string | null = null;
       async onload(): Promise<void> {
 
         await this.loadSettings();
+        WorldService.defaultWorldProvider = () => this.settings.defaultWorld;
         this.pinCache = new PinCache(this.app, () => this.settings.apiPin);
         this.addSettingTab(new OnlyWorldsSettingTab(this.app, this));
 
@@ -84,7 +85,7 @@ export default class OnlyWorldsPlugin extends Plugin {
   
 
       callDelayedFunctions(){
-        this.analyzeSettingsFile() ; 
+        void this.carryOverSettingsNote();
 
         console.log("OnlyWorlds Plugin loaded"); 
       }
@@ -139,6 +140,7 @@ export default class OnlyWorldsPlugin extends Plugin {
     }
 
       setupCommands() {
+        this.registerIndividualCreationCommands();
         // 2.3.0: Download World pulls via the v2 /changes cursor walk —
         // incremental after the first download (watermark in settings.syncCursors).
         // 2.2.0 had restored this pull path on the legacy worldsync route.
@@ -209,7 +211,7 @@ export default class OnlyWorldsPlugin extends Plugin {
                       new CreateElementCommand(this.app, this.manifest, this.worldService).execute(category, elementName, worldName);
                   },
                   this.worldService,
-                  this.defaultCategory
+                  this.settings.defaultCategory
               );
               createElementModal.open();
           }
@@ -334,67 +336,44 @@ export default class OnlyWorldsPlugin extends Plugin {
     }
 
    
-    async analyzeSettingsFile() {
-      const settingsPath = normalizePath('OnlyWorlds/Settings.md');
-      
+    /**
+     * The old OnlyWorlds/Settings.md note, retired (#1117): its values move into the settings once, and the note
+     * says where they went. The settings pane is the only place from now on.
+     */
+    async carryOverSettingsNote() {
       try {
-          const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath);
-          if (!settingsFile) {
-              console.log("Settings file not found, skipping check for creation of individual element commands.");
-              return;
-          }
-          if (settingsFile instanceof TFile) { 
-              const content = await this.app.vault.read(settingsFile);
-
-              this.defaultCategory = this.parseSettingsForDefaultCategory(content);
-
-              const individualCreationEnabled = this.parseSettingsForIndividualCreation(content); 
-  
-              if (individualCreationEnabled) {
-                  this.registerIndividualCreationCommands();
-              }
-          } else {
-              console.log("Found item is not a file, possibly a directory, skipping command creation.");
-          }
-      } catch (error) {
-          console.error("Error accessing or reading settings file:", error); 
-      }
-  }
-  
-  async loadDefaultCategory() {
-    const settingsPath = normalizePath('OnlyWorlds/Settings.md');
-    try {
-        const settingsFile = this.app.vault.getAbstractFileByPath(settingsPath);
-        if (settingsFile instanceof TFile) {
-            const content = await this.app.vault.read(settingsFile);
-            this.defaultCategory = this.parseSettingsForDefaultCategory(content);
+        const vault = this.app.vault;
+        const result = await migrateSettingsNote(
+          {
+            exists: (p) => vault.adapter.exists(normalizePath(p)),
+            read: (p) => vault.adapter.read(normalizePath(p)),
+            write: (p, c) => vault.adapter.write(normalizePath(p), c),
+          },
+          this.settings,
+          Object.keys(Category).filter((k) => isNaN(Number(k))),
+        );
+        if (result.settings) {
+          Object.assign(this.settings, result.settings);
+          await this.saveSettings();
         }
-    } catch (error) {
-        console.error("Error loading settings file:", error);
-    }
-}
-parseSettingsForDefaultCategory(content: string): string | null {
-  const match = content.match(/^- \*\*Default New Element Category:\*\* ([^\n]+)/m);
-  if (match) {
-      const category = match[1].trim();
-      // Validate if the category exists in the enum
-      if (Object.keys(Category).includes(category)) {
-          return category;
+        if (result.notice) new Notice(result.notice);
+      } catch (error) {
+        console.error("Carrying the old settings note over failed; it is tried again next start.", error);
       }
-  }
-  return null;
-}
-  parseSettingsForIndividualCreation(content: string): boolean {
-    const match = content.match(/^- \*\*Individual Element Creation Commands:\*\* (\w+)/m);
-    return match ? match[1].toLowerCase() === 'yes' : false;
-}
+    }
 
-  registerIndividualCreationCommands() {
+    /**
+     * One "Create new <Category>" command per element type. They are always registered and shown only while the
+     * setting is on, so the toggle applies at once, in both directions, with no reload.
+     */
+    registerIndividualCreationCommands() {
       Object.keys(Category).filter(key => isNaN(Number(key))).forEach(category => {
           this.addCommand({
               id: `create-new-${category.toLowerCase()}`,
               name: `Create new ${category}`,
-              callback: () => {
+              checkCallback: (checking: boolean) => {
+                  if (!this.settings.individualElementCommands) return false;
+                  if (checking) return true;
                   let createElementModal = new CreateElementModal(
                       this.app,
                       (worldName, cat, elementName) => {
@@ -404,10 +383,12 @@ parseSettingsForDefaultCategory(content: string): string | null {
                       category // Pre-select this specific category
                   );
                   createElementModal.open();
+                  return true;
               }
           });
       });
   }
+
 
   /**
    * Sign in with your browser: the environment the Sign in dialog runs it in (account/browser-env.ts).

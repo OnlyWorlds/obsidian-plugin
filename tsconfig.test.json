@@ -21,6 +21,7 @@
 		"Commands/export-plan.ts",
 		"account/browser-sign-in.ts",
 		"account/waymark.ts",
+		"settings/settings-note.ts",
 		"account/loopback-listener.ts",
 		"test/**/*.ts"
 	]

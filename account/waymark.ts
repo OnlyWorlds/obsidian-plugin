@@ -25,7 +25,9 @@ export const NOT_AN_ELEMENT = 'This note has no OnlyWorlds id yet. Save it once,
 export const LOCAL_HAS_NO_PAGE = 'This world lives only in this vault, so it has no page on onlyworlds.com.';
 
 /** The text is not an address of ours. */
-export const NOT_AN_ADDRESS = 'That is not an OnlyWorlds address.';
+export const NOT_AN_ADDRESS =
+	'That is not an OnlyWorlds address. One looks like https://www.onlyworlds.com/w/<world>/<type>/<element>, or ow://<world>/<type>/<element>. '
+	+ 'The page address in your browser bar after you open an element is not one.';
 
 /** The address names a whole world or a lens or moment of one, not a single element. */
 export const NOT_ONE_ELEMENT = 'That address is not for one element.';
@@ -49,13 +51,23 @@ export function noteIdOf(frontmatter: Record<string, unknown> | null | undefined
 export type ReadAddress = { ok: true; type: string; id: string } | { ok: false; reason: string };
 
 /**
+ * A paste that begins `www.onlyworlds.com/w/` (the address without its scheme, as a browser bar or a chat often
+ * shows it) gains `https://` before it reaches the reader. Input hygiene, not a reading: the reader still refuses
+ * http and every other host, and decides everything else.
+ */
+export function withScheme(text: string): string {
+	const t = text.trim();
+	return /^www\.onlyworlds\.com\/w\//i.test(t) ? `https://${t}` : text;
+}
+
+/**
  * One pasted address (either form: the site's page or the `ow://` text), read whole by the SDK.
  * A world's own address, or one that reads through a lens or at a moment, is not one element's.
  */
 export function readAddress(text: string): ReadAddress {
 	let reading;
 	try {
-		reading = parseOwLink(text);
+		reading = parseOwLink(withScheme(text));
 	} catch (e) {
 		if (e instanceof OwAddressError) return { ok: false, reason: NOT_AN_ADDRESS };
 		throw e;

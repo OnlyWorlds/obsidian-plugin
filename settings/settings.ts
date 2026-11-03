@@ -14,6 +14,8 @@ export interface OnlyWorldsPluginSettings {
 	// is carried along by loadSettings' Object.assign and read by nothing).
 	defaultCategory: string;
 	individualElementCommands: boolean;
+	/** The old OnlyWorlds/Settings.md note's values were carried into these settings (3.18, #1117); set once, never unset. */
+	settingsNoteMigrated: boolean;
 
 	autoSync: boolean;
 	debounceMs: number;
@@ -124,6 +126,7 @@ export const DEFAULT_SETTINGS: OnlyWorldsPluginSettings = {
 	defaultWorld: "",
 	defaultCategory: "Character",
 	individualElementCommands: false,
+	settingsNoteMigrated: false,
 
 	autoSync: false,
 	debounceMs: 3000,
