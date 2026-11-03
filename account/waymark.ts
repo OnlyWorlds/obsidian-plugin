@@ -27,7 +27,7 @@ export const LOCAL_HAS_NO_PAGE = 'This world lives only in this vault, so it has
 /** The text is not an address of ours. */
 export const NOT_AN_ADDRESS =
 	'That is not an OnlyWorlds address. One looks like https://www.onlyworlds.com/w/<world>/<type>/<element>, or ow://<world>/<type>/<element>. '
-	+ 'The page address in your browser bar after you open an element is not one.';
+	+ 'The address in your browser bar is not one: on the element\'s page, use the mark beside its name (Open with), then Copy link.';
 
 /** The address names a whole world or a lens or moment of one, not a single element. */
 export const NOT_ONE_ELEMENT = 'That address is not for one element.';

@@ -101,4 +101,5 @@ test("the refusal says what an address looks like, and that the browser bar's pa
 	assert.match(NOT_AN_ADDRESS, /onlyworlds\.com\/w\/<world>\/<type>\/<element>/);
 	assert.match(NOT_AN_ADDRESS, /ow:\/\//);
 	assert.match(NOT_AN_ADDRESS, /browser bar/);
+	assert.match(NOT_AN_ADDRESS, /Open with.*Copy link/);
 });
