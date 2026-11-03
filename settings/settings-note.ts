@@ -7,6 +7,11 @@
  * From now on the tab is the only place. This file does the one-time carry-over and nothing else:
  * the note's values move into the tab's settings, then the note says where they went.
  *
+ * Nothing the user wrote is lost: the plugin's own note is rewritten as a pointer WITH the old text kept
+ * beneath it (a cold read of this change found the first version replaced a whole note even when the user
+ * had added to it, and that another device, not yet updated or not yet synced, would then find no values).
+ * A note that is the user's own text is read and never touched.
+ *
  * Pure on purpose (no Obsidian import): the note's text goes in, values come out, so the test build
  * compiles it and the migration is tried against a plain in-memory store.
  */
@@ -15,6 +20,9 @@ export const SETTINGS_NOTE_PATH = "OnlyWorlds/Settings.md";
 
 /** What the plugin's own template began with. A note without it is the user's own text and is never rewritten. */
 export const NOTE_HEADER = "# OnlyWorlds Plugin Settings";
+
+/** The sentence that marks a note already moved: a second pass leaves it as it is. */
+export const MOVED_MARK = "These settings moved to Obsidian's own settings";
 
 export interface NoteValues {
 	/** The note's "Primary World Name", trimmed; null when the line is absent or empty. */
@@ -37,42 +45,57 @@ export function parseSettingsNote(content: string): NoteValues {
 	};
 }
 
+/** Whether the note says anything the old code would have acted on. */
+export function holdsValues(v: NoteValues): boolean {
+	return v.primaryWorld !== null || v.individualCommands !== null || v.defaultCategory !== null;
+}
+
 export function isPluginTemplateNote(content: string): boolean {
 	return content.trimStart().startsWith(NOTE_HEADER);
 }
 
-/** What the note says once its values have moved. Says where they went, in the words of the settings pane. */
-export function movedNoteText(): string {
-	return `${NOTE_HEADER}
-
-These settings moved to Obsidian's own settings: **Settings → Community plugins → OnlyWorlds Builder → Options**.
-
-This note is no longer read. Changing it does nothing, and it is safe to delete.
-`;
-}
-
-export interface MigratedSettings {
-	defaultWorld: string;
-	defaultCategory: string;
-	individualElementCommands: boolean;
-	settingsNoteMigrated: boolean;
+export function isMovedNote(content: string): boolean {
+	return content.includes(MOVED_MARK);
 }
 
 /**
- * The note's values laid over the current settings. The note is what has been in effect, so it wins where it
- * says something; a missing or invalid line leaves the setting as it is (a category word that is not one of
- * ours is left out, as the old reader left it out).
+ * What the note says once its values have moved: where they went, then the old text unchanged. The old text keeps
+ * its value lines on purpose: a device still on an older version, or one the note reaches before the plugin's own
+ * settings do, finds its values there. This version never reads the note again once it has moved.
  */
-export function applyNoteValues(
-	current: Pick<MigratedSettings, "defaultWorld" | "defaultCategory" | "individualElementCommands">,
-	note: NoteValues,
-	validCategories: readonly string[],
-): Pick<MigratedSettings, "defaultWorld" | "defaultCategory" | "individualElementCommands"> {
+export function movedNoteText(original: string): string {
+	return `${NOTE_HEADER}
+
+${MOVED_MARK}: **Settings → Community plugins → OnlyWorlds Builder → Options**.
+
+This note is no longer read by the plugin. Changing it does nothing, and it is safe to delete.
+
+---
+
+The note as it was when the settings moved (kept so nothing you wrote is lost):
+
+${original.trim()}
+`;
+}
+
+export interface SettingsValues {
+	defaultWorld: string;
+	defaultCategory: string;
+	individualElementCommands: boolean;
+}
+
+/**
+ * The note's values laid over the current settings, as what was IN EFFECT. In 3.17.0 the note alone acted: an
+ * empty world line meant the top folder, a missing Yes/No meant No. So where a note exists the world and the
+ * Yes/No take the note's reading, absent or empty included; a pane value typed long ago and never acted on does not
+ * quietly take over. A category word that is not one of ours is left out, as the old reader left it out.
+ */
+export function applyNoteValues(current: SettingsValues, note: NoteValues, validCategories: readonly string[]): SettingsValues {
 	return {
-		defaultWorld: note.primaryWorld ?? current.defaultWorld,
+		defaultWorld: note.primaryWorld ?? "",
 		defaultCategory:
 			note.defaultCategory !== null && validCategories.includes(note.defaultCategory) ? note.defaultCategory : current.defaultCategory,
-		individualElementCommands: note.individualCommands ?? current.individualElementCommands,
+		individualElementCommands: note.individualCommands ?? false,
 	};
 }
 
@@ -84,53 +107,50 @@ export interface NoteStore {
 }
 
 export interface MigrationResult {
-	/** The settings to keep; null when nothing changed and nothing needs saving. */
-	settings: (Pick<MigratedSettings, "defaultWorld" | "defaultCategory" | "individualElementCommands"> & { settingsNoteMigrated: true }) | null;
+	/** The settings to keep and mark done; null when nothing changed and nothing needs saving. */
+	settings: (SettingsValues & { settingsNoteMigrated: true }) | null;
 	/** What happened, for one notice to the user; null for silence. */
 	notice: string | null;
-	/** The migration could not read the note: try again next start (nothing is marked done). */
-	retry: boolean;
 }
 
 /**
- * Carry the old note's values into the settings, once. Marks itself done only when it has read the note (or
- * found none). Rewrites the note to the pointer only when it is the plugin's own template; a note the user
- * made their own is left alone and the notice says so.
+ * Carry the old note's values into the settings, once. Marks itself done only when it has READ a note: no note
+ * means nothing is marked, so a note that reaches this device later (a sync that had not delivered it yet) is
+ * still carried over; one existence check at each start is the whole cost. A note that is already the pointer is
+ * read for the values kept beneath it and not rewritten. A note that is the user's own text is read and left alone.
+ * An unreadable note changes nothing and is tried again next start.
  */
 export async function migrateSettingsNote(
 	store: NoteStore,
-	current: Pick<MigratedSettings, "defaultWorld" | "defaultCategory" | "individualElementCommands"> & { settingsNoteMigrated?: boolean },
+	current: SettingsValues & { settingsNoteMigrated?: boolean },
 	validCategories: readonly string[],
 ): Promise<MigrationResult> {
-	if (current.settingsNoteMigrated) return { settings: null, notice: null, retry: false };
-
-	let exists: boolean;
-	try {
-		exists = await store.exists(SETTINGS_NOTE_PATH);
-	} catch {
-		return { settings: null, notice: null, retry: true };
-	}
-	if (!exists) {
-		return { settings: { ...current, settingsNoteMigrated: true }, notice: null, retry: false };
-	}
+	if (current.settingsNoteMigrated) return { settings: null, notice: null };
 
 	let content: string;
 	try {
+		if (!(await store.exists(SETTINGS_NOTE_PATH))) return { settings: null, notice: null };
 		content = await store.read(SETTINGS_NOTE_PATH);
 	} catch {
-		return { settings: null, notice: null, retry: true };
+		return { settings: null, notice: null };
 	}
 
-	const merged = applyNoteValues(current, parseSettingsNote(content), validCategories);
+	const values = parseSettingsNote(content);
+	const merged = applyNoteValues(current, values, validCategories);
+	const done = { ...merged, settingsNoteMigrated: true as const };
+	if (!holdsValues(values)) return { settings: done, notice: null };
+
 	let notice = "OnlyWorlds settings moved to Obsidian's settings (Community plugins, OnlyWorlds Builder). Your old Settings note was carried over.";
-	if (isPluginTemplateNote(content)) {
+	if (isMovedNote(content)) {
+		// already a pointer (another device moved it): its kept text gave the values; nothing to rewrite
+	} else if (isPluginTemplateNote(content)) {
 		try {
-			await store.write(SETTINGS_NOTE_PATH, movedNoteText());
+			await store.write(SETTINGS_NOTE_PATH, movedNoteText(content));
 		} catch {
 			notice = "OnlyWorlds settings moved to Obsidian's settings, but the old Settings note could not be updated; it is no longer read.";
 		}
 	} else {
 		notice = "OnlyWorlds settings moved to Obsidian's settings. Your Settings note is your own text, so it was left as it is; it is no longer read.";
 	}
-	return { settings: { ...merged, settingsNoteMigrated: true }, notice, retry: false };
+	return { settings: done, notice };
 }

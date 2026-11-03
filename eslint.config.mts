@@ -52,7 +52,6 @@ export default tseslint.config(
 		"Commands/CreateElementCommand.ts",
 		"Commands/CreateHandlebarsCommand.ts",
 		"Commands/CreateReadmeCommand.ts",
-		"Commands/CreateSettingsCommand.ts",
 		"Commands/CreateTemplatesCommand.ts",
 		"Commands/CreateWorldCommand.ts",
 		"Commands/ImportWorldCommand.ts",

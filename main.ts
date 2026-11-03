@@ -76,9 +76,10 @@ export default class OnlyWorldsPlugin extends Plugin {
  
 
       this.setupCommands();
-      setTimeout(() => { 
+      const delayed = window.setTimeout(() => { 
         this.callDelayedFunctions();
-    }, 500);  
+    }, 500);
+      this.register(() => window.clearTimeout(delayed));  
 
 
       }
@@ -347,7 +348,11 @@ export default class OnlyWorldsPlugin extends Plugin {
           {
             exists: (p) => vault.adapter.exists(normalizePath(p)),
             read: (p) => vault.adapter.read(normalizePath(p)),
-            write: (p, c) => vault.adapter.write(normalizePath(p), c),
+            write: async (p, c) => {
+              const f = vault.getAbstractFileByPath(normalizePath(p));
+              if (f instanceof TFile) await vault.modify(f, c);
+              else await vault.adapter.write(normalizePath(p), c);
+            },
           },
           this.settings,
           Object.keys(Category).filter((k) => isNaN(Number(k))),

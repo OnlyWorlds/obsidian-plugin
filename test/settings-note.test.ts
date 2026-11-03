@@ -1,13 +1,19 @@
 /**
- * The old Settings note, retired (OW Obsidian #1117). Written before the wiring: the note's values move into the
- * settings once, the note says where they went, and a note that is the user's own is never rewritten.
+ * The old Settings note, retired (OW Obsidian #1117). The note's values move into the settings once; the plugin's own
+ * note becomes a pointer WITH its old text kept beneath it; a note that is the user's own text is read and never
+ * touched; no note is not marked done (a sync may deliver it later). The cold read of this change (11-03) found the
+ * first version replaced a whole note when the user had added to it, and left other devices with no values: both
+ * are tests here.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+	MOVED_MARK,
 	NOTE_HEADER,
 	SETTINGS_NOTE_PATH,
 	applyNoteValues,
+	holdsValues,
+	isMovedNote,
 	isPluginTemplateNote,
 	migrateSettingsNote,
 	movedNoteText,
@@ -57,60 +63,83 @@ function store(files: Record<string, string>, opts: { failRead?: boolean; failWr
 }
 
 test("parse: the three lines, the way the old reader read them", () => {
-	const v = parseSettingsNote(template("Barovia", "Yes", "Location"));
-	assert.deepEqual(v, { primaryWorld: "Barovia", individualCommands: true, defaultCategory: "Location" });
+	assert.deepEqual(parseSettingsNote(template("Barovia", "Yes", "Location")), { primaryWorld: "Barovia", individualCommands: true, defaultCategory: "Location" });
 	assert.equal(parseSettingsNote(template("Barovia", "yes", "Location")).individualCommands, true, "yes in any case");
 	assert.equal(parseSettingsNote(template("Barovia", "No", "Location")).individualCommands, false);
 });
 
-test("parse: an empty world line, and lines that are not there, read as absent (null), not as empty values", () => {
-	const empty = parseSettingsNote(template("", "No", "Character"));
-	assert.equal(empty.primaryWorld, null);
+test("parse: an empty world line, and lines that are not there, read as absent (null)", () => {
+	assert.equal(parseSettingsNote(template("", "No", "Character")).primaryWorld, null);
 	const none = parseSettingsNote("# OnlyWorlds Plugin Settings\n\nnothing here\n");
 	assert.deepEqual(none, { primaryWorld: null, individualCommands: null, defaultCategory: null });
+	assert.equal(holdsValues(none), false);
+	assert.equal(holdsValues(parseSettingsNote(template("", "No", "Character"))), true);
 });
 
-test("parse: a world name with spaces and punctuation survives whole", () => {
+test("parse: a world name with spaces and punctuation survives whole; CRLF endings parse the same", () => {
 	assert.equal(parseSettingsNote(template("The Land of Mist (2)", "No", "Character")).primaryWorld, "The Land of Mist (2)");
+	assert.deepEqual(parseSettingsNote(template("Barovia", "Yes", "Location").replace(/\n/g, "\r\n")), { primaryWorld: "Barovia", individualCommands: true, defaultCategory: "Location" });
 });
 
-test("apply: the note wins where it speaks; an absent line leaves the setting; an invalid category is left out", () => {
-	const cur = { defaultWorld: "Old", defaultCategory: "Object", individualElementCommands: false };
-	assert.deepEqual(applyNoteValues(cur, { primaryWorld: "Barovia", individualCommands: true, defaultCategory: "Location" }, CATS), {
+test("apply: the note's reading is what was in effect: an empty world line is the top folder and a missing Yes/No is No, even over a pane value never acted on", () => {
+	const paneTypedLongAgo = { defaultWorld: "Old", defaultCategory: "Object", individualElementCommands: true };
+	assert.deepEqual(applyNoteValues(paneTypedLongAgo, { primaryWorld: null, individualCommands: null, defaultCategory: null }, CATS), {
+		defaultWorld: "",
+		defaultCategory: "Object", // no word in the note: the category the pane holds stays
+		individualElementCommands: false,
+	});
+	assert.deepEqual(applyNoteValues(paneTypedLongAgo, { primaryWorld: "Barovia", individualCommands: true, defaultCategory: "Location" }, CATS), {
 		defaultWorld: "Barovia",
 		defaultCategory: "Location",
 		individualElementCommands: true,
 	});
-	assert.deepEqual(applyNoteValues(cur, { primaryWorld: null, individualCommands: null, defaultCategory: null }, CATS), cur);
-	assert.equal(applyNoteValues(cur, { primaryWorld: null, individualCommands: null, defaultCategory: "Dragon" }, CATS).defaultCategory, "Object");
-	// a false from the note is a value too, not an absence
-	assert.equal(applyNoteValues({ ...cur, individualElementCommands: true }, { primaryWorld: null, individualCommands: false, defaultCategory: null }, CATS).individualElementCommands, false);
+	assert.equal(applyNoteValues(paneTypedLongAgo, { primaryWorld: null, individualCommands: null, defaultCategory: "Dragon" }, CATS).defaultCategory, "Object", "an invalid category is left out");
 });
 
-test("migrate: the plugin's own note moves its values into the settings and then says where they went", async () => {
-	const { s, files, writes } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") });
+test("migrate: the plugin's own note moves its values and becomes a pointer WITH its old text beneath", async () => {
+	const orig = template("Barovia", "Yes", "Location");
+	const { s, files, writes } = store({ [SETTINGS_NOTE_PATH]: orig });
 	const r = await migrateSettingsNote(s, DEFAULTS, CATS);
 	assert.deepEqual(r.settings, { defaultWorld: "Barovia", defaultCategory: "Location", individualElementCommands: true, settingsNoteMigrated: true });
 	assert.match(r.notice ?? "", /moved to Obsidian's settings/);
-	assert.equal(r.retry, false);
-	assert.equal(files[SETTINGS_NOTE_PATH], movedNoteText());
+	const now = files[SETTINGS_NOTE_PATH];
+	assert.ok(now.startsWith(NOTE_HEADER) && now.includes(MOVED_MARK), "the pointer comes first");
+	assert.ok(now.includes(orig.trim()), "the old text is kept whole beneath it");
 	assert.deepEqual(writes, [SETTINGS_NOTE_PATH]);
-	assert.ok(!/Primary World Name/.test(files[SETTINGS_NOTE_PATH]), "the moved note no longer holds a line the old reader would act on");
+});
+
+test("★ migrate: what the user added below the plugin's template is not lost", async () => {
+	const withMine = template("Barovia", "Yes", "Location") + "\n## My world notes\n\nThe sun never rises in the valley.\nRemember: ask Ireena about the amulet.\n";
+	const { s, files } = store({ [SETTINGS_NOTE_PATH]: withMine });
+	await migrateSettingsNote(s, DEFAULTS, CATS);
+	assert.ok(files[SETTINGS_NOTE_PATH].includes("The sun never rises in the valley."));
+	assert.ok(files[SETTINGS_NOTE_PATH].includes("ask Ireena about the amulet."));
+});
+
+test("★ migrate: a second device, its own settings not yet migrated, reads the values kept beneath the pointer", async () => {
+	const { s: first, files } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") });
+	await migrateSettingsNote(first, DEFAULTS, CATS); // device one moves the note
+	assert.ok(isMovedNote(files[SETTINGS_NOTE_PATH]));
+	const { s: second, writes } = store({ ...files }); // device two receives the note, with the plugin's settings still at their defaults
+	const r = await migrateSettingsNote(second, DEFAULTS, CATS);
+	assert.deepEqual(r.settings, { defaultWorld: "Barovia", defaultCategory: "Location", individualElementCommands: true, settingsNoteMigrated: true });
+	assert.deepEqual(writes, [], "the pointer is not rewritten or nested a second time");
 });
 
 test("migrate: it happens once (a second start with the flag set reads and writes nothing)", async () => {
 	const { s, writes } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") });
-	const r = await migrateSettingsNote(s, { ...DEFAULTS, settingsNoteMigrated: true }, CATS);
-	assert.deepEqual(r, { settings: null, notice: null, retry: false });
+	assert.deepEqual(await migrateSettingsNote(s, { ...DEFAULTS, settingsNoteMigrated: true }, CATS), { settings: null, notice: null });
 	assert.deepEqual(writes, []);
 });
 
-test("migrate: no note at all is done quietly (marked, no notice, nothing written)", async () => {
-	const { s, writes } = store({});
+test("★ migrate: no note is NOT marked done, so a note a sync delivers later is still carried over", async () => {
+	const files: Record<string, string> = {};
+	const { s, writes } = store(files);
+	assert.deepEqual(await migrateSettingsNote(s, DEFAULTS, CATS), { settings: null, notice: null });
+	files[SETTINGS_NOTE_PATH] = template("Barovia", "Yes", "Location"); // the note arrives
 	const r = await migrateSettingsNote(s, DEFAULTS, CATS);
-	assert.deepEqual(r.settings, { ...DEFAULTS, settingsNoteMigrated: true });
-	assert.equal(r.notice, null);
-	assert.deepEqual(writes, []);
+	assert.equal(r.settings?.defaultWorld, "Barovia");
+	assert.deepEqual(writes, [SETTINGS_NOTE_PATH]);
 });
 
 test("migrate: a note the user made their own is read for its values but never rewritten", async () => {
@@ -124,30 +153,41 @@ test("migrate: a note the user made their own is read for its values but never r
 	assert.match(r.notice ?? "", /your own text/);
 });
 
-test("migrate: an unreadable note is retried next start, not marked done", async () => {
-	const { s } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") }, { failRead: true });
+test("migrate: a note that holds no value at all is marked done in silence (no notice, no rewrite)", async () => {
+	const { s, files, writes } = store({ [SETTINGS_NOTE_PATH]: "# OnlyWorlds Plugin Settings\n\nnothing here\n" });
 	const r = await migrateSettingsNote(s, DEFAULTS, CATS);
-	assert.deepEqual(r, { settings: null, notice: null, retry: true });
-	const { s: s2 } = store({}, { failExists: true });
-	assert.equal((await migrateSettingsNote(s2, DEFAULTS, CATS)).retry, true);
+	assert.equal(r.notice, null);
+	assert.equal(r.settings?.settingsNoteMigrated, true);
+	assert.deepEqual(writes, []);
+	assert.ok(!isMovedNote(files[SETTINGS_NOTE_PATH]));
 });
 
-test("migrate: a failed rewrite still carries the values over and says the note could not be updated", async () => {
+test("migrate: an unreadable note changes nothing and is tried again next start", async () => {
+	const { s } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") }, { failRead: true });
+	assert.deepEqual(await migrateSettingsNote(s, DEFAULTS, CATS), { settings: null, notice: null });
+	const { s: s2 } = store({}, { failExists: true });
+	assert.deepEqual(await migrateSettingsNote(s2, DEFAULTS, CATS), { settings: null, notice: null });
+});
+
+test("migrate: a failed rewrite still carries the values over, marks done, and says the note could not be updated", async () => {
 	const { s } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") }, { failWrite: true });
 	const r = await migrateSettingsNote(s, DEFAULTS, CATS);
 	assert.equal(r.settings?.defaultWorld, "Barovia");
+	assert.equal(r.settings?.settingsNoteMigrated, true);
 	assert.match(r.notice ?? "", /could not be updated/);
 });
 
-test("the moved note starts with the header (so a second pass still knows it as ours) and holds no value line", () => {
-	const t = movedNoteText();
+test("the pointer text starts with the header and carries the mark; pointing at an empty original still reads", () => {
+	const t = movedNoteText("");
 	assert.ok(t.startsWith(NOTE_HEADER));
-	assert.deepEqual(parseSettingsNote(t), { primaryWorld: null, individualCommands: null, defaultCategory: null });
+	assert.ok(isMovedNote(t));
+	assert.equal(holdsValues(parseSettingsNote(t)), false);
 });
 
-test("CONTROL: the suite can fail (a migration that skips the rewrite is caught by the rewrite assertion)", async () => {
-	const { s, files } = store({ [SETTINGS_NOTE_PATH]: template("Barovia", "Yes", "Location") });
-	const noRewrite: NoteStore = { ...s, write: async () => {} };
-	await migrateSettingsNote(noRewrite, DEFAULTS, CATS);
-	assert.notEqual(files[SETTINGS_NOTE_PATH], movedNoteText());
+test("CONTROL: a migration that drops the kept text is caught by the user-text test's own assertion", async () => {
+	const withMine = template("Barovia", "Yes", "Location") + "\nMy words.\n";
+	const { s, files } = store({ [SETTINGS_NOTE_PATH]: withMine });
+	const dropper: NoteStore = { ...s, write: async (p) => { files[p] = movedNoteText("").trim(); } };
+	await migrateSettingsNote(dropper, DEFAULTS, CATS);
+	assert.ok(!files[SETTINGS_NOTE_PATH].includes("My words."), "a dropping writer loses the text, so the real test's includes() can go red");
 });

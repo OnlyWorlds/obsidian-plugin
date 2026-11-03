@@ -141,7 +141,7 @@ Updating the plugin does not change your notes, and it reads every format it has
 | API PIN | empty | Your 4-digit PIN, stored in the vault's plugin data. Leave empty to be asked once per session. |
 | Default world | empty | The world commands act on. Empty: the first world alphabetically. |
 | Default new element category | Character | Pre-selected in Create element. |
-| Individual element creation commands | off | Adds a `Create new <Type>` command per element type. Reload Obsidian after changing it. |
+| Individual element creation commands | off | Offers a `Create new <Type>` command per element type in the command palette; it appears and disappears as you flip the toggle. |
 | Auto-sync to OnlyWorlds | off | Push edits automatically. |
 | Auto-sync debounce (ms) | 3000 | Wait after the last edit before pushing (250 to 30000). |
 | Show status bar indicator | on | Sync state in the desktop status bar. |
@@ -154,7 +154,6 @@ Updating the plugin does not change your notes, and it reads every format it has
 ```
 OnlyWorlds/
 ├── README.md
-├── Settings.md
 └── Worlds/<World name>/
     ├── World.md
     ├── <World name>.base

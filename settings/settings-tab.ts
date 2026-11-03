@@ -1,4 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { Category } from '../enums';
 import type OnlyWorldsPlugin from "../main";
 import { TOKEN_STORAGE_NOTE, signIn, signOut, signedInLabel } from "../account/account-api";
 
@@ -72,27 +73,8 @@ export class OnlyWorldsSettingTab extends PluginSettingTab {
 			.setName("Default new element category")
 			.setDesc("Pre-selected category in the Create element command.")
 			.addDropdown((dd) => {
-				const cats = [
-					"Character",
-					"Object",
-					"Location",
-					"Species",
-					"Zone",
-					"Institution",
-					"Family",
-					"Creature",
-					"Collective",
-					"Trait",
-					"Phenomenon",
-					"Title",
-					"Ability",
-					"Language",
-					"Law",
-					"Relation",
-					"Event",
-					"Construct",
-					"Narrative",
-				];
+				// The same list the Create element dialog and the carry-over use: the pane is the only place now.
+				const cats = Object.keys(Category).filter((k) => isNaN(Number(k)));
 				cats.forEach((c) => dd.addOption(c, c));
 				dd.setValue(this.plugin.settings.defaultCategory).onChange(async (value) => {
 					this.plugin.settings.defaultCategory = value;
