@@ -1,5 +1,5 @@
 /**
- * The old settings note, retired (OW Obsidian #1117, the Captain's word, 2026-11-03).
+ * The old settings note, retired (Titus's word, 2026-11-03).
  *
  * Until 3.17.0 the plugin created `OnlyWorlds/Settings.md` and read three values out of it: the primary
  * world's name, the Yes/No for individual creation commands and the default new-element category. The

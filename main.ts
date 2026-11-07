@@ -338,7 +338,7 @@ export default class OnlyWorldsPlugin extends Plugin {
 
    
     /**
-     * The old OnlyWorlds/Settings.md note, retired (#1117): its values move into the settings once, and the note
+     * The old OnlyWorlds/Settings.md note, retired (3.18, 2026-11-03): its values move into the settings once, and the note
      * says where they went. The settings pane is the only place from now on.
      */
     async carryOverSettingsNote() {

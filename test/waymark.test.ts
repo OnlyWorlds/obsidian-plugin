@@ -92,7 +92,7 @@ test("a paste without its scheme gains https:// before the reader; http, other h
 	assert.equal(withScheme(`ow://${WORLD}/character/${ELEMENT}`), `ow://${WORLD}/character/${ELEMENT}`, "an ow:// text is left as it is");
 	assert.equal(readAddress(`http://www.onlyworlds.com/w/${WORLD}/character/${ELEMENT}`).ok, false, "http still refused");
 	assert.equal(readAddress(`www.example.com/w/${WORLD}/character/${ELEMENT}`).ok, false, "another host still refused");
-	// the Captain's paste, 11-03: the member's editing page, which the profile refuses by name and the reader does not learn
+	// Titus's paste, 11-03: the member's editing page, which the profile refuses by name and the reader does not learn
 	assert.deepEqual(readAddress(`www.onlyworlds.com/account/worlds/${WORLD}/elements/character/${ELEMENT}`), { ok: false, reason: NOT_AN_ADDRESS });
 	assert.deepEqual(readAddress(`https://www.onlyworlds.com/account/worlds/${WORLD}/elements/character/${ELEMENT}`), { ok: false, reason: NOT_AN_ADDRESS });
 });

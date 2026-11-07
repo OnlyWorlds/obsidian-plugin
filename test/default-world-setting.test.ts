@@ -1,5 +1,5 @@
 /**
- * The primary world comes from the settings pane, not from a note (OW Obsidian #1117). Before 3.18 the settings
+ * The primary world comes from the settings pane, not from a note (ruled 2026-11-03). Before 3.18 the settings
  * tab saved a "Default world" that nothing read; the code read `OnlyWorlds/Settings.md`. Now the setting is
  * the only source, and an old note left in the vault changes nothing.
  */

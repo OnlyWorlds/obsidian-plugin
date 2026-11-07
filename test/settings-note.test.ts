@@ -1,5 +1,5 @@
 /**
- * The old Settings note, retired (OW Obsidian #1117). The note's values move into the settings once; the plugin's own
+ * The old Settings note, retired (ruled 2026-11-03). The note's values move into the settings once; the plugin's own
  * note becomes a pointer WITH its old text kept beneath it; a note that is the user's own text is read and never
  * touched; no note is not marked done (a sync may deliver it later). The cold read of this change (11-03) found the
  * first version replaced a whole note when the user had added to it, and left other devices with no values: both

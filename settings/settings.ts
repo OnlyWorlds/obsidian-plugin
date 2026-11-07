@@ -14,7 +14,7 @@ export interface OnlyWorldsPluginSettings {
 	// is carried along by loadSettings' Object.assign and read by nothing).
 	defaultCategory: string;
 	individualElementCommands: boolean;
-	/** The old OnlyWorlds/Settings.md note's values were carried into these settings (3.18, #1117); set once, never unset. */
+	/** The old OnlyWorlds/Settings.md note's values were carried into these settings (3.18, 2026-11-03); set once, never unset. */
 	settingsNoteMigrated: boolean;
 
 	autoSync: boolean;
