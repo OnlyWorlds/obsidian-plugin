@@ -5,7 +5,7 @@ import { OwSignInError, OwV2Client, type OwSignInStorage } from '@onlyworlds/sdk
  * and the account token coming back to the vault. keel lists this plugin as a
  * native client (GET /api/v2/auth/clients): id `obsidian`, returns
  * http://127.0.0.1/onlyworlds-signin (any port at run time) and
- * obsidian://onlyworlds-signin. The SDK (4.104.2) does the PKCE, the state and
+ * obsidian://onlyworlds-signin. The SDK (read at 4.133.2) does the PKCE, the state and
  * the token exchange; this file picks the return, keeps the pending record
  * between the two steps and says what went wrong in the house words.
  *
@@ -279,7 +279,7 @@ export function receiveSchemeReturn(url: string): boolean {
 }
 
 /**
- * Is this obsidian:// return one we are waiting for? The SDK (4.104.2) keeps the parked record when a
+ * Is this obsidian:// return one we are waiting for? The SDK (read at 4.133.2) keeps the parked record when a
  * return's state is wrong, but removes it the moment the state matches, before the code is exchanged. So
  * the plugin judges first: the state has to be the parked one, on a sign-in started with the obsidian://
  * return, and anything else never reaches the SDK or the person.
