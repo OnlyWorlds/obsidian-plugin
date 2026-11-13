@@ -7,7 +7,7 @@
  * Command.ts and calls into here.
  *
  * The format is the Track H "OnlyWorlds folder" standard (Atlas is the reference
- * implementation, Magelet the third; this makes the plugin the fourth). The four
+ * implementation; other tools write it too, and so does this plugin). The four
  * live-proven Atlas-ingest conformance facts, transcribed faithfully from the
  * gold-standard writer (azgaar-converter/src/folder.js, live-tested against Atlas
  * 2026-07-14) — folder.js WINS on any disagreement (R1, disclosed in the report):

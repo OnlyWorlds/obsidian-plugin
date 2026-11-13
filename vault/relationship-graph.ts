@@ -118,6 +118,8 @@ export async function gatherRelationshipGraph(app: App, file: TFile, opts: { inc
 				}
 			}
 		}
+		// The index iterates in the vault's file order; the canvas's left half places in this order, so sort it.
+		incoming.sort((a, b) => (a.from.kind === "file" && b.from.kind === "file" ? a.from.path.localeCompare(b.from.path) || a.field.localeCompare(b.field) : 0));
 	}
 
 	const through: RelationshipGraph["through"] = [];
