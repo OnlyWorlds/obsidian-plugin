@@ -82,6 +82,32 @@ export class V2ApiError extends Error {
     }
 }
 
+/** A response body kept in a message: its first 200 characters, whitespace folded (the whole of a page once filled a notice, 221,349 characters: Keel #1641). */
+function shortBody(text: string): string {
+    const flat = text.replace(/\s+/g, " ").trim();
+    return flat.length > 200 ? flat.slice(0, 200) + "…" : flat;
+}
+
+/**
+ * The web host in front of OnlyWorlds answers some writes itself (Keel #1641): a 403 with an HTML page titled "Blocked" when a text holds a
+ * command such as python -m right after a backtick (a semicolon or a pipe too), a fence with no language word, or a table cell. keel never sees
+ * the request. Null when the body is not a page.
+ */
+function hostAnswer(status: number, text: string): { code: string; message: string } | null {
+    if (!text || !text.trimStart().startsWith("<")) return null;
+    // The page the host's rule gives is titled "Blocked"; any other page (a challenge, another rule, a gateway error) is only said to be the host's.
+    if (status === 403 && /<title>\s*Blocked\s*<\/title>/i.test(text)) {
+        return {
+            code: "host_refused",
+            message:
+                "The web host in front of OnlyWorlds refused this before it reached OnlyWorlds (HTTP 403, a page titled Blocked). " +
+                "One known cause: a command such as python -m or curl directly after a backtick, a semicolon or a pipe. " +
+                "Write it in a code block with a language word, or after a $ prompt.",
+        };
+    }
+    return { code: "host_page", message: `The web host in front of OnlyWorlds answered with a page, not data (HTTP ${status}).` };
+}
+
 /** The `If-Match` header for a change_seq, quoted as an entity tag; none for a seq that is not a whole number. */
 function ifMatchHeader(seq: number | null | undefined): Record<string, string> | undefined {
     return typeof seq === "number" && Number.isInteger(seq) && seq >= 0 ? { "If-Match": `"${seq}"` } : undefined;
@@ -147,10 +173,17 @@ export class V2Client {
                     const why = envelope.error.reason ?? envelope.reason;
                     reason = typeof why === "string" ? why : null;
                 } else if (response.text) {
-                    message += `: ${response.text}`;
+                    message += `: ${shortBody(response.text)}`;
                 }
             } catch {
-                if (response.text) message += `: ${response.text}`;
+                // Not JSON, so not keel: keel answers JSON to everything. A page (it starts with "<") is the web host's own answer, said in one line.
+                const hostWords = hostAnswer(response.status, response.text);
+                if (hostWords) {
+                    code = hostWords.code;
+                    message = hostWords.message;
+                } else if (response.text) {
+                    message += `: ${shortBody(response.text)}`;
+                }
             }
             throw new V2ApiError(response.status, code, message, docUrl, reason);
         }
