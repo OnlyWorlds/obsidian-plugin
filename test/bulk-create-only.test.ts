@@ -1,5 +1,5 @@
 /**
- * #1844 (keel D205/D207, live 2026-11-21): every /bulk the plugin sends is a
+ * Every /bulk the plugin sends is a
  * create by intent, so it carries `create_only: true`. A held id then answers
  * 409 `id_conflict` in its own slot and keel does NOT replace the element; the
  * plugin names the item and says so in its own words (keel's text names the id

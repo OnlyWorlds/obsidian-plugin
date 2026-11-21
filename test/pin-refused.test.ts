@@ -1,5 +1,5 @@
 /**
- * #1852 (keel D211, live 2026-11-21): a wrong PIN is a 401 naming `API-Pin` each
+ * A wrong PIN (server rule of 2026-11-21) is a 401 naming `API-Pin` each
  * time, and the same wrong PIN sent again never locks anything. The plugin used
  * to keep a refused PIN (the saved setting and the session copy alike) and send
  * it with every later save, so ten different stale PINs, or forty auto-sync

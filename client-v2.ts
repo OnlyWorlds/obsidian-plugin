@@ -156,7 +156,7 @@ export class V2Client {
 
     /**
      * `onPinRefused` is called once per answer in which keel refuses the PIN
-     * this client sent: a 401 whose `param` is `API-Pin` (keel D211, 2026-11-21:
+     * this client sent: a 401 whose `param` is `API-Pin` (server rule of 2026-11-21:
      * a wrong PIN is a 401 each time, and the same wrong PIN sent again never
      * locks anything, so the plugin forgets it instead of sending it with every
      * later save).
@@ -291,10 +291,10 @@ export class V2Client {
      * cross-links. Client-supplied ids are preserved. `atomic: true`: if any
      * item fails, nothing is written, and the response still lists each item
      * as it would have gone (`errors: true` says nothing landed).
-     * `createOnly: true` (keel D205, live 2026-11-21): an item whose id is
+     * `createOnly: true` (the server has taken it since 2026-11-21): an item whose id is
      * already held answers 409 `id_conflict` in its own slot and the held
      * element is NOT replaced; without it /bulk replaces the held element whole.
-     * Both callers create by intent, so both send it. keel (D207) refuses a key
+     * Both callers create by intent, so both send it. The server refuses a key
      * it does not know with a 422, so the word goes only when asked for.
      */
     async bulkCreate(
