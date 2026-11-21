@@ -159,7 +159,7 @@ export class ExportWorldCommand {
         if (!resolved.ownWorld) {
             new Notice('Warning: using the plugin settings key (no key in this world\'s World.md). Verify it belongs to this world.', 10000);
         }
-        const client = new V2Client(resolved.apiKey, String(pin));
+        const client = new V2Client(resolved.apiKey, String(pin), { onPinRefused: () => this.plugin?.pinCache.refuse(String(pin)) });
 
         try {
             // Server element index — ids that exist right now (deletes drop out).

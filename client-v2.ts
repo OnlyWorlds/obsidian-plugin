@@ -71,14 +71,17 @@ export class V2ApiError extends Error {
      * error envelope or beside it; null when neither holds a string.
      */
     reason: string | null;
+    /** The field keel names in its error (`API-Pin` on a refused or counted PIN); null when it names none. */
+    param: string | null;
 
-    constructor(status: number, code: string, message: string, docUrl: string | null, reason: string | null = null) {
+    constructor(status: number, code: string, message: string, docUrl: string | null, reason: string | null = null, param: string | null = null) {
         super(message);
         this.name = "V2ApiError";
         this.status = status;
         this.code = code;
         this.docUrl = docUrl;
         this.reason = reason;
+        this.param = param;
     }
 }
 
@@ -149,13 +152,22 @@ export function bulkSlotWhy(r: { status?: unknown; error?: { code?: unknown; mes
 
 export class V2Client {
     private headers: Record<string, string>;
+    private onPinRefused?: () => void;
 
-    constructor(apiKey: string, apiPin: string) {
+    /**
+     * `onPinRefused` is called once per answer in which keel refuses the PIN
+     * this client sent: a 401 whose `param` is `API-Pin` (keel D211, 2026-11-21:
+     * a wrong PIN is a 401 each time, and the same wrong PIN sent again never
+     * locks anything, so the plugin forgets it instead of sending it with every
+     * later save).
+     */
+    constructor(apiKey: string, apiPin: string, opts?: { onPinRefused?: () => void }) {
         this.headers = {
             "Content-Type": "application/json",
             "API-Key": apiKey,
             "API-Pin": apiPin,
         };
+        this.onPinRefused = opts?.onPinRefused;
     }
 
     private async request<T>(
@@ -192,12 +204,14 @@ export class V2Client {
             let message = `API error ${response.status}`;
             let docUrl: string | null = null;
             let reason: string | null = null;
+            let param: string | null = null;
             try {
                 const parsed = JSON.parse(response.text);
                 if (parsed && typeof parsed === "object" && parsed.error) {
                     code = parsed.error.code ?? code;
                     message = parsed.error.message ?? message;
                     docUrl = parsed.error.doc_url ?? null;
+                    param = typeof parsed.error.param === "string" ? parsed.error.param : null;
                     const envelope = parsed as { reason?: unknown; error: { reason?: unknown } };
                     const why = envelope.error.reason ?? envelope.reason;
                     reason = typeof why === "string" ? why : null;
@@ -214,7 +228,8 @@ export class V2Client {
                     message += `: ${shortBody(response.text)}`;
                 }
             }
-            throw new V2ApiError(response.status, code, message, docUrl, reason);
+            if (response.status === 401 && param === "API-Pin") this.onPinRefused?.();
+            throw new V2ApiError(response.status, code, message, docUrl, reason, param);
         }
 
         if (response.status === 204) {

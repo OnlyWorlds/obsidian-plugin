@@ -37,7 +37,7 @@ interface WorldFileData {
 export type SaveResult =
     | { ok: true; outcome: 'created' | 'updated' | 'unchanged' }
     /** `local`: nothing is wrong, the note is never sent (a known-of note): auto-sync stays idle. */
-    | { ok: false; reason: string; local?: true };
+    | { ok: false; reason: string; local?: true; pinCancelled?: true };
 
 /**
  * The Notice for [[links]] a save left out because no element id answers
@@ -446,7 +446,8 @@ export class SaveElementCommand {
         // 4. Build v2 client (pulls cached PIN, or prompts once per session)
         const client = await this.plugin.buildV2Client(apiKey);
         if (!client) {
-            return this.fail("Save cancelled: PIN not provided.");
+            this.fail("Save cancelled: PIN not provided."); // the notice
+            return { ok: false, reason: "Save cancelled: PIN not provided.", pinCancelled: true };
         }
 
         // 5. v2 wire payload: bare link names (suffixes stripped), world stripped.

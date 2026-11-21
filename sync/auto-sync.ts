@@ -22,6 +22,10 @@ export class AutoSyncEngine {
 	private plugin: OnlyWorldsPlugin;
 	private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 	private selfWritePaths: Set<string> = new Set();
+	/** Saves running at once: a replace-all over many notes fired one timer each, all at the same moment, every save carrying the PIN. */
+	static readonly MAX_PARALLEL_SAVES = 3;
+	private activeSaves = 0;
+	private waitingSaves: ((skip: boolean) => void)[] = [];
 
 	constructor(app: App, plugin: OnlyWorldsPlugin) {
 		this.app = app;
@@ -85,6 +89,24 @@ export class AutoSyncEngine {
 	 * Wraps in status-bar transitions and error reporting.
 	 */
 	private async syncFile(file: TFile): Promise<void> {
+		if (this.activeSaves >= AutoSyncEngine.MAX_PARALLEL_SAVES) {
+			// Woken to skip when the person cancelled the PIN prompt: they said no for this burst.
+			const skip = await new Promise<boolean>((resolve) => this.waitingSaves.push(resolve));
+			if (skip) return;
+		} else {
+			this.activeSaves++;
+		}
+		try {
+			await this.syncFileNow(file);
+		} finally {
+			// The place passes straight to the next in line, so the count never dips below the cap while any wait.
+			const next = this.waitingSaves.shift();
+			if (next) next(false);
+			else this.activeSaves--;
+		}
+	}
+
+	private async syncFileNow(file: TFile): Promise<void> {
 		// Local-only worlds: skip SILENTLY, and before any workspace side effects.
 		// Going through SaveElementCommand would raise a notice on every
 		// debounced edit — auto-sync in a local world is simply
@@ -109,6 +131,8 @@ export class AutoSyncEngine {
 			// whichever note was active.
 			const cmd = new SaveElementCommand(this.app, this.plugin);
 			const result = await cmd.execute(file);
+			// Cancel on the PIN prompt: the saves still waiting would each ask again, one prompt after another.
+			if (!result.ok && result.pinCancelled) this.waitingSaves.splice(0).forEach((resolve) => resolve(true));
 			// The command already showed its Notice; the status must agree with it.
 			// A refused save (a 422, no key, the PIN prompt cancelled) ends on
 			// error, never on synced.

@@ -60,5 +60,5 @@ test("★ Save element with no PIN set: the prompt closed with Escape cancels th
 	escape();
 	const result = await Promise.race([run, new Promise((r) => setTimeout(() => r("still waiting"), 2000))]);
 	assert.notEqual(result, "still waiting", "the save waits forever on a closed prompt");
-	assert.deepEqual(result, { ok: false, reason: "Save cancelled: PIN not provided." });
+	assert.deepEqual(result, { ok: false, reason: "Save cancelled: PIN not provided.", pinCancelled: true });
 });

@@ -438,7 +438,7 @@ export default class OnlyWorldsPlugin extends Plugin {
       if (!pin) {
           return null;
       }
-      return new V2Client(key, pin);
+      return new V2Client(key, pin, { onPinRefused: () => this.pinCache.refuse(pin) });
   }
 
   onunload(): void {
