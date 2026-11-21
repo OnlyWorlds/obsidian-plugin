@@ -85,14 +85,14 @@ export class V2ApiError extends Error {
     }
 }
 
-/** A response body kept in a message: its first 200 characters, whitespace folded (the whole of a page once filled a notice, 221,349 characters: Keel #1641). */
+/** A response body kept in a message: its first 200 characters, whitespace folded (the whole of a page once filled a notice, 221,349 characters). */
 function shortBody(text: string): string {
     const flat = text.replace(/\s+/g, " ").trim();
     return flat.length > 200 ? flat.slice(0, 200) + "…" : flat;
 }
 
 /**
- * The web host in front of OnlyWorlds answers some writes itself (Keel #1641): a 403 with an HTML page titled "Blocked" when a text holds a
+ * The web host in front of OnlyWorlds answers some writes itself: a 403 with an HTML page titled "Blocked" when a text holds a
  * command such as python -m right after a backtick (a semicolon or a pipe too), a fence with no language word, or a table cell. keel never sees
  * the request. Null when the body is not a page.
  */

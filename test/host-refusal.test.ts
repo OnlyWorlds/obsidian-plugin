@@ -1,8 +1,8 @@
 /**
- * A write the web host in front of OnlyWorlds refuses (Keel #1641): the host answers 403 with an HTML page
+ * A write the web host in front of OnlyWorlds refuses: the host answers 403 with an HTML page
  * titled "Blocked" where keel always answers JSON, so keel never sees the request. 3.19.0 put the whole page
  * (221,349 characters with its base64 font) into the error's message, and every command shows that message in
- * a notice (the real-app walk fleet/obsidian_edge403_walk.py in the Hangar). The client now says one readable
+ * a notice (seen in the real app). The client now says one readable
  * line for a body that is not JSON.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
