@@ -32,6 +32,8 @@ export interface UploadOpts {
 	stale?: string[];
 	/** The change_seq a PATCH answers with, per id. */
 	answerSeq?: (id: string) => number | undefined;
+	/** Ids keel answers 409 id_conflict for in a create-only /bulk (held there already). */
+	conflict?: string[];
 }
 
 export async function harnessUpload(o: UploadOpts) {
@@ -42,12 +44,20 @@ export async function harnessUpload(o: UploadOpts) {
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "# World Overview: W\n\n- **API Key:** ow_k_test\n");
 	for (const [rel, c] of Object.entries(o.notes)) await vault.seed(`OnlyWorlds/Worlds/W/Elements/${rel}`, c);
 	const bulkSent: Record<string, unknown>[] = [];
+	const bulkOpts: unknown[] = [];
 	const patches: Record<string, Record<string, unknown>> = {};
 	proto.getWorld = async () => ({ id: UPLOAD_WID, name: "W" });
 	proto.changesWalk = async () => ({ changes: o.changes, cursor: "c9", head: 9 });
-	proto.bulkCreate = async (items: { element: Record<string, unknown> }[]) => {
+	proto.bulkCreate = async (items: { element: Record<string, unknown> }[], opts?: unknown) => {
+		bulkOpts.push(opts);
 		bulkSent.push(...items.map((i) => i.element));
-		return { errors: false, items: items.map((i) => ({ status: 201, id: i.element.id })) };
+		const held = (i: { element: Record<string, unknown> }) => o.conflict?.includes(String(i.element.id));
+		return {
+			errors: items.some(held),
+			items: items.map((i) => held(i)
+				? { status: 409, id: i.element.id, error: { type: "invalid_request", code: "id_conflict", message: `An element with id ${i.element.id} already exists. Use PUT to upsert, or POST without an id.` } }
+				: { status: 201, id: i.element.id }),
+		};
 	};
 	if (o.seqs) await vault.adapter.write("OnlyWorlds/Worlds/W/.ow-seq.json", JSON.stringify(o.seqs));
 	const ifMatch: Record<string, number | null | undefined> = {};
@@ -85,5 +95,5 @@ export async function harnessUpload(o: UploadOpts) {
 		for (const [k, v] of Object.entries(saved)) proto[k] = v;
 	}
 	const seqFile = vault.dotfiles.get("OnlyWorlds/Worlds/W/.ow-seq.json");
-	return { bulkSent, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
+	return { bulkSent, bulkOpts, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
 }

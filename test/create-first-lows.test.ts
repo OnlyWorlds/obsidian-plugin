@@ -28,7 +28,7 @@ const server = { [IREENA]: { name: "Ireena", description: "A noble." } };
 test("★ the create-first /bulk is sent atomic: one refused target creates none of them", async () => {
 	const r = await harnessSave({ notes: notes(), save: "Character/Ireena.md", server });
 	assert.ok(r.calls.includes("bulk"), r.calls.join(" | "));
-	assert.deepEqual(r.bulkOpts, [{ atomic: true }]);
+	assert.deepEqual(r.bulkOpts, [{ atomic: true, createOnly: true }]);
 });
 
 test("★ a target that answers 200 is named as existed and replaced", async () => {

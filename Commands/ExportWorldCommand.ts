@@ -5,7 +5,7 @@ import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
 import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { isStaleWrite, toV2Payload, V2ApiError, V2Client } from '../client-v2';
+import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
@@ -307,7 +307,7 @@ export class ExportWorldCommand {
             const landed: string[] = [];
             const failures: string[] = [...this.refusedNotes];
             if (toCreate.length > 0) {
-                const body = await client.bulkCreate(toCreate);
+                const body = await client.bulkCreate(toCreate, { createOnly: true });
                 const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
                 toCreate.forEach((item, i) => {
                     const r = (results[i] ?? null) as { status?: unknown; error?: { message?: unknown } } | null;
@@ -316,13 +316,11 @@ export class ExportWorldCommand {
                         created++;
                         landed.push(String(item.element.id));
                     } else if (status === 200) {
-                        replaced++; // the id already existed: keel replaced it
+                        replaced++; // create_only (3.19.3) makes keel answer 409 for a held id; a 200 would be a replace
                         landed.push(String(item.element.id));
                     } else {
                         const name = item.element.name ? String(item.element.name) : String(item.element.id);
-                        const why = typeof r?.error?.message === 'string'
-                            ? r.error.message
-                            : status !== null ? `status ${status}` : 'no result from the server';
+                        const why = bulkSlotWhy(r);
                         failures.push(`${item.type} "${name}": ${why}`);
                     }
                 });

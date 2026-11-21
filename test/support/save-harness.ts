@@ -79,7 +79,11 @@ export async function harnessSave(o: HarnessOpts) {
 			const statuses = items.map((i) => o.bulkStatus?.(String(i.element.id)) ?? 201);
 			return {
 				errors: statuses.some((s) => s !== 201 && s !== 200),
-				items: items.map((i, n) => ({ status: statuses[n], id: i.element.id })),
+				items: items.map((i, n) => ({
+					status: statuses[n],
+					id: i.element.id,
+					...(statuses[n] === 409 ? { error: { type: "invalid_request", code: "id_conflict", message: `An element with id ${i.element.id} already exists. Use PUT to upsert, or POST without an id.` } } : {}),
+				})),
 			};
 		},
 	};

@@ -118,6 +118,35 @@ export function isStaleWrite(error: unknown): boolean {
     return error instanceof V2ApiError && error.status === 412;
 }
 
+/**
+ * The reason one /bulk slot was refused, as a sentence for the person. A held
+ * id (`id_conflict`, a create-only batch) is said in the plugin's words, by
+ * which of keel's four 409s it is (elements/service.py: held_conflict, one
+ * builder per sentence): the id held in this world as the same type or as
+ * another type, held in another world, or in use by a membership. keel's own
+ * text names the id and the PUT road, which a person has neither use for nor a
+ * way to take; the remedy a person can take (a new id on the note) is kept.
+ * A hidden id never answers 409 (keel gives it the missing-id 404), so none of
+ * these says "hidden". Anything else is keel's message, else the status.
+ */
+export function bulkSlotWhy(r: { status?: unknown; error?: { code?: unknown; message?: unknown } } | null): string {
+    if (r?.error?.code === "id_conflict") {
+        const said = typeof r.error.message === "string" ? r.error.message : "";
+        const asType = /already exists as an? ([\w-]+) in this world/.exec(said);
+        if (asType) return `its id already belongs to a ${asType[1]} on onlyworlds.com; nothing there was replaced`;
+        if (/another world/.test(said)) {
+            return "its id is already taken by an element in another world (a copied world folder needs fresh ids): give this note a new id; nothing was sent";
+        }
+        if (/already in use/.test(said)) return "its id is already in use on onlyworlds.com: give this note a new id; nothing was sent";
+        if (/already exists/.test(said)) {
+            return "an element with its id was made on onlyworlds.com meanwhile (on another device, perhaps); nothing there was replaced";
+        }
+        return "its id is already held on onlyworlds.com; nothing there was replaced";
+    }
+    if (typeof r?.error?.message === "string") return r.error.message;
+    return typeof r?.status === "number" ? `status ${r.status}` : "no result from the server";
+}
+
 export class V2Client {
     private headers: Record<string, string>;
 
@@ -247,12 +276,20 @@ export class V2Client {
      * cross-links. Client-supplied ids are preserved. `atomic: true`: if any
      * item fails, nothing is written, and the response still lists each item
      * as it would have gone (`errors: true` says nothing landed).
+     * `createOnly: true` (keel D205, live 2026-11-21): an item whose id is
+     * already held answers 409 `id_conflict` in its own slot and the held
+     * element is NOT replaced; without it /bulk replaces the held element whole.
+     * Both callers create by intent, so both send it. keel (D207) refuses a key
+     * it does not know with a 422, so the word goes only when asked for.
      */
     async bulkCreate(
         items: { type: string; element: Record<string, unknown> }[],
-        opts?: { atomic?: boolean }
+        opts?: { atomic?: boolean; createOnly?: boolean }
     ): Promise<Record<string, unknown>> {
-        return this.request("POST", "/bulk", undefined, opts?.atomic ? { items, atomic: true } : { items });
+        const body: Record<string, unknown> = { items };
+        if (opts?.atomic) body.atomic = true;
+        if (opts?.createOnly) body.create_only = true;
+        return this.request("POST", "/bulk", undefined, body);
     }
 
     /** One page of the world's change feed. Pass the previous page's cursor as `since`. */

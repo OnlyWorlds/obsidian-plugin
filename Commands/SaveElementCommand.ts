@@ -5,7 +5,7 @@ import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } fr
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType } from '../vault/category-folder';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
+import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
@@ -1035,16 +1035,17 @@ export class SaveElementCommand {
      * Sent atomic (round C, 14: Kael's low 8): one refused item writes none,
      * so a failed save leaves no half of its batch behind. `refused` is null
      * when every item landed, else the refused items with keel's reasons.
-     * `replaced` names the items that answered 200: the id appeared on the
-     * server meanwhile, and /bulk with an id replaces it whole (Kael's low 9).
+     * `replaced` names the items that answered 200: with create_only (sent
+     * since 3.19.3) a held id answers 409 in its slot and is refused by name,
+     * so a 200 no longer comes back; the branch stays as a guard.
      */
     private async createTogether(
-        client: { bulkCreate(items: { type: string; element: Record<string, unknown> }[], opts?: { atomic?: boolean }): Promise<Record<string, unknown>> },
+        client: { bulkCreate(items: { type: string; element: Record<string, unknown> }[], opts?: { atomic?: boolean; createOnly?: boolean }): Promise<Record<string, unknown>> },
         items: PendingCreate[]
     ): Promise<{ refused: string | null; replaced: string[] }> {
         const body = await client.bulkCreate(
             items.map((i) => ({ type: i.type, element: { id: i.id, ...i.payload } })),
-            { atomic: true }
+            { atomic: true, createOnly: true }
         );
         const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
         const refused: string[] = [];
@@ -1057,9 +1058,7 @@ export class SaveElementCommand {
                 replaced.push(`${capitalize(item.type)} "${item.name}"`);
                 return;
             }
-            const why = typeof r?.error?.message === 'string'
-                ? r.error.message
-                : status !== null ? `status ${status}` : 'no result from the server';
+            const why = bulkSlotWhy(r);
             refused.push(`${capitalize(item.type)} "${item.name}": ${why}`);
         });
         // An atomic batch reports each slot as it would have gone: `errors`
