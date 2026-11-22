@@ -56,7 +56,7 @@ export class PasteWorldCommand {
             }
 
             // Readme + Settings notes.
-            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
+            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, { localOnly: apiKey === LOCAL_WORLD_KEY_TOKEN });
             await createCoreFilesCommand.execute();
 
             // Generate element notes in the correct category folders under Elements
