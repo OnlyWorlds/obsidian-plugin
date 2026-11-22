@@ -166,6 +166,20 @@ Each element is one note at `<Type>/<Element name>.md`, such as `Elements/Locati
 
 The plugin talks to the OnlyWorlds API at `https://www.onlyworlds.com/api/v2/`, sending the world's key and your PIN as headers.
 
+## Network use and privacy
+
+The plugin makes a network request only when you run a command that needs one, or when you switch on auto-sync.
+
+- **To onlyworlds.com** (over HTTPS, `www.onlyworlds.com/api/v2`): Sign in, Sign out, Create world, Download world, Upload world, Save element, Delete element, Rename world, Join a world with a link, Open this note on onlyworlds.com, Export as OnlyWorlds folder (one read, for a world downloaded from onlyworlds.com), and auto-sync once you switch it on. A request carries your account token, or the world's key and your PIN, and the elements being read or written: each element note's properties and sections, a property the plugin does not know included, sent as a custom field.
+- **What else goes with it:** a key the plugin makes for this vault is named `obsidian: <your vault's name>`, so that name shows on your account's keys page. No file paths and no device details are sent.
+- **To GitHub** (`raw.githubusercontent.com`): Create world, Download world and Paste world from clipboard fetch this README into `OnlyWorlds/README.md`, replacing the copy there. This happens for a local-only world too.
+- **A local-only world** sends nothing to onlyworlds.com. Every other command works in your vault alone.
+- **Sign in with your browser** opens onlyworlds.com in your default browser. On desktop the plugin listens on `127.0.0.1`, on a port your system picks, for that one return; it answers nothing else and closes after the answer, after five minutes, or when you cancel. On a phone, or when no port can be opened, the browser comes back through an `obsidian://` link.
+- **Links** the plugin opens (About, Create account, Account settings, Open this note on onlyworlds.com) all go to onlyworlds.com.
+- **What is stored:** your account token, your API key and, if you type it in settings, your PIN sit in the vault's plugin data (`data.json`), which Obsidian Sync and git carry with the vault. A PIN you type when asked is kept in memory for the session only. A world's key sits in its `World.md`. Signing out forgets the account token and revokes it on onlyworlds.com; when it cannot, it says so and you revoke it there. The world keys in `World.md` stay.
+- **What the plugin adds:** no analytics, no advertising and no tracking.
+- **What onlyworlds.com keeps** about requests is on its [privacy page](https://www.onlyworlds.com/privacy).
+
 ## Links
 
 - [Docs](https://onlyworlds.github.io)
