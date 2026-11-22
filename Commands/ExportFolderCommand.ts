@@ -1,7 +1,8 @@
 import { App, Modal, Notice, Platform, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { v7 as uuidv7 } from "uuid";
 import { readElement, unclosedFenceMessage } from "../vault/element-file";
-import { bodyFieldForCategory } from "../vault/element-transform";
+import { bodyFieldForCategory, getCategorySchema } from "../vault/element-transform";
+import { elementPathParts } from "../vault/category-folder";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
@@ -283,6 +284,12 @@ export class ExportFolderCommand {
 				const parsed = await readElement(this.app, file);
 				if (!parsed || !parsed.id) {
 					failed.push({ path: file.path, reason: "no id / unreadable" });
+					continue;
+				}
+				// A note outside the 22 type folders has no type to export under: the folder's own name
+				// must never become a type (a `places` folder in a folder export reads as no valid world).
+				if (!getCategorySchema(parsed.category)) {
+					failed.push({ path: file.path, reason: `not in a type folder (the folder "${elementPathParts(file.path)?.folder ?? parsed.category}" is none of the 22 types)` });
 					continue;
 				}
 				if (this.host && isHiddenId(this.host.settings, parsed.id)) {
@@ -790,7 +797,7 @@ class ExportReportModal extends Modal {
 
 		const summary = contentEl.createEl("ul");
 		summary.createEl("li", { text: `${this.writtenCount} files written (incl. world.json)` });
-		summary.createEl("li", { text: `${this.failed.length} notes skipped (unreadable)` });
+		summary.createEl("li", { text: `${this.failed.length} notes skipped (each with its reason below)` });
 		if (this.hidden > 0) {
 			summary.createEl("li", { text: `${this.hidden} note${this.hidden === 1 ? "" : "s"} hidden by the world's owner, not exported` });
 		}
