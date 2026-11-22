@@ -333,7 +333,7 @@ export class CreateWorldCommand {
         await this.app.vault.create(`${worldBasePath}/World.md`, worldNoteContent);
 
         // Core files: the Readme and Settings notes.
-        const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest);
+        const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, { localOnly: worldData.api_key === LOCAL_WORLD_KEY_TOKEN });
         await createCoreFilesCommand.execute();
 
         // The world's Bases file, behind its setting.

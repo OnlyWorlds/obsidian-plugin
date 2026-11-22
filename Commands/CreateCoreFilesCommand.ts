@@ -11,11 +11,15 @@ export class CreateCoreFilesCommand {
      * and PluginFiles/Handlebars fetch is gone: nothing read those templates
      * since 3.0.0, and their upstream sources were deleted on 2026-07-28.)
      */
-    constructor(app: any, manifest: any) {
+    /**
+     * `localOnly`: a local-only world makes no request to anyone (the README's privacy section
+     * says so), so it gets no Readme note fetched from GitHub; the world's own World.md carries its how-to.
+     */
+    constructor(app: any, manifest: any, options: { localOnly?: boolean } = {}) {
         this.app = app;
         this.manifest = manifest;
 
-        this.commands = [
+        this.commands = options.localOnly ? [] : [
             new CreateReadmeCommand(app, manifest),
         ];
     }
