@@ -3,7 +3,7 @@ import { WorldPasteModal } from 'Modals/WorldPasteModal';
 import { App, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { worldTemplateString } from 'Scripts/WorldDataTemplate';
 import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
-import { LOCAL_WORLD_KEY_TOKEN } from '../vault/world-key';
+import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { writeElement } from '../vault/element-file';
@@ -56,7 +56,7 @@ export class PasteWorldCommand {
             }
 
             // Readme + Settings notes.
-            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, { localOnly: apiKey === LOCAL_WORLD_KEY_TOKEN });
+            const createCoreFilesCommand = new CreateCoreFilesCommand(this.app, this.manifest, { localOnly: classifyWorldKey(apiKey, undefined).source === 'local-world' });
             await createCoreFilesCommand.execute();
 
             // Generate element notes in the correct category folders under Elements

@@ -15,6 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeApp, __notices } from "./support/obsidian-mock";
 import { CreateCoreFilesCommand } from "../Commands/CreateCoreFilesCommand";
+import { classifyWorldKey } from "../vault/world-key-core";
 
 const README = "OnlyWorlds/README.md";
 const manifest = { id: "onlyworlds-builder", version: "0.0.0" };
@@ -89,4 +90,9 @@ test("a README that cannot be fetched says so and writes nothing", async () => {
 		assert.equal(vault.contentAt(README), undefined);
 		assert.ok(__notices.some((n) => n.includes("Could not fetch the README")), "no notice: " + JSON.stringify(__notices));
 	});
+});
+
+test("Paste world decides local-only by the plugin's own key rule: Local, LOCAL and a padded key count, a real key does not", () => {
+	for (const k of ["local", "Local", "LOCAL", "  local  "]) assert.equal(classifyWorldKey(k, undefined).source, "local-world", k);
+	for (const k of ["ow_w_abc", "1234567890", "ow_r_abc"]) assert.notEqual(classifyWorldKey(k, undefined).source, "local-world", k);
 });
