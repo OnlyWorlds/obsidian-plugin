@@ -1,8 +1,9 @@
 import { ValidateResultModal } from '../Modals/ValidateResultModal';
-import { App, normalizePath, PluginManifest, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
-import { parseRawFrontmatterScalars } from '../vault/element-transform';
-import { Category } from '../enums'; // Ensure this import is correct
+import { isSpanFormat, parseRawFrontmatterScalars } from '../vault/element-transform';
+import { elementNoteType } from '../vault/element-file';
+import { mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
 export class ValidateWorldCommand {
     app: App;
@@ -23,6 +24,12 @@ export class ValidateWorldCommand {
 
     elementCount: number = 0;
     checkedCount: number = 0;
+    /**
+     * Notes in a type folder with no id: the person's own notes (the Markdown
+     * profile, sentence 3), left as they are and never an error. Named, since
+     * "No issues" over a note that will never be sent is its own surprise.
+     */
+    couldBeElements: string[] = [];
     errorCount: number = 0;
 
     /** The frontmatter checks: `id` present and UUID-shaped; `name` matching the
@@ -58,36 +65,42 @@ export class ValidateWorldCommand {
             worldFolderName = await this.worldService.getWorldName();
         }
         
-        const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldFolderName}/Elements`);
+        const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${worldFolderName}`);
 
-        const elementsFolder = this.app.vault.getAbstractFileByPath(worldFolderPath);
-        
-        if (!(elementsFolder instanceof TFolder)) {
-            console.error('Elements folder not found.');
-            return;  
+        const worldFolder = this.app.vault.getAbstractFileByPath(worldFolderPath);
+
+        if (!(worldFolder instanceof TFolder)) {
+            console.error('World folder not found.');
+            return;
         }
-     
-        
-        for (const categoryKey in Category) {
-            const category = Category[categoryKey];
-            if (!isNaN(Number(category))) continue; // Skip if category is not a string
 
-            // A type's folder is `Location`, or `Location (2)` in a vault from
-            // 3.8.1 or earlier that no Download has renamed yet, or both: every one is
-            // read (an exact path once skipped every counted folder and
-            // validated nothing: Seethe, 3.3.1).
-            const categoryFolders = await this.worldService.findCategoryFolders(worldFolderName, category);
-
-            const files = ([] as TAbstractFile[]).concat(...categoryFolders.map((folder) => folder.children));
-            for (const file of files) {
-                if (file instanceof TFile && file.extension === 'md') {
-                    this.elementCount++;
-                    const content = await this.app.vault.read(file);
-                    this.validateElement(category, file.name, content);
-                }
+        // Every note in the world's folder that is an element note, wherever it
+        // sits (the Markdown profile, sentences 1 to 3): its place decides its
+        // type, a type folder in either spelling (`Location`, or `Location (2)` in
+        // a vault from 3.8.1 or earlier that no Download has renamed yet: an exact
+        // path once skipped every counted folder and validated nothing, Seethe,
+        // 3.3.1); only a note outside every type folder is read by its `type`.
+        // Any other note is the person's own and is not read.
+        for (const file of this.app.vault.getMarkdownFiles()) {
+            if (!mayBeElementNote(file.path, worldFolderName)) continue;
+            const content = await this.app.vault.read(file);
+            const found = elementNoteType(file.path, parseRawFrontmatterScalars(content, ['id', 'type']));
+            if (!found) continue;
+            // In a type folder with no id at all (no front matter id, and not a note in the old span format, whose id is in its text): the person's own note, named and left.
+            const framed = content.startsWith('---');
+            if (typeOfPlace(file.path) && (framed ? !(parseRawFrontmatterScalars(content, ['id']).id ?? '').trim() : !isSpanFormat(content))) {
+                this.couldBeElements.push(`(${found.category}) ${file.basename}`);
+                continue;
             }
+            this.elementCount++;
+            this.validateElement(found.category, file.name, content);
         }
-        
+        if (this.manualTrigger && this.couldBeElements.length > 0) {
+            const shown = this.couldBeElements.slice(0, 5).join(', ');
+            const more = this.couldBeElements.length > 5 ? ` and ${this.couldBeElements.length - 5} more` : '';
+            new Notice(`${this.couldBeElements.length} note${this.couldBeElements.length === 1 ? ' has' : 's have'} no id, so ${this.couldBeElements.length === 1 ? 'it is' : 'they are'} left as your own and never sent: ${shown}${more}.`, 12000);
+        }
+
         console.log(`Validation complete. Notes found: ${this.elementCount}, checked: ${this.checkedCount}, errors: ${this.errorCount}`);
 
         if (this.manualTrigger) {
@@ -224,6 +237,7 @@ export class ValidateWorldCommand {
             worldFileErrors: [] as string[]
         };
         this.elementCount = 0;
+        this.couldBeElements = [];
         this.checkedCount = 0;  // one command object lives the whole session (main.ts); Seethe saw 2, 4, 6, 8
         this.errorCount = 0;
     }

@@ -50,6 +50,29 @@ export function isUserCustomKey(key: string): boolean {
 }
 
 /**
+ * The one key a person's own properties cross in (the Markdown profile,
+ * sentence 4): each entry under its own name, so nothing a person types can
+ * land on a tool's or a profile's `x_` key. Sent whole at a save; written
+ * back into the note as properties of those names, never as `x_` copies.
+ */
+export const OWN_PROPERTIES_KEY = "x_properties";
+
+/** True when `key` is an own property of `obj` (not one of Object.prototype's: `constructor`, `toString`...). */
+export function hasOwn(obj: object, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/** Set an own property of `obj` even for a name like `__proto__` or `constructor`, which a plain assignment treats as the prototype's. */
+function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
+	Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/** A plain JSON object: not null, not a list. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * The `x_` keys a body heading would be read as if it were a section copy of a
  * tool's key in this frontmatter (`atlas_color` -> `x_color`). Older plugin
  * versions wrote such copies; readElement consumes them instead of adopting
@@ -610,7 +633,8 @@ export function idsInFrontmatter(content: string): string[] {
  */
 export function serializeFrontmatter(fm: Record<string, unknown>): string {
 	const lines: string[] = ["---"];
-	for (const [key, value] of Object.entries(fm)) {
+	for (const [rawKey, value] of Object.entries(fm)) {
+		const key = yamlKey(rawKey);
 		if (value === null || value === undefined) {
 			lines.push(`${key}:`);
 		} else if (Array.isArray(value)) {
@@ -628,6 +652,17 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
 	}
 	lines.push("---");
 	return lines.join("\n");
+}
+
+/**
+ * A property name as a YAML key: bare when it reads back as the same string, else double-quoted (JSON's quoting is
+ * YAML's). A person's own property may be named anything (`Ireena's sword`, `HP/MP`, `a: b`, `#x`, `0x10`, `yes`).
+ */
+/** A name YAML reads as a number (`0x10`, `1e3`, `0o17`, `1.5`): written quoted, or it comes back renamed. */
+const NUMBER_LIKE = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?(?:[eE][-+]?\d+)?|0[xob][0-9a-f_]+|\.\d+)$/i;
+
+export function yamlKey(key: string): string {
+	return isPlainKeyName(key) && !NUMBER_LIKE.test(key) ? key : JSON.stringify(key);
 }
 
 /** An array item `yamlScalar` writes faithfully (see serializeFrontmatter). */
@@ -1431,6 +1466,13 @@ export interface ReadLinkOptions {
 	 * rule applies (ambiguous -> left out and named).
 	 */
 	genericTargetType?: string;
+	/**
+	 * Collects the names a note holds twice: as a property of the person's own
+	 * and inside a `x_properties` group it also carries. Such a note is refused
+	 * by name, never sent with one of the two chosen for the person (the
+	 * Markdown profile, sentence 4).
+	 */
+	ownConflicts?: string[];
 }
 
 /**
@@ -1492,6 +1534,8 @@ export function frontmatterToPayloadFields(
 	/** A link field's resolution target: `any` narrowed by element_type when the note carries one. */
 	const targetOf = (field: SchemaField): string | undefined =>
 		field.target === "any" && genericType ? normalizeCategory(genericType) : field.target;
+	/** The person's own properties: every key the schema does not know, under its own name. */
+	const own: Record<string, unknown> = {};
 
 	for (const [key, value] of Object.entries(frontmatter)) {
 		if (NON_PAYLOAD_KEYS.has(key)) continue;
@@ -1510,24 +1554,24 @@ export function frontmatterToPayloadFields(
 			out[key] = dateToFieldString(value); // unknown category — pass through, API arbitrates
 			continue;
 		}
-		const field = schema[key];
+		const field = hasOwn(schema, key) ? schema[key] : undefined;
 		if (!field) {
 			// A key that is neither a schema field nor already namespaced. The API
 			// REJECTS these outright ("Unknown field: x") — so historically we
 			// dropped them here, silently, and the user's data never left the vault.
 			//
-			// Instead, adopt it as a custom field by prepending the extension
-			// namespace: `mood` -> `x_mood`. The value rides verbatim (the API
-			// accepts any JSON type in an x_ field — probed 2026-08-22: string,
-			// number, list, bool and nested object all round-trip).
-			//
-			// Reported via opts.adopted so the caller can rename the key in the
-			// note itself and tell the user; silent adoption would be its own
-			// (smaller) surprise.
-			const adoptedKey = `${EXTENSION_NAMESPACES[2]}${key}`;
-			if (adoptedKey in frontmatter) continue; // x_mood already exists — that one wins
-			out[adoptedKey] = dateToFieldString(value);
-			opts.adopted?.push({ from: key, to: adoptedKey });
+			// Instead it is the person's own property (the Markdown profile,
+			// sentence 4): it stays in the note under its own name and crosses
+			// inside ONE key, `x_properties`, each entry under its own name. No
+			// `x_<name>` copy: a person's `home` never lands on a tool's
+			// `x_home`. The value rides verbatim (the API accepts any JSON type
+			// in an x_ field — probed 2026-08-22). Reported via opts.adopted so
+			// the caller can say what it sent and where.
+			// A `type` that only repeats the note's own type (its place says the
+			// same) is no property of the person's: it does not cross.
+			if (key === "type" && typeof value === "string" && normalizeCategory(value) === normalizeCategory(category)) continue;
+			setOwn(own, key, dateToFieldString(value));
+			opts.adopted?.push({ from: key, to: OWN_PROPERTIES_KEY });
 			continue;
 		}
 		// A value that is no link at all (another plugin's `location: [12.3,
@@ -1561,6 +1605,15 @@ export function frontmatterToPayloadFields(
 			out[key] = field.type === "text" ? textFieldString(value) : value;
 		}
 	}
+	// The group goes whole. A note that also holds a key `x_properties` of its
+	// own (a group written by hand) is read as part of it: the entries typed
+	// as properties win over the same name inside it.
+	if (Object.keys(own).length > 0) {
+		const held = out[OWN_PROPERTIES_KEY];
+		const heldGroup = isPlainRecord(held) ? held : {};
+		for (const name of Object.keys(own)) if (name in heldGroup) opts.ownConflicts?.push(name);
+		out[OWN_PROPERTIES_KEY] = { ...heldGroup, ...own };
+	}
 	return out;
 }
 
@@ -1589,6 +1642,30 @@ export interface WriteFrontmatterOptions {
 	 * Downloads leave this off — a downloaded note shows what the element has.
 	 */
 	scaffoldEmptyFields?: boolean;
+}
+
+/**
+ * True when a name can be a bare YAML key and read back as the same name: letters,
+ * digits, `_`, spaces and `-` inside it, and not a word YAML reads as a number, a boolean
+ * or null. Any other name is double-quoted when written (`yamlKey`).
+ */
+export function isPlainKeyName(name: string): boolean {
+	if (!/^[\p{L}\p{N}_](?:[\p{L}\p{N}_ \-/().']*[\p{L}\p{N}_)'])?$/u.test(name)) return false;
+	return !/^[0-9._-]+$/.test(name) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(name);
+}
+
+/** True when a person's own property of this name cannot be a property of the note: the profile writes that key itself. */
+function ownNameIsTaken(
+	name: string,
+	schema: Record<string, SchemaField> | null | undefined,
+	bodyField: string,
+	content: Record<string, unknown>
+): boolean {
+	return (
+		name === "id" || name === "name" || name === bodyField || name.length > 1024 ||
+		NON_PAYLOAD_KEYS.has(name) || isServerField(name) || isExtensionKey(name) ||
+		(schema ? hasOwn(schema, name) : false) || hasOwn(content, name)
+	);
 }
 
 /**
@@ -1628,11 +1705,16 @@ export function apiDataToFrontmatter(
 	// the world's owner, `changed_client` until a client names itself.
 	const server = serverFieldsFrom(data);
 	let imageUrl: unknown = undefined;
+	let ownGroup: Record<string, unknown> | null = null;
 
 	for (const [key, value] of Object.entries(data)) {
 		if (key === "id" || key === "name") continue;
 		if (key === bodyField) continue; // description/story goes to the body
 		if (key === "world" || key === "world_id") continue;
+		if (key === OWN_PROPERTIES_KEY && isPlainRecord(value)) {
+			ownGroup = value; // expanded below, once the content's own keys are known
+			continue;
+		}
 		if (isExtensionKey(key)) {
 			// Verbatim, kept even when empty (R3 exception); a whole value of
 			// element ids is written as links (3.13.0, extensionLinksOut).
@@ -1645,7 +1727,7 @@ export function apiDataToFrontmatter(
 			if (!isEmptyFieldValue(value)) content[key] = value;
 			continue;
 		}
-		const field = schema[key];
+		const field = hasOwn(schema, key) ? schema[key] : undefined;
 		if (!field) {
 			// Not a known field and not an extension key. Drop from frontmatter to
 			// keep notes clean — the API would not have returned it anyway.
@@ -1670,6 +1752,21 @@ export function apiDataToFrontmatter(
 		} else {
 			content[key] = out;
 		}
+	}
+
+	// A person's own properties: each entry of the group becomes a property of
+	// that name, never an `x_` copy and never a body section. An entry named
+	// like a key the profile writes on this note (id, name, a field of the
+	// type, a server key, a tool's or an `x_` key) is not written: it is
+	// kept in the note's own `x_properties`, so the next save sends the whole
+	// group back and the entry is not lost.
+	if (ownGroup) {
+		const kept: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(ownGroup)) {
+			if (ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
+			else setOwn(content, k, v);
+		}
+		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;
 	}
 
 	// Scaffold mode: seed every non-text field of the category so a new element
@@ -1714,7 +1811,7 @@ export function apiDataToFrontmatter(
 		.map((k, i) => ({ k, i, r: rank(k) }))
 		.sort((a, b) => a.r - b.r || a.i - b.i)
 		.forEach(({ k }) => {
-			fm[k] = content[k];
+			setOwn(fm, k, content[k]);
 		});
 	// The server's keys last, in SERVER_FIELDS order: machine fields the
 	// person reads least, and never edits (a save sends none of them).
@@ -1786,6 +1883,15 @@ export function diffPayload(
 	return out;
 }
 
+/** JSON with every object's keys sorted: a group read back from the server may list its entries in another order. */
+function canonicalJson(value: unknown): string {
+	return JSON.stringify(value, (_k, v) =>
+		v && typeof v === "object" && !Array.isArray(v)
+			? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+			: v
+	);
+}
+
 function valuesEqual(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	if (a == null && b == null) return true;
@@ -1797,7 +1903,7 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 		return sa.every((v, i) => v === sb[i]);
 	}
 	if (typeof a === "object" && typeof b === "object" && a && b) {
-		return JSON.stringify(a) === JSON.stringify(b);
+		return canonicalJson(a) === canonicalJson(b);
 	}
 	return false;
 }

@@ -1,9 +1,9 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { likelyMisnamedMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
-import { categoryFolderType } from '../vault/category-folder';
+import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -105,6 +105,8 @@ const misnamedShown = new Set<string>();
 
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
+/** Notes whose id another note holds, said once a session per note by auto-sync. */
+const duplicateShown = new Set<string>();
 
 /** Note paths whose kept Depends on lines auto-sync has named this session. */
 const dependsOnShown = new Set<string>();
@@ -338,7 +340,7 @@ export class SaveElementCommand {
         }
 
         // 1. Validate Path and Extract Info
-        const pathInfo = this.extractPathInfo(activeFile.path);
+        const pathInfo = await this.extractPathInfo(activeFile.path);
         if (!pathInfo) {
             return this.fail("The current file is not a valid OnlyWorlds element note.");
         }
@@ -348,6 +350,14 @@ export class SaveElementCommand {
         let elementData: ElementData | null = null;
         const v2 = await readElement(this.app, activeFile);
         if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
+        const twin = v2?.id ? this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
+        if (twin) {
+            const reason = `${v2!.name} not saved: ${twin.replace(/^OnlyWorlds\/Worlds\/[^/]+\//i, '')} holds the same id. Keep one of the two notes, then try again.`;
+            if (!manual && duplicateShown.has(activeFile.path)) return { ok: false, reason };
+            if (!manual) duplicateShown.add(activeFile.path);
+            return this.fail(reason, 15000);
+        }
         // A known-of note is never sent, by any path (the folder spec §4.4
         // rule 3): before any read of the server, so no create,
         // re-create or update can follow.
@@ -367,6 +377,9 @@ export class SaveElementCommand {
                 if (!manual) fenceShown.add(activeFile.path);
                 return this.fail(reason, 15000);
             }
+            // A name the note holds as a property and again inside its own
+            // x_properties: refused by name, never sent with one of the two picked.
+            if (v2.ownConflicts) return this.fail(ownConflictMessage(v2.name, v2.ownConflicts), 15000);
             elementData = { id: v2.id, ...v2.fields };
             // A key one slip from a link field went out as x_<key>: say which
             // field it likely meant, correct nothing (round C, 4). Auto-sync
@@ -791,6 +804,11 @@ export class SaveElementCommand {
                     overflow = true;
                     return;
                 }
+                if (parsed.ownConflicts) {
+                    refused = ownConflictMessage(`${capitalize(parsed.category)} "${parsed.name}"`, parsed.ownConflicts);
+                    overflow = true;
+                    return;
+                }
                 const targetPayload = toV2Payload(parsed.fields);
                 await visit(parsed.category, targetPayload);
                 if (overflow) return;
@@ -941,7 +959,7 @@ export class SaveElementCommand {
         const index = this.worldNoteIndex(worldName);
         const leftOut = hit.map((id) => {
             const file = index.get(id);
-            const cat = file ? this.extractPathInfo(file.path)?.category.toLowerCase() : undefined;
+            const cat = file ? this.pathInfoCached(file.path)?.category.toLowerCase() : undefined;
             return { type: cat ?? 'element', name: file?.basename ?? id, ...hiddenMark(hidden, id, leftView) };
         });
         return { firsts: [], leftOut, leftOutIds: hit };
@@ -1008,24 +1026,38 @@ export class SaveElementCommand {
 
     /** The file names (lower case) of this world's element notes, for the unresolved-link notice. */
     private worldNoteNames(worldName: string): Set<string> {
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const names = new Set<string>();
         for (const f of this.app.vault.getMarkdownFiles()) {
-            if (f.path.startsWith(prefix)) names.add(f.basename.toLowerCase());
+            if (mayBeElementNote(f.path, worldName)) names.add(f.basename.toLowerCase());
         }
         return names;
     }
 
-    /** This world's element notes by their frontmatter id. */
+    /**
+     * This world's element notes by their frontmatter id: only a note Save itself would read as an element's (a person's
+     * own note, or a copy with no type, never hides the element's note), the one in Elements/ first, then by path.
+     */
     private worldNoteIndex(worldName: string): Map<string, TFile> {
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const index = new Map<string, TFile>();
-        for (const f of this.app.vault.getMarkdownFiles()) {
-            if (!f.path.startsWith(prefix)) continue;
-            const id = this.app.metadataCache.getFileCache(f)?.frontmatter?.id;
-            if (typeof id === 'string' && !index.has(id)) index.set(id, f);
+        const files = this.app.vault.getMarkdownFiles()
+            .filter((f) => mayBeElementNote(f.path, worldName))
+            .sort((a, b) => Number(isUnderElements(b.path)) - Number(isUnderElements(a.path)) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+        for (const f of files) {
+            const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+            const id = fm?.id;
+            if (typeof id === 'string' && !index.has(id) && elementNoteType(f.path, fm)) index.set(id, f);
         }
         return index;
+    }
+
+    /** Another element note of this world that holds `id`, if any (cache only): two notes with one id are both refused. */
+    private otherNoteHolding(worldName: string, id: string, path: string): string | null {
+        for (const f of this.app.vault.getMarkdownFiles()) {
+            if (f.path === path || !mayBeElementNote(f.path, worldName)) continue;
+            const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+            if (fm?.id === id && elementNoteType(f.path, fm)) return f.path;
+        }
+        return null;
     }
 
     /**
@@ -1114,19 +1146,22 @@ export class SaveElementCommand {
         return error instanceof V2ApiError && error.status === 410;
     }
 
-    // Helper to extract World Name and Category from path
-    extractPathInfo(filePath: string): { worldName: string; category: string } | null {
-        // Example path: OnlyWorlds/Worlds/MyWorld/Elements/Character (3)/Hero.md
-        const pattern = /^OnlyWorlds\/Worlds\/([^\/]+)\/Elements\/([^\/]+)\/.+\.md$/i;
-        const match = filePath.match(pattern);
-        if (match && match[1] && match[2]) {
-            // The type its folder holds ("Character", or an older "Character (3)")
-            const rawCategory = match[2];
-            const baseCategoryName = categoryFolderType(rawCategory);
-         //   console.log(`[SaveElementCommand] Extracted category: "${rawCategory}" -> base: "${baseCategoryName}"`);
-            return { worldName: match[1], category: baseCategoryName };
-        }
-        return null;
+    // The world and type of an element note: its place decides (the first folder below the
+    // world's folder named for one of the 22, in either spelling), and only a note outside
+    // every type folder is read by its `type` property (the Markdown profile, sentence 2).
+    // The front matter comes from the cache, else from the note on disk: a cold cache must not make a note
+    // outside the type folders look like no element's.
+    async extractPathInfo(filePath: string): Promise<{ worldName: string; category: string } | null> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        const fm = file instanceof TFile ? await readFrontmatter(this.app, file) : undefined;
+        return elementNoteType(filePath, fm);
+    }
+
+    // The same, from the metadata cache alone, where a caller cannot wait (a map over links).
+    private pathInfoCached(filePath: string): { worldName: string; category: string } | null {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+        return elementNoteType(filePath, fm);
     }
 
     // Refined parser based on ExportWorldCommand's logic
@@ -1249,7 +1284,7 @@ export class SaveElementCommand {
         const linkPattern = /\[\[(.*?)\]\]/g; // Find [[Note Name]]
         let match;
 
-        const pathInfo = this.extractPathInfo(currentFilePath);
+        const pathInfo = await this.extractPathInfo(currentFilePath);
         if (!pathInfo) {
             console.error("      Cannot extract IDs: World context not found.");
             return ids;

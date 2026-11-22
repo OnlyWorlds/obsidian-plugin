@@ -70,7 +70,9 @@ A note downloaded from onlyworlds.com also carries seven Properties the server k
 
 The plugin reads the world's key from that world's `World.md`. The **API key** setting is a fallback for a world whose `World.md` has no key (the plugin warns when it uses it). A local-only world never syncs.
 
-Only notes inside a world's `Elements` folders are elements. Notes you already had elsewhere in the vault never sync; to bring one in, run **Create element** and paste its text into the new note.
+A note is an element by what it carries, wherever it sits inside the world's folder: it has an `id` that is a UUID, and a type. The folder decides the type, the first folder on its path named for one of the 22 types (`Location`, `Character`, ...). A note outside every type folder is read by its `type` property (`type: location`), and a `type` inside a type folder is just a property of your own. Every other note is yours: it never syncs and never stops an upload. A note with no `id` in a type folder is left as your own too, and Validate world names it. Notes in a dot-folder or in the world's `records/` folder are never read. Notes you already had elsewhere in the vault, outside the world's folder, never sync; to bring one in, run **Create element** and paste its text into the new note.
+
+**Your own properties.** A front matter key the type does not have (`status`, `mood`) stays in the note under its own name and is sent inside one key, `x_properties`, with the world; a pull writes each one back as a property of that name, with the server's value if it differs. A key that starts with `x_` is sent as it is. Obsidian's own `tags` and `aliases` are not sent and are never changed by a pull.
 
 | How | What it sends |
 |---|---|
@@ -160,7 +162,7 @@ OnlyWorlds/
     └── Elements/<Type>/<Element name>.md
 ```
 
-Each element is one note at `<Type>/<Element name>.md`, such as `Elements/Location/Vallaki.md`, with no count in any folder name.
+A new element is written as one note at `<Type>/<Element name>.md`, such as `Elements/Location/Vallaki.md`, with no count in any folder name; you can move it to any other folder in the world's folder and it stays the same element.
 
 **Upgrading from 3.8.1 or earlier:** the type folders used to carry a count, such as `Location (2)`. The next Download renames each one once to its plain name, through Obsidian, and says how many it renamed. Before it starts, it says: Renaming your type folders to drop the count. Obsidian may ask whether to update links; Always update answers it for the rest and turns on Obsidian's automatic link updating for this vault. Links by note name still work; links written with a folder path follow your Obsidian setting for updating links. If a vault holds both `Location` and `Location (2)`, the notes move into `Location` one by one; when a note's name is already taken there, nothing in that folder moves, nothing is deleted, and the notice names the note for you to rename or move by hand.
 

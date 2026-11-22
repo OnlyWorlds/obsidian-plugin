@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -18,7 +18,7 @@ import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
 import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
-import { isInCategoryFolder } from '../vault/category-folder';
+import { isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -429,6 +429,7 @@ export class ExportWorldCommand {
     
 
     async collectWorldData(worldFolder: string) {
+        this.noteTypes = null; // classified afresh for each collection (a vault changes between uploads)
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
         this.refusedNotes = [];
@@ -461,9 +462,8 @@ export class ExportWorldCommand {
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                // The type's notes in either folder spelling (`Location`, an older `Location (2)`).
-                const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`);
-                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, category));
+                // The type's notes, wherever they sit in the world's folder (the Markdown profile, sentences 1 and 2).
+                const files = await this.notesOfType(worldFolder, category);
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     // Phase B: frontmatter notes read via the shared element reader
@@ -502,6 +502,10 @@ export class ExportWorldCommand {
                             this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
                             return {};
                         }
+                        if (parsed?.ownConflicts) {
+                            this.refusedNotes.push(ownConflictMessage(`${category} "${parsed.name}"`, parsed.ownConflicts));
+                            return {};
+                        }
                         if (parsed) {
                             this.ambiguousLinks.push(...parsed.ambiguousLinks);
                             if (parsed.dependsOnKept) this.dependsOnKept.push(file.basename);
@@ -516,6 +520,22 @@ export class ExportWorldCommand {
             }
         }
     
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): a copy kept in an
+        // archive folder must not overwrite the element, and neither is the element's to choose.
+        const idCount = new Map<string, number>();
+        for (const list of Object.values(worldData)) {
+            if (!Array.isArray(list)) continue;
+            for (const el of list as { id?: unknown }[]) if (el.id) idCount.set(String(el.id), (idCount.get(String(el.id)) ?? 0) + 1);
+        }
+        for (const [category, list] of Object.entries(worldData)) {
+            if (!Array.isArray(list)) continue;
+            worldData[category] = (list as { id?: unknown; name?: unknown }[]).filter((el) => {
+                if (!el.id || (idCount.get(String(el.id)) ?? 0) < 2) return true;
+                this.refusedNotes.push(`${category} "${String(el.name ?? el.id)}" not sent: another note holds the same id. Keep one of them, then try again.`);
+                return false;
+            });
+        }
+
         // Add debug logging at the end of the method, before returning the data
         try {
          //   console.log("WORLD DATA COLLECTION COMPLETE - Raw data structure:");
@@ -700,10 +720,34 @@ export class ExportWorldCommand {
         return ids;
     }
     
+    /**
+     * The world's notes of one type, wherever they sit in its folder: a note's
+     * place decides its type (the first folder named for one of the 22, in
+     * either spelling), and only a note outside every type folder is read by its
+     * `type` property, with an id that is a UUID.
+     */
+    private async notesOfType(worldFolder: string, type: string): Promise<TFile[]> {
+        // Every note of the world is classified once per upload (its type, or none), not once per type.
+        if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
+            const byFile = new Map<TFile, string>();
+            for (const file of this.app.vault.getFiles()) {
+                if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) continue;
+                // A note in a type folder under Elements/ needs no front matter to be read; any other is read by its id and `type`, from the cache or the disk.
+                const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(this.app, file);
+                const found = elementNoteType(file.path, fm);
+                if (found) byFile.set(file, found.category.toLowerCase());
+            }
+            this.noteTypes = { world: worldFolder, byFile };
+        }
+        const want = type.toLowerCase();
+        return [...this.noteTypes.byFile].filter(([, t]) => t === want).map(([f]) => f);
+    }
+    /** The classification `notesOfType` made for the world being collected. */
+    private noteTypes: { world: string; byFile: Map<TFile, string> } | null = null;
+
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
-        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`);
-        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, elementType));
-        
+        const files = await this.notesOfType(worldFolder, elementType);
+
         for (const file of files) {
             try {
                 const fileContent = await this.app.vault.read(file);

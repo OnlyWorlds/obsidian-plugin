@@ -16,6 +16,8 @@
  * pass had to leave stays visible in the views.
  */
 
+import { Category } from "../enums";
+
 /** The count an older plugin put after a type folder's name: `Location (2)`. */
 const LEGACY_COUNT = /\s*\(\d+\)$/;
 
@@ -56,4 +58,94 @@ export function isInCategoryFolder(path: string, elementsPath: string, type: str
 	const rest = path.slice(root.length);
 	const slash = rest.indexOf("/");
 	return slash > 0 && isCategoryFolderOf(rest.slice(0, slash), type);
+}
+
+// ---------------------------------------------------------------------------
+// A note anywhere in a world's folder (the Markdown profile, sentences 1 to 3)
+// ---------------------------------------------------------------------------
+
+/** The 22 types, by their folder spelling (`Character`). */
+const TYPE_NAMES: ReadonlyMap<string, string> = new Map(
+	Object.keys(Category).filter((k) => isNaN(Number(k))).map((k) => [k.toLowerCase(), k])
+);
+
+/** The type a name stands for (`character`, `Character`, `Location (2)`), as the folder spelling, or null when it is none of the 22. */
+export function typeNamed(name: string): string | null {
+	return TYPE_NAMES.get(categoryFolderType(name.trim()).toLowerCase()) ?? null;
+}
+
+/**
+ * The world and the folders and file below its folder
+ * (`OnlyWorlds/Worlds/<world>/<folders...>/<name>.md`), or null when the path
+ * lies in no world's folder. A note in a folder whose name starts with `.` is
+ * no element's: its `folders` carry the dot-folder, and a caller that reads
+ * elements skips it (`inUnreadFolder`).
+ */
+export function worldNotePath(path: string): { worldName: string; folders: string[]; file: string } | null {
+	const m = /^OnlyWorlds\/Worlds\/([^/]+)\/(.+\.md)$/i.exec(path);
+	if (!m) return null;
+	const parts = m[2].split("/");
+	return { worldName: m[1], folders: parts.slice(0, -1), file: parts[parts.length - 1] };
+}
+
+/**
+ * True when a note there is never read as an element: a folder on the path
+ * starts with `.` (sentence 1), or the note is in the world's `records/`, the
+ * producers' own tree, which no element scan has ever read.
+ */
+export function inUnreadFolder(folders: string[]): boolean {
+	return folders[0] === "records" || folders.some((f) => f.startsWith("."));
+}
+
+/**
+ * The type a note's place decides (sentence 2): the first folder on its path,
+ * from the world's folder down, that is named for one of the 22. Null when no
+ * folder is (the note is then read by its `type` property, or is not an element).
+ */
+export function typeOfPlace(path: string): { worldName: string; type: string } | null {
+	const parts = worldNotePath(path);
+	if (!parts || inUnreadFolder(parts.folders)) return null;
+	for (const f of parts.folders) {
+		const t = typeNamed(f);
+		if (t) return { worldName: parts.worldName, type: t };
+	}
+	return null;
+}
+
+/**
+ * The type of an element note outside every type folder: its `type` property,
+ * which must name one of the 22 (sentence 2). Null when it does not.
+ */
+export function typeOfProperty(fmType: unknown): string | null {
+	return typeof fmType === "string" ? typeNamed(fmType) : null;
+}
+
+/** A UUID in its usual lower-case form: the id an element note carries (sentence 1). */
+export function isElementId(value: unknown): value is string {
+	return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+}
+
+/**
+ * True when the note lies under the world's `Elements/` folder, where this
+ * plugin has always kept its notes. There an element id is any id it ever
+ * wrote; anywhere else in the world's folder only a lower-case UUID makes an
+ * element note (a note with another plugin's id is the person's own).
+ */
+export function isUnderElements(path: string): boolean {
+	const parts = worldNotePath(path);
+	return !!parts && parts.folders[0]?.toLowerCase() === "elements";
+}
+
+/**
+ * True when a note may be an element note of `worldName` (any world when
+ * omitted): it lies in the world's folder, in no dot-folder and not in
+ * `records/`, and is not the world's own `World.md`. Whether it IS one is
+ * read from the note (an id, and a type by place or property): this is the
+ * scan's filter, the one place that says where element notes may sit.
+ */
+export function mayBeElementNote(path: string, worldName?: string): boolean {
+	const parts = worldNotePath(path);
+	if (!parts || inUnreadFolder(parts.folders)) return false;
+	if (worldName !== undefined && parts.worldName !== worldName) return false;
+	return !(parts.folders.length === 0 && parts.file.toLowerCase() === "world.md");
 }

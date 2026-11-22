@@ -42,7 +42,9 @@ export async function harnessSave(o: HarnessOpts) {
 	await vault.seed("OnlyWorlds/Worlds/W/World.md", "- **API Key:** ow_k_test\n");
 	const files: Record<string, TFile> = {};
 	for (const [rel, c] of Object.entries(o.notes)) {
-		files[rel] = (await vault.seed(`OnlyWorlds/Worlds/W/Elements/${rel}`, c)) as unknown as TFile;
+		// A key starting with `~/` is a path from the world's folder, outside Elements/.
+		const path = rel.startsWith("~/") ? `OnlyWorlds/Worlds/W/${rel.slice(2)}` : `OnlyWorlds/Worlds/W/Elements/${rel}`;
+		files[rel] = (await vault.seed(path, c)) as unknown as TFile;
 	}
 	const server = new Map(Object.entries(o.server ?? {}));
 	const calls: string[] = [];

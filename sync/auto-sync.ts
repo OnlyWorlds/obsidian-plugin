@@ -2,6 +2,8 @@ import { App, TFile, Notice } from "obsidian";
 import type OnlyWorldsPlugin from "../main";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { resolveWorldKey } from "../vault/world-key";
+import { elementNoteType, readFrontmatter } from "../vault/element-file";
+import { isUnderElements, mayBeElementNote, typeOfPlace } from "../vault/category-folder";
 
 /**
  * Auto-sync engine.
@@ -48,13 +50,14 @@ export class AutoSyncEngine {
 		this.plugin.registerEvent(
 			this.app.vault.on("modify", (file) => {
 				if (!(file instanceof TFile)) return;
-				if (!this.isElementFile(file)) return;
+				if (!mayBeElementNote(file.path)) return;
 				if (this.selfWritePaths.has(file.path)) {
 					this.selfWritePaths.delete(file.path);
 					return;
 				}
 				if (!this.plugin.settings.autoSync) return;
-				this.scheduleSync(file);
+				// Whether the note is an element's is read from the note (its place, its id and `type`), so a person's own note says nothing.
+				void this.isElementFile(file).then((is) => { if (is) this.scheduleSync(file); });
 			})
 		);
 	}
@@ -80,8 +83,13 @@ export class AutoSyncEngine {
 	/**
 	 * True if file path matches an element note location.
 	 */
-	private isElementFile(file: TFile): boolean {
-		return /^OnlyWorlds\/Worlds\/[^/]+\/Elements\/[^/]+\/.+\.md$/i.test(file.path);
+	private async isElementFile(file: TFile): Promise<boolean> {
+		// The plugin's own folders (Elements/<Type>/) are element notes as they always were, a note in the old span format included.
+		if (isUnderElements(file.path) && typeOfPlace(file.path)) return true;
+		// Anywhere else a note is an element's only with a UUID id in its front matter and a type by place or `type` property:
+		// a person's own note is never synced and says nothing.
+		const fm = await readFrontmatter(this.app, file);
+		return typeof fm?.id === "string" && elementNoteType(file.path, fm) !== null;
 	}
 
 	/**

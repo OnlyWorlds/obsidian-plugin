@@ -24,7 +24,8 @@ import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, recordChangeSeqs } from '../vault/change-seq-index';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { parseElementPath, writeElement } from '../vault/element-file';
+import { elementNoteType, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
+import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
@@ -586,6 +587,7 @@ export class DownloadWorldCommand {
             knownOf: boolean;
         }[] = [];
         const planned = new Set<string>(); // lowercased note paths claimed in this pull
+        const worldIds = await this.worldNoteIds(worldName);
 
         for (const category in Category) {
             if (!isNaN(Number(category)) || !data[category]) continue;
@@ -605,15 +607,13 @@ export class DownloadWorldCommand {
                 categoryDirectory = normalizePath(`${worldFolderPath}/${category}`);
                 await this.createFolderIfNeeded(categoryDirectory);
             }
-            const searchFolders = typeFolders.length > 0 ? typeFolders.map((f) => f.path) : [categoryDirectory];
 
             for (const element of elements) {
-                // First check if an element with this ID already exists
-                let existingElementPath: string | null = null;
-                for (const folder of searchFolders) {
-                    existingElementPath = await this.findElementByIdInCategory(folder, element.id);
-                    if (existingElementPath) break;
-                }
+                // First check if an element with this ID already exists, in any
+                // folder of the world: a note a person moved out of its type
+                // folder is still the element's, never made twice (the Markdown
+                // profile, sentence 1).
+                const existingElementPath: string | null = pickNoteForId(worldIds.get(String(element.id)) ?? [], worldName, category);
                 // A known-of stub (the folder spec §4.4): written
                 // as it is over no note, a known-of note or a hidden stub; over
                 // a whole note only after a view reset, else that note is kept
@@ -650,9 +650,12 @@ export class DownloadWorldCommand {
                     const currentFileName = (existingElementPath.split('/').pop() ?? '').replace(/\.md$/i, '');
 
                     if (!isNoteNameFor(currentFileName, element.name, String(element.id), category)) {
-                        // Name has changed: the note moves to a fresh unique name (pass 2 renames it)
-                        const newFileName = await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id, planned);
-                        notePath = `${categoryDirectory}/${newFileName}`;
+                        // Name has changed: the note moves to a fresh unique name (pass 2 renames it).
+                        // It stays in its own folder: a note a person put outside the type's folder is not moved back.
+                        const ownFolder = existingElementPath.slice(0, existingElementPath.lastIndexOf('/'));
+                        const renameIn = isInCategoryFolder(existingElementPath, worldFolderPath, category) ? categoryDirectory : ownFolder;
+                        const newFileName = await this.worldService.generateUniqueFileName(renameIn, element.name, element.id, planned);
+                        notePath = `${renameIn}/${newFileName}`;
                         renameFrom = existingElementPath;
                     } else {
                         notePath = existingElementPath;
@@ -735,6 +738,8 @@ export class DownloadWorldCommand {
                         scaffoldEmptyFields: true,
                         keepAbove,
                         knownOf: plan.knownOf,
+                        // The note the plan found, so the write makes no scan of the world's notes for each element.
+                        existingPath: existingElementPath ? notePath : null,
                     }
                 );
             }
@@ -776,13 +781,14 @@ export class DownloadWorldCommand {
 
         // Source 2 (disk) first, so Source 1 (the plan) overwrites on any id
         // present in both.
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
-        const files = this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(prefix));
+        // Largest path first, so that for two notes holding one id the smallest path is the one a link names (as the pull's plan picks).
+        const files = this.app.vault.getMarkdownFiles().filter(f => mayBeElementNote(f.path, worldName)).sort((a, b) => (a.path < b.path ? 1 : a.path > b.path ? -1 : 0));
         for (const file of files) {
             try {
                 const content = await this.app.vault.read(file);
-                const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
-                if (fm.id) {
+                const fm = parseRawFrontmatterScalars(content, ['id', 'name', 'type']);
+                // A note the plugin would not save (a person's own, a copy with no type) is no element's note: a link never points at it.
+                if (fm.id && elementNoteType(file.path, fm)) {
                     map.set(fm.id, file.basename);
                     if (fm.name) real.set(fm.id, fm.name);
                     else real.delete(fm.id);
@@ -832,10 +838,12 @@ export class DownloadWorldCommand {
         let n = 0;
         for (const id of ids) {
             const file = files.get(id);
-            const category = file ? parseElementPath(file.path)?.category : undefined;
-            if (!file || !category) continue;
+            if (!file) continue;
             try {
                 const content = await this.app.vault.read(file);
+                // The note's type by its place, else by its `type` property: a hidden element's note outside the type folders is stubbed too.
+                const category = elementNoteType(file.path, parseRawFrontmatterScalars(content, ['id', 'type']))?.category;
+                if (!category) continue;
                 const next = stubNote(content, category);
                 if (next === content) continue;
                 this.plugin?.autoSync?.markSelfWrite(file.path);
@@ -852,15 +860,15 @@ export class DownloadWorldCommand {
      *  `own` the notes' own ids; `all` those plus every id a note's Properties link to;
      *  `files` each own id's note. */
     private async localElementIds(worldName: string): Promise<{ own: Set<string>; all: Set<string>; files: Map<string, TFile> }> {
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const own = new Set<string>();
         const all = new Set<string>();
         const files = new Map<string, TFile>();
-        for (const file of this.app.vault.getMarkdownFiles()) {
-            if (!file.path.startsWith(prefix)) continue;
+        for (const file of [...this.app.vault.getMarkdownFiles()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+            if (!mayBeElementNote(file.path, worldName)) continue;
             try {
                 const content = await this.app.vault.read(file);
-                const id = parseRawFrontmatterScalars(content, ['id']).id;
+                const idFm = parseRawFrontmatterScalars(content, ['id', 'type']);
+                const id = idFm.id && elementNoteType(file.path, idFm) ? idFm.id : undefined;
                 if (id) { own.add(id); all.add(id); if (!files.has(id)) files.set(id, file); }
                 // The ids its Properties hold (a raw-id link to an element
                 // with no note here): the deleted list keeps those too, so a
@@ -876,8 +884,7 @@ export class DownloadWorldCommand {
      *  content, and a stored cursor over an empty world folder means an
      *  incremental download would truthfully write nothing (2026-07-16 smoke). */
     private vaultHasElementNotes(worldName: string): boolean {
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
-        return this.app.vault.getMarkdownFiles().some(f => f.path.startsWith(prefix));
+        return this.app.vault.getMarkdownFiles().some(f => mayBeElementNote(f.path, worldName));
     }
 
     /** id→name across every element note in the vault (all worlds' notes are
@@ -909,6 +916,45 @@ export class DownloadWorldCommand {
             }
         } 
         return undefined; // Return undefined if no match is found
+    }
+
+    /**
+     * The id of every element note in the world's folder, to its path, read
+     * from disk (the cache is cold mid-download): the pull's one lookup of "does
+     * this element have a note", wherever the note sits. The frontmatter `id:` is
+     * read first, then the legacy span and bold forms under Elements/, as before.
+     * Only an element note counts (the rule Save uses): a person's own note, or
+     * a copy with no type outside the type folders, is never a note the pull
+     * writes to. All the notes holding an id are kept; the pull picks one by
+     * `pickNoteForId`, the same rule the writer uses.
+     */
+    async worldNoteIds(worldName: string): Promise<Map<string, string[]>> {
+        const index = new Map<string, string[]>();
+        for (const file of this.app.vault.getMarkdownFiles()) {
+            if (!mayBeElementNote(file.path, worldName)) continue;
+            try {
+                const content = await this.app.vault.read(file);
+                let id: string | undefined;
+                // The note's own YAML, as Save reads it, so the plan and Save cannot disagree about a note (a comment on the
+                // id line, flow style, a quoted key); the line scan only where the YAML is not readable.
+                const yaml = parseRawFrontmatter(content);
+                const fm = yaml && typeof yaml.id === 'string' ? yaml : parseRawFrontmatterScalars(content, ['id', 'type']);
+                if (typeof fm.id === 'string' && fm.id) {
+                    if (elementNoteType(file.path, fm)) id = fm.id;
+                } else if (isUnderElements(file.path) && typeOfPlace(file.path)) {
+                    // The plugin's own folders: the id in the legacy span and bold forms it once wrote. A line of a
+                    // person's writing that looks like an id is never taken for one anywhere else.
+                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m) ||
+                                    content.match(/^- .*Id.*: (.+)$/m) ||
+                                    content.match(/Id.*: (.+)$/m);
+                    id = idMatch?.[1].trim();
+                }
+                if (id) index.set(id, [...(index.get(id) ?? []), file.path]);
+            } catch (error) {
+                console.error(`Error reading element file: ${file.path}`, error);
+            }
+        }
+        return index;
     }
 
     async findElementByIdInCategory(categoryDirectory: string, elementId: string): Promise<string | null> {

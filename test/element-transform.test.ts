@@ -113,36 +113,91 @@ test("frontmatterToPayloadFields keeps extension keys verbatim (R3)", () => {
 	assert.ok(!("id" in out));
 	assert.ok(!("world" in out));
 	assert.ok(!("description" in out)); // body field excluded
-	// An unknown bare key is no longer DROPPED — it is adopted under x_ so the
-	// user's data survives the upload (the API rejects unknown bare keys).
+	// An unknown bare key is no longer DROPPED — it is the person's own
+	// property and crosses inside x_properties, under its own name.
 	assert.ok(!("bogus_unknown" in out));
-	assert.equal(out.x_bogus_unknown, "keep me");
+	assert.ok(!("x_bogus_unknown" in out));
+	assert.deepEqual(out.x_properties, { bogus_unknown: "keep me" });
 });
 
-test("adoption: an unknown bare key is namespaced, not dropped, and is reported", () => {
+test("own properties: an unknown bare key crosses inside x_properties, under its own name, and is reported", () => {
 	const adopted: Array<{ from: string; to: string }> = [];
 	const fm = { id: "c-1", name: "Ireena", mood: "wary", tally: 3 };
 	const out = frontmatterToPayloadFields(fm, "character", { adopted });
-	assert.equal(out.x_mood, "wary");
-	assert.equal(out.x_tally, 3); // any JSON type rides verbatim
-	assert.ok(!("mood" in out));
+	assert.deepEqual(out.x_properties, { mood: "wary", tally: 3 }); // any JSON type rides verbatim
+	assert.ok(!("mood" in out) && !("x_mood" in out) && !("x_tally" in out), "no copy, no bare key");
 	assert.deepEqual(adopted, [
-		{ from: "mood", to: "x_mood" },
-		{ from: "tally", to: "x_tally" },
+		{ from: "mood", to: "x_properties" },
+		{ from: "tally", to: "x_properties" },
 	]);
 });
 
-test("adoption: does not clobber an existing x_ key of the same name", () => {
-	const adopted: Array<{ from: string; to: string }> = [];
-	// Both `mood` and `x_mood` present: the already-namespaced one wins and the
-	// bare one is skipped, so adoption can never overwrite real custom data.
-	const fm = { id: "c-1", name: "Ireena", mood: "bare", x_mood: "namespaced" };
-	const out = frontmatterToPayloadFields(fm, "character", { adopted });
-	assert.equal(out.x_mood, "namespaced");
-	assert.deepEqual(adopted, []);
+test("own properties: a person's `home` or `star` never lands on a tool's or a profile's x_ key", () => {
+	const fm = { id: "c-1", name: "Ireena", home: "the farm", star: true, x_home: "loc-id", x_star: "room" };
+	const out = frontmatterToPayloadFields(fm, "character");
+	assert.equal(out.x_home, "loc-id", "the tool's key crosses as itself");
+	assert.equal(out.x_star, "room", "the profile's key crosses as itself");
+	assert.deepEqual(out.x_properties, { home: "the farm", star: true });
 });
 
-test("adoption: schema fields and meta keys are never adopted", () => {
+test("own properties: a note with none sends no x_properties; a person's empty key goes as it is", () => {
+	assert.ok(!("x_properties" in frontmatterToPayloadFields({ id: "c-1", name: "Ireena" }, "character")));
+	const out = frontmatterToPayloadFields({ id: "c-1", name: "Ireena", status: "", mood: null }, "character");
+	assert.deepEqual(out.x_properties, { status: "", mood: null });
+});
+
+test("own properties: a group held by hand in the note is read with them, the typed entry winning", () => {
+	const fm = { id: "c-1", name: "Ireena", mood: "typed", x_properties: { mood: "held", kept: 1 } };
+	const out = frontmatterToPayloadFields(fm, "character");
+	assert.deepEqual(out.x_properties, { mood: "typed", kept: 1 });
+});
+
+test("own properties: Obsidian's own keys (tags, aliases) are no property of the person's", () => {
+	const out = frontmatterToPayloadFields({ id: "c-1", name: "I", tags: ["a"], aliases: ["b"], mood: "x" }, "character");
+	assert.deepEqual(out.x_properties, { mood: "x" });
+});
+
+test("own properties: the pull writes each entry as a property of that name, no x_ copy, and the group is gone", () => {
+	const fm = apiDataToFrontmatter(
+		{ name: "Ireena", x_properties: { status: "alive", home: "the farm" }, x_home: "loc-id" },
+		"character",
+		"c-1"
+	);
+	assert.equal(fm.status, "alive");
+	assert.equal(fm.home, "the farm");
+	assert.equal(fm.x_home, "loc-id", "a tool's key beside the person's stays as itself");
+	assert.ok(!("x_properties" in fm) && !("x_status" in fm));
+});
+
+test("own properties: an entry named like a key the profile writes stays in the note's group, never over that key", () => {
+	const fm = apiDataToFrontmatter(
+		{ name: "Ireena", supertype: "Hero", x_properties: { supertype: "Villain", id: "zzz", name: "Other", x_deep: 1, created_at: "t", ok: 2 } },
+		"character",
+		"c-1"
+	);
+	assert.equal(fm.supertype, "Hero");
+	assert.equal(fm.id, "c-1");
+	assert.equal(fm.name, "Ireena");
+	assert.equal(fm.ok, 2);
+	assert.deepEqual(fm.x_properties, { supertype: "Villain", id: "zzz", name: "Other", x_deep: 1, created_at: "t" });
+	// and the next save sends the whole group back, so nothing it holds is lost
+	const back = frontmatterToPayloadFields({ ...fm }, "character");
+	assert.deepEqual(back.x_properties, { supertype: "Villain", id: "zzz", name: "Other", x_deep: 1, created_at: "t", ok: 2 });
+});
+
+test("own properties: the round trip through a pull and a save sends the same group", () => {
+	const group = { status: "alive", tally: 3, list: ["a", "b"], nested: { a: 1 } };
+	const fm = apiDataToFrontmatter({ name: "Ireena", x_properties: group }, "character", "c-1");
+	assert.deepEqual(frontmatterToPayloadFields(fm, "character").x_properties, group);
+});
+
+test("own properties: the diff compares a group by its entries, not by the order the server listed them", () => {
+	const local = { x_properties: { a: 1, b: 2 } };
+	assert.deepEqual(diffPayload(local, { x_properties: { b: 2, a: 1 } }), {});
+	assert.deepEqual(diffPayload(local, { x_properties: { a: 1, b: 3 } }), local);
+});
+
+test("own properties: schema fields and meta keys are never taken as one", () => {
 	const adopted: Array<{ from: string; to: string }> = [];
 	const fm = {
 		id: "c-1",
@@ -155,6 +210,7 @@ test("adoption: schema fields and meta keys are never adopted", () => {
 	const out = frontmatterToPayloadFields(fm, "character", { adopted });
 	assert.equal(out.physicality, "tall");
 	assert.deepEqual(adopted, []);
+	assert.ok(!("x_properties" in out), "none of them is a person's own property");
 	for (const k of ["x_id", "x_world", "x_description", "x_aliases", "x_name"]) {
 		assert.ok(!(k in out), `${k} must not be adopted`);
 	}

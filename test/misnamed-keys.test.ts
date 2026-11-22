@@ -2,7 +2,7 @@
  * Round C, item 4: a frontmatter key one slip from a link field (`friend` for
  * `friends`) is no field of the type, so it is sent as `x_friend`, and that
  * happened without a word. Now the save names the likely field: "friend is
- * not a field of Character; did you mean friends? Sent as x_friend." Nothing
+ * not a field of Character; did you mean friends? Sent in x_properties." Nothing
  * is corrected. A slip is the same name in another case, one edit (an
  * insertion, deletion, substitution or swap of neighbours), or a plural or
  * singular slip.
@@ -46,7 +46,7 @@ test("a key that is no slip for a link field is not named (a custom field, a syn
 	}
 });
 
-test("★ Save names the likely field and still sends the key as x_, uncorrected", async () => {
+test("★ Save names the likely field and still sends the key, in x_properties, uncorrected", async () => {
 	const r = await harnessSave({
 		notes: {
 			"Character/Ireena.md": note('friend: "[[Kolyan]]"\n'),
@@ -56,11 +56,12 @@ test("★ Save names the likely field and still sends the key as x_, uncorrected
 		server: { [ID]: { name: "Ireena", description: "A noble." }, [KOLYAN]: { name: "Kolyan" } },
 	});
 	assert.ok(
-		r.notices.includes("friend is not a field of Character; did you mean friends? Sent as x_friend."),
+		r.notices.includes("friend is not a field of Character; did you mean friends? Sent in x_properties."),
 		r.notices.join(" | ")
 	);
 	assert.equal(r.sent.length, 1);
-	assert.equal(r.sent[0].x_friend, "[[Kolyan]]");
+	assert.deepEqual(r.sent[0].x_properties, { friend: "[[Kolyan]]" });
+	assert.equal("x_friend" in r.sent[0], false, "a copy under x_");
 	assert.equal("friends" in r.sent[0], false, "the key was corrected");
 });
 
