@@ -27,6 +27,7 @@ import {
 	likelyLinkField,
 	bodyTextFields,
 	SERVER_FIELDS,
+	OWN_PROPERTIES_KEY,
 	serverFieldsOf,
 	DEPENDS_ON_KEY,
 	DEPENDS_ON_CUSTOM_KEY,
@@ -127,7 +128,7 @@ export interface ParsedElement {
 export function likelyMisnamedMessage(category: string, slips: Array<{ key: string; field: string }>): string {
 	const type = category.charAt(0).toUpperCase() + category.slice(1);
 	return slips
-		.map((s) => `${s.key} is not a field of ${type}; did you mean ${s.field}? Sent as x_${s.key}.`)
+		.map((s) => `${s.key} is not a field of ${type}; did you mean ${s.field}? Sent in x_properties.`)
 		.join(" ");
 }
 
@@ -523,7 +524,7 @@ export async function writeElement(
 	// The server's seven are the arriving element's (3.10): one the server
 	// now serves null (a former member's `changed_by` after the owner's
 	// edit) leaves the note, never kept from the last pull.
-	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY, ...SERVER_FIELDS]);
+	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY, OWN_PROPERTIES_KEY, ...SERVER_FIELDS]);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	// A stub replacing a whole copy (a view reset) keeps none of its extension
