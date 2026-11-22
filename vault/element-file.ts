@@ -1,6 +1,6 @@
 import { App, TFile, TFolder, normalizePath, parseYaml } from "obsidian";
 import { sanitizeFileName } from "../Scripts/WorldService";
-import { categoryFolderType, elementPathParts, isInCategoryFolder } from "./category-folder";
+import { categoryFolderType, isElementId, isInCategoryFolder, typeOfPlace, typeOfProperty, worldNotePath, inUnreadFolder, mayBeElementNote } from "./category-folder";
 import {
 	frontmatterToPayloadFields,
 	apiDataToFrontmatter,
@@ -122,6 +122,19 @@ export interface ParsedElement {
 	 * the next pull keeps them.
 	 */
 	dependsOnKept?: true;
+	/**
+	 * Names the note holds as a property of the person's own and again inside
+	 * its own `x_properties` group: the note is refused by name (the Markdown
+	 * profile, sentence 4), never sent with one of the two picked.
+	 */
+	ownConflicts?: string[];
+}
+
+/** Why a note with a name in both its properties and its `x_properties` is not sent (or `verb`). */
+export function ownConflictMessage(name: string, names: string[], verb = "not sent"): string {
+	const list = names.join(", ");
+	return `${name} ${verb}: ${list} ${names.length === 1 ? "is" : "are"} both a property of the note and inside its x_properties. ` +
+		"Keep one of them, then try again.";
 }
 
 /** "allies is not a field of Character; did you mean friends? Sent as x_allies." */
@@ -177,8 +190,26 @@ export function noteFence(
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
 export function parseElementPath(path: string): { worldName: string; category: string } | null {
-	const parts = elementPathParts(path);
-	return parts ? { worldName: parts.worldName, category: parts.type } : null;
+	const place = typeOfPlace(path);
+	return place ? { worldName: place.worldName, category: place.type } : null;
+}
+
+/**
+ * The world and type of an element note (the Markdown profile, sentences 1 and
+ * 2): its place decides, the first folder below the world's folder named for
+ * one of the 22; only a note outside every type folder is read by its `type`
+ * property, and then only with an id that is a UUID. `World.md` and a note in
+ * a dot-folder are no element's. `fm` is the note's front matter.
+ */
+export function elementNoteType(path: string, fm: Record<string, unknown> | null | undefined): { worldName: string; category: string } | null {
+	const place = parseElementPath(path);
+	if (place) return place;
+	const parts = worldNotePath(path);
+	if (!parts || inUnreadFolder(parts.folders)) return null;
+	if (parts.folders.length === 0 && parts.file.toLowerCase() === "world.md") return null;
+	if (!isElementId(fm?.id)) return null;
+	const type = typeOfProperty(fm?.type);
+	return type ? { worldName: parts.worldName, category: type } : null;
 }
 
 export { normalizeCategory };
@@ -214,9 +245,6 @@ export function categoryToResourceKey(category: string): string {
  * parsing the raw YAML block so reads are not cache-timing-dependent.
  */
 export async function readElement(app: App, file: TFile): Promise<ParsedElement | null> {
-	const pathInfo = parseElementPath(file.path);
-	if (!pathInfo) return null;
-	const category = normalizeCategory(pathInfo.category);
 	const content = await app.vault.read(file);
 
 	// Frontmatter path: cache first, raw YAML fallback (cache-timing safety).
@@ -225,6 +253,9 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		const raw = parseRawFrontmatter(content);
 		if (raw && typeof raw.id === "string") fm = raw;
 	}
+	const pathInfo = elementNoteType(file.path, fm);
+	if (!pathInfo) return null;
+	const category = normalizeCategory(pathInfo.category);
 
 	if (fm && typeof fm.id === "string") {
 		// Not trimmed: the last section's value runs to the end of the note, and
@@ -252,6 +283,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		const unresolved: string[] = [];
 		const ambiguous: string[] = [];
 		const adopted: Array<{ from: string; to: string }> = [];
+		const ownConflicts: string[] = [];
 		// A Pin's `element_type` (a text field, so a body section) narrows its
 		// generic `element_id` to that type's notes.
 		const parsedBody = body ? parseElementBody(body, category) : null;
@@ -265,6 +297,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			unresolved,
 			ambiguous,
 			adopted,
+			ownConflicts,
 			genericTargetType: elementType || undefined,
 			// Upload safety: a field with any unresolvable [[Name]] is OMITTED, not
 			// shortened — a full-field bulk PATCH built from a reduced id list would
@@ -326,6 +359,7 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
 			...misnamed(category, adopted),
+			...(ownConflicts.length ? { ownConflicts: [...new Set(ownConflicts)] } : {}),
 			knownOf,
 			serverFields: serverFieldsOf(fm),
 			...(dependsOnKept ? { dependsOnKept: true as const } : {}),
@@ -647,7 +681,13 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
 }
 
-/** Find an element note by embedded frontmatter id within a category folder. */
+/**
+ * Find an element note by embedded frontmatter id, wherever it sits in the
+ * world's folder (the Markdown profile, sentence 1): a note a person moved out
+ * of its type folder is still the element's, and a pull must write to it, not
+ * make a second one. A note in the element's own type folder wins over one
+ * elsewhere.
+ */
 async function findNoteById(
 	app: App,
 	worldName: string,
@@ -655,12 +695,15 @@ async function findNoteById(
 	id: string
 ): Promise<TFile | null> {
 	const elements = `OnlyWorlds/Worlds/${worldName}/Elements`;
-	const files = app.vault.getMarkdownFiles().filter((f) => isInCategoryFolder(f.path, elements, folderName));
-	for (const f of files) {
+	let elsewhere: TFile | null = null;
+	for (const f of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(f.path, worldName)) continue;
 		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
-		if (fm && fm.id === id) return f;
+		if (!fm || fm.id !== id) continue;
+		if (isInCategoryFolder(f.path, elements, folderName)) return f;
+		elsewhere ??= f;
 	}
-	return null;
+	return elsewhere;
 }
 
 /**
@@ -669,9 +712,8 @@ async function findNoteById(
  * Used when reading a legacy span note whose links are [[names]].
  */
 function buildVaultLinkResolver(app: App, worldName: string): (name: string) => string | null {
-	const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
 	const index = new Map<string, string>();
-	const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
+	const files = app.vault.getMarkdownFiles().filter((f) => mayBeElementNote(f.path, worldName));
 	for (const f of files) {
 		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
 		if (fm && typeof fm.id === "string" && typeof fm.name === "string") {
@@ -689,9 +731,8 @@ function buildVaultLinkResolver(app: App, worldName: string): (name: string) => 
  * (dangling/cross-world links never lost).
  */
 function buildIdToNameResolver(app: App, worldName: string): (id: string) => string | null {
-	const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
 	const index = new Map<string, string>();
-	const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
+	const files = app.vault.getMarkdownFiles().filter((f) => mayBeElementNote(f.path, worldName));
 	for (const f of files) {
 		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
 		if (fm && typeof fm.id === "string") {
@@ -735,7 +776,7 @@ export function buildWikilinkResolver(
 		return fm && typeof fm.id === "string" ? fm.id : null;
 	};
 	const typeOf = (f: TFile): string | null => {
-		const info = parseElementPath(f.path);
+		const info = elementNoteType(f.path, app.metadataCache.getFileCache(f)?.frontmatter);
 		return info ? normalizeCategory(info.category) : null;
 	};
 	const obsidian = (name: string, target?: string): string | null => {
@@ -744,21 +785,17 @@ export function buildWikilinkResolver(
 		if (target && target !== "any" && typeOf(dest) !== target) return null;
 		return idOf(dest);
 	};
-	const worldName = parseElementPath(sourcePath)?.worldName ?? null;
-	/** Element notes of this world whose basename is `name`, by type folder. */
+	const worldName = worldNotePath(sourcePath)?.worldName ?? null;
+	/** Element notes of this world whose basename is `name`, of the target type, wherever they sit. */
 	const notesNamed = (name: string, target: string): TFile[] => {
 		if (!worldName) return [];
-		const elements = app.vault.getAbstractFileByPath(normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`));
-		if (!(elements instanceof TFolder)) return [];
 		const want = name.toLowerCase();
 		const out: TFile[] = [];
-		for (const folder of elements.children) {
-			if (!(folder instanceof TFolder)) continue;
-			const folderType = normalizeCategory(categoryFolderType(folder.name));
-			if (target !== "any" && folderType !== target) continue;
-			for (const f of folder.children) {
-				if (f instanceof TFile && f.extension === "md" && f.basename.toLowerCase() === want) out.push(f);
-			}
+		for (const f of app.vault.getMarkdownFiles()) {
+			if (f.basename.toLowerCase() !== want || !mayBeElementNote(f.path, worldName)) continue;
+			const type = typeOf(f);
+			if (!type || (target !== "any" && type !== target)) continue;
+			out.push(f);
 		}
 		return out;
 	};

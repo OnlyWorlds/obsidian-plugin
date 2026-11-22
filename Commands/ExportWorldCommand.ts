@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, ownConflictMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -18,7 +18,7 @@ import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
 import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
-import { isInCategoryFolder } from '../vault/category-folder';
+import { mayBeElementNote } from '../vault/category-folder';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -461,9 +461,8 @@ export class ExportWorldCommand {
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                // The type's notes in either folder spelling (`Location`, an older `Location (2)`).
-                const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`);
-                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, category));
+                // The type's notes, wherever they sit in the world's folder (the Markdown profile, sentences 1 and 2).
+                const files = this.notesOfType(worldFolder, category);
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     // Phase B: frontmatter notes read via the shared element reader
@@ -500,6 +499,10 @@ export class ExportWorldCommand {
                         if (parsed?.unclosedFence) {
                             // Never sent cut short: named in the summary instead.
                             this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
+                            return {};
+                        }
+                        if (parsed?.ownConflicts) {
+                            this.refusedNotes.push(ownConflictMessage(`${category} "${parsed.name}"`, parsed.ownConflicts));
                             return {};
                         }
                         if (parsed) {
@@ -700,10 +703,24 @@ export class ExportWorldCommand {
         return ids;
     }
     
+    /**
+     * The world's notes of one type, wherever they sit in its folder: a note's
+     * place decides its type (the first folder named for one of the 22, in
+     * either spelling), and only a note outside every type folder is read by its
+     * `type` property, with an id that is a UUID.
+     */
+    private notesOfType(worldFolder: string, type: string): TFile[] {
+        const want = type.toLowerCase();
+        return this.app.vault.getFiles().filter((file): file is TFile => {
+            if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) return false;
+            const found = elementNoteType(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter);
+            return found?.category.toLowerCase() === want;
+        });
+    }
+
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
-        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldFolder}/Elements`);
-        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, elementType));
-        
+        const files = this.notesOfType(worldFolder, elementType);
+
         for (const file of files) {
             try {
                 const fileContent = await this.app.vault.read(file);

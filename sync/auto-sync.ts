@@ -2,6 +2,7 @@ import { App, TFile, Notice } from "obsidian";
 import type OnlyWorldsPlugin from "../main";
 import { SaveElementCommand } from "../Commands/SaveElementCommand";
 import { resolveWorldKey } from "../vault/world-key";
+import { elementNoteType } from "../vault/element-file";
 
 /**
  * Auto-sync engine.
@@ -81,7 +82,8 @@ export class AutoSyncEngine {
 	 * True if file path matches an element note location.
 	 */
 	private isElementFile(file: TFile): boolean {
-		return /^OnlyWorlds\/Worlds\/[^/]+\/Elements\/[^/]+\/.+\.md$/i.test(file.path);
+		// A note of the person's own (no type folder, no element id and `type`) is never synced, and says nothing.
+		return elementNoteType(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter) !== null;
 	}
 
 	/**

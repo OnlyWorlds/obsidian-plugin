@@ -51,11 +51,32 @@ test("a bare category folder (\"Location\") still validates", async () => {
 	assert.equal(cmd.errorCount, 0);
 });
 
-test("★ a frontmatter note without an id is an error, not a pass", async () => {
+test("★ a frontmatter note without an id is the person's own: no error, named, and not counted as checked", async () => {
 	const cmd = await validate("Location (2)", { "Gila River.md": NOTE(null, "Gila River"), "Yuma.md": NOTE(ID2, "Yuma") });
-	assert.equal(cmd.checkedCount, 2);
+	assert.equal(cmd.errorCount, 0);
+	assert.equal(cmd.checkedCount, 1);
+	assert.deepEqual(cmd.couldBeElements, ["(Location) Gila River"]);
+});
+
+test("a note with an id that is not a UUID is still an error", async () => {
+	const cmd = await validate("Location", { "Gila River.md": NOTE("not-a-uuid", "Gila River") });
 	assert.equal(cmd.errorCount, 1);
-	assert.match(cmd.errors.missingIdErrors[0], /Gila River.*Id/);
+	assert.match(cmd.errors.missingIdErrors[0], /Gila River.*not a UUID/);
+});
+
+test("★ a note anywhere in the world's folder is checked by its type property, and a note of the person's own is not read", async () => {
+	const { app, vault } = makeApp();
+	await vault.createFolder(`${WORLD}/Cast`);
+	await vault.create(`${WORLD}/World.md`, "# World Overview: W\n");
+	await vault.create(`${WORLD}/Cast/Yuma.md`, NOTE(ID2, "Yuma").replace("supertype: town", "type: location"));
+	await vault.create(`${WORLD}/Cast/Diary.md`, "---\nname: Diary\ntype: npc\n---\nMy own note.\n");
+	await vault.create(`${WORLD}/Cast/Mismatch.md`, NOTE(ID1, "Other name").replace("supertype: town", "type: location"));
+	const cmd = new ValidateWorldCommand(app, {} as never, new WorldService(app), false);
+	await cmd.execute("W");
+	assert.equal(cmd.elementCount, 2, "Yuma and Mismatch are element notes; the diary is not");
+	assert.equal(cmd.errorCount, 1);
+	assert.match(cmd.errors.nameMismatchErrors[0], /Mismatch/);
+	assert.deepEqual(cmd.couldBeElements, [], "a note outside every type folder with no id is no one's business");
 });
 
 test("a frontmatter note whose name does not match its file is an error", async () => {

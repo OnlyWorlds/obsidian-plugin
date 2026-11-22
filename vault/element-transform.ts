@@ -1444,6 +1444,13 @@ export interface ReadLinkOptions {
 	 * rule applies (ambiguous -> left out and named).
 	 */
 	genericTargetType?: string;
+	/**
+	 * Collects the names a note holds twice: as a property of the person's own
+	 * and inside a `x_properties` group it also carries. Such a note is refused
+	 * by name, never sent with one of the two chosen for the person (the
+	 * Markdown profile, sentence 4).
+	 */
+	ownConflicts?: string[];
 }
 
 /**
@@ -1538,6 +1545,9 @@ export function frontmatterToPayloadFields(
 			// `x_home`. The value rides verbatim (the API accepts any JSON type
 			// in an x_ field — probed 2026-08-22). Reported via opts.adopted so
 			// the caller can say what it sent and where.
+			// A `type` that only repeats the note's own type (its place says the
+			// same) is no property of the person's: it does not cross.
+			if (key === "type" && typeof value === "string" && normalizeCategory(value) === normalizeCategory(category)) continue;
 			own[key] = dateToFieldString(value);
 			opts.adopted?.push({ from: key, to: OWN_PROPERTIES_KEY });
 			continue;
@@ -1578,7 +1588,9 @@ export function frontmatterToPayloadFields(
 	// as properties win over the same name inside it.
 	if (Object.keys(own).length > 0) {
 		const held = out[OWN_PROPERTIES_KEY];
-		out[OWN_PROPERTIES_KEY] = { ...(isPlainRecord(held) ? held : {}), ...own };
+		const heldGroup = isPlainRecord(held) ? held : {};
+		for (const name of Object.keys(own)) if (name in heldGroup) opts.ownConflicts?.push(name);
+		out[OWN_PROPERTIES_KEY] = { ...heldGroup, ...own };
 	}
 	return out;
 }

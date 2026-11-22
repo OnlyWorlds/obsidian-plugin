@@ -1,7 +1,6 @@
 import { App, Modal, Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { readElement } from '../vault/element-file';
-import { categoryFolderType } from '../vault/category-folder';
+import { elementNoteType, readElement } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { isStaleWrite, V2ApiError } from '../client-v2';
 import { readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -136,12 +135,9 @@ export class DeleteElementCommand {
     }
 
     private extractPathInfo(filePath: string): { worldName: string; category: string } | null {
-        const pattern = /^OnlyWorlds\/Worlds\/([^\/]+)\/Elements\/([^\/]+)\/.+\.md$/i;
-        const match = filePath.match(pattern);
-        if (match && match[1] && match[2]) {
-            return { worldName: match[1], category: categoryFolderType(match[2]) };
-        }
-        return null;
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+        return elementNoteType(filePath, fm);
     }
 }
 

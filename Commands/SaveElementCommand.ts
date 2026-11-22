@@ -1,9 +1,9 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { likelyMisnamedMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
-import { categoryFolderType } from '../vault/category-folder';
+import { categoryFolderType, mayBeElementNote } from '../vault/category-folder';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -367,6 +367,9 @@ export class SaveElementCommand {
                 if (!manual) fenceShown.add(activeFile.path);
                 return this.fail(reason, 15000);
             }
+            // A name the note holds as a property and again inside its own
+            // x_properties: refused by name, never sent with one of the two picked.
+            if (v2.ownConflicts) return this.fail(ownConflictMessage(v2.name, v2.ownConflicts), 15000);
             elementData = { id: v2.id, ...v2.fields };
             // A key one slip from a link field went out as x_<key>: say which
             // field it likely meant, correct nothing (round C, 4). Auto-sync
@@ -791,6 +794,11 @@ export class SaveElementCommand {
                     overflow = true;
                     return;
                 }
+                if (parsed.ownConflicts) {
+                    refused = ownConflictMessage(`${capitalize(parsed.category)} "${parsed.name}"`, parsed.ownConflicts);
+                    overflow = true;
+                    return;
+                }
                 const targetPayload = toV2Payload(parsed.fields);
                 await visit(parsed.category, targetPayload);
                 if (overflow) return;
@@ -1008,20 +1016,18 @@ export class SaveElementCommand {
 
     /** The file names (lower case) of this world's element notes, for the unresolved-link notice. */
     private worldNoteNames(worldName: string): Set<string> {
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const names = new Set<string>();
         for (const f of this.app.vault.getMarkdownFiles()) {
-            if (f.path.startsWith(prefix)) names.add(f.basename.toLowerCase());
+            if (mayBeElementNote(f.path, worldName)) names.add(f.basename.toLowerCase());
         }
         return names;
     }
 
     /** This world's element notes by their frontmatter id. */
     private worldNoteIndex(worldName: string): Map<string, TFile> {
-        const prefix = `OnlyWorlds/Worlds/${worldName}/Elements/`;
         const index = new Map<string, TFile>();
         for (const f of this.app.vault.getMarkdownFiles()) {
-            if (!f.path.startsWith(prefix)) continue;
+            if (!mayBeElementNote(f.path, worldName)) continue;
             const id = this.app.metadataCache.getFileCache(f)?.frontmatter?.id;
             if (typeof id === 'string' && !index.has(id)) index.set(id, f);
         }
@@ -1114,19 +1120,13 @@ export class SaveElementCommand {
         return error instanceof V2ApiError && error.status === 410;
     }
 
-    // Helper to extract World Name and Category from path
+    // The world and type of an element note: its place decides (the first folder below the
+    // world's folder named for one of the 22, in either spelling), and only a note outside
+    // every type folder is read by its `type` property (the Markdown profile, sentence 2).
     extractPathInfo(filePath: string): { worldName: string; category: string } | null {
-        // Example path: OnlyWorlds/Worlds/MyWorld/Elements/Character (3)/Hero.md
-        const pattern = /^OnlyWorlds\/Worlds\/([^\/]+)\/Elements\/([^\/]+)\/.+\.md$/i;
-        const match = filePath.match(pattern);
-        if (match && match[1] && match[2]) {
-            // The type its folder holds ("Character", or an older "Character (3)")
-            const rawCategory = match[2];
-            const baseCategoryName = categoryFolderType(rawCategory);
-         //   console.log(`[SaveElementCommand] Extracted category: "${rawCategory}" -> base: "${baseCategoryName}"`);
-            return { worldName: match[1], category: baseCategoryName };
-        }
-        return null;
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+        return elementNoteType(filePath, fm);
     }
 
     // Refined parser based on ExportWorldCommand's logic

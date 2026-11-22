@@ -1,8 +1,8 @@
 import { App, Modal, Notice, Platform, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { v7 as uuidv7 } from "uuid";
-import { readElement, unclosedFenceMessage } from "../vault/element-file";
-import { bodyFieldForCategory, getCategorySchema } from "../vault/element-transform";
-import { elementPathParts } from "../vault/category-folder";
+import { ownConflictMessage, readElement, unclosedFenceMessage } from "../vault/element-file";
+import { bodyFieldForCategory, getCategorySchema, parseRawFrontmatterScalars } from "../vault/element-transform";
+import { inUnreadFolder, isElementId, typeOfPlace, worldNotePath } from "../vault/category-folder";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
@@ -149,9 +149,19 @@ export class ExportFolderCommand {
 		return root.children.filter((c): c is TFolder => c instanceof TFolder).map((f) => f.name);
 	}
 
+	/**
+	 * Every note in the world's folder that may be an element note, wherever it
+	 * sits (the Markdown profile, sentence 1): a note in a dot-folder or in
+	 * `records/` is never read, and neither is the world's own `World.md`.
+	 */
 	private elementFilesFor(world: string): TFile[] {
-		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
-		return this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
+		const prefix = `OnlyWorlds/Worlds/${world}/`;
+		return this.app.vault.getMarkdownFiles().filter((f) => {
+			if (!f.path.startsWith(prefix)) return false;
+			const parts = worldNotePath(f.path);
+			if (!parts || inUnreadFolder(parts.folders)) return false;
+			return !(parts.folders.length === 0 && parts.file.toLowerCase() === "world.md");
+		});
 	}
 
 	/**
@@ -274,26 +284,44 @@ export class ExportFolderCommand {
 		// Hidden by the world's owner: a stub, or an id on a
 		// hidden list, is no element to carry; counted on its own line.
 		let hidden = 0;
+		// Notes of the person's own: no element id and no type folder; left as they are.
+		let ownNotes = 0;
 		for (const file of files) {
 			try {
-				if (isStubNote(await this.app.vault.read(file))) {
+				const text = await this.app.vault.read(file);
+				if (isStubNote(text)) {
 					hidden++;
 					refusedPaths.add(file.path);
 					continue;
 				}
 				const parsed = await readElement(this.app, file);
 				if (!parsed || !parsed.id) {
-					failed.push({ path: file.path, reason: "no id / unreadable" });
+					// Outside every type folder and with no element id a note is the
+					// person's own (sentence 1): left as it is, no failure. One with
+					// an element id and no type to read it by is named; a note in a
+					// type folder without an id, as before.
+					if (!typeOfPlace(file.path)) {
+						const idLine = isElementId(parseRawFrontmatterScalars(text, ["id"]).id);
+						if (idLine) failed.push({ path: file.path, reason: "not in a type folder, and its type property names none of the 22 types" });
+						else ownNotes++;
+						continue;
+					}
+					failed.push({ path: file.path, reason: "no id, so it is left as your own note (it could be made an element), or unreadable" });
 					continue;
 				}
 				// A note outside the 22 type folders has no type to export under: the folder's own name
 				// must never become a type (a `places` folder in a folder export reads as no valid world).
 				if (!getCategorySchema(parsed.category)) {
-					failed.push({ path: file.path, reason: `not in a type folder (the folder "${elementPathParts(file.path)?.folder ?? parsed.category}" is none of the 22 types)` });
+					failed.push({ path: file.path, reason: `not in a type folder (the folder "${parsed.category}" is none of the 22 types)` });
 					continue;
 				}
 				if (this.host && isHiddenId(this.host.settings, parsed.id)) {
 					hidden++;
+					refusedPaths.add(file.path);
+					continue;
+				}
+				if (parsed.ownConflicts) {
+					failed.push({ path: file.path, reason: ownConflictMessage(parsed.name, parsed.ownConflicts, "not exported") });
 					refusedPaths.add(file.path);
 					continue;
 				}
