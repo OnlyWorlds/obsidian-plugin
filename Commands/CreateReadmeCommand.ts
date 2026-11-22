@@ -32,7 +32,7 @@ export class CreateReadmeCommand {
             await this.app.vault.create(readmePath, content);
         } catch (error) {
             console.error('Failed to fetch the README:', error);
-            new Notice('Could not fetch the README.');
+            new Notice('Could not fetch the README note (OnlyWorlds/README.md). Your world itself is not affected.');
         }
     }
 }
