@@ -126,6 +126,17 @@ export function isElementId(value: unknown): value is string {
 }
 
 /**
+ * True when the note lies under the world's `Elements/` folder, where this
+ * plugin has always kept its notes. There an element id is any id it ever
+ * wrote; anywhere else in the world's folder only a lower-case UUID makes an
+ * element note (a note with another plugin's id is the person's own).
+ */
+export function isUnderElements(path: string): boolean {
+	const parts = worldNotePath(path);
+	return !!parts && parts.folders[0]?.toLowerCase() === "elements";
+}
+
+/**
  * True when a note may be an element note of `worldName` (any world when
  * omitted): it lies in the world's folder, in no dot-folder and not in
  * `records/`, and is not the world's own `World.md`. Whether it IS one is

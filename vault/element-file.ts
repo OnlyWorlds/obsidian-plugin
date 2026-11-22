@@ -1,6 +1,6 @@
 import { App, TFile, TFolder, normalizePath, parseYaml } from "obsidian";
 import { sanitizeFileName } from "../Scripts/WorldService";
-import { categoryFolderType, isElementId, isInCategoryFolder, typeOfPlace, typeOfProperty, worldNotePath, inUnreadFolder, mayBeElementNote } from "./category-folder";
+import { categoryFolderType, isElementId, isInCategoryFolder, isUnderElements, typeOfPlace, typeOfProperty, worldNotePath, inUnreadFolder, mayBeElementNote } from "./category-folder";
 import {
 	frontmatterToPayloadFields,
 	apiDataToFrontmatter,
@@ -203,7 +203,11 @@ export function parseElementPath(path: string): { worldName: string; category: s
  */
 export function elementNoteType(path: string, fm: Record<string, unknown> | null | undefined): { worldName: string; category: string } | null {
 	const place = parseElementPath(path);
-	if (place) return place;
+	if (place) {
+		// Under Elements/ (this plugin's own folder) any id it ever wrote is the element's; in a type-named
+		// folder anywhere else in the world only a UUID is, so a person's note with another plugin's id is theirs.
+		return isUnderElements(path) || isElementId(fm?.id) ? place : null;
+	}
 	const parts = worldNotePath(path);
 	if (!parts || inUnreadFolder(parts.folders)) return null;
 	if (parts.folders.length === 0 && parts.file.toLowerCase() === "world.md") return null;
@@ -338,6 +342,8 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 			const customKeys = unknownHeadings
 				.filter((h) => readsAsCustomField(h))
 				.map((h) => `x_${headingToFieldKey(h)}`)
+				// `### Properties` is prose, never the group's key: a section must not replace the person's own properties.
+				.filter((k) => k !== OWN_PROPERTIES_KEY)
 				.filter((k) => !toolShadows.has(k) || k in fm);
 			const shadowKeys = [...toolShadows].filter((k) => !(k in fm));
 			const sectionValues = bodyToFieldValues(body, category, [...customKeys, ...shadowKeys]);
@@ -558,7 +564,10 @@ export async function writeElement(
 	// The server's seven are the arriving element's (3.10): one the server
 	// now serves null (a former member's `changed_by` after the owner's
 	// edit) leaves the note, never kept from the last pull.
-	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY, OWN_PROPERTIES_KEY, ...SERVER_FIELDS]);
+	const ownedKeys = new Set<string>(["id", "name", KNOWN_OF_KEY, KNOWN_OF_WRITTEN_KEY, ...SERVER_FIELDS]);
+	// The note's own `x_properties` (entries the pull kept there, or typed by hand) is the server's to replace only when the
+	// element arrives with a group; with none it stays, and the next save sends it.
+	if (OWN_PROPERTIES_KEY in data) ownedKeys.add(OWN_PROPERTIES_KEY);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	// A stub replacing a whole copy (a view reset) keeps none of its extension
@@ -578,6 +587,17 @@ export async function writeElement(
 	const merged: Record<string, unknown> = { ...fm };
 	for (const [k, v] of Object.entries(preserved)) {
 		if (!(k in merged)) merged[k] = v;
+	}
+	// A note outside every type folder is of the type its `type` property names: a `type` entry in the server's group
+	// (written from another place, where the note sits in a type folder) never changes it.
+	if (!typeOfPlace(filePath) && existingFm.type !== undefined) merged.type = existingFm.type;
+	// An entry the group keeps in the note (a name the note cannot write as a key) is not kept beside a key of that
+	// name the note already holds: that would make the note one that holds a name twice, and refused at its next save.
+	const kept = merged[OWN_PROPERTIES_KEY];
+	if (kept && typeof kept === "object" && !Array.isArray(kept)) {
+		const left = Object.fromEntries(Object.entries(kept as Record<string, unknown>).filter(([name]) => !(name in preserved)));
+		if (Object.keys(left).length > 0) merged[OWN_PROPERTIES_KEY] = left;
+		else delete merged[OWN_PROPERTIES_KEY];
 	}
 	// The record goes last, under everything the person reads first.
 	if (knownOf) merged[KNOWN_OF_WRITTEN_KEY] = knownOfWritten(data, cat);
@@ -682,11 +702,38 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 }
 
 /**
+ * The note a pull writes to when several notes hold one element's id: the one
+ * in the element's own type folder under Elements/, else the first by path. The
+ * pull's plan and the writer both choose by this, so they never pick two.
+ */
+export function pickNoteForId(paths: string[], worldName: string, type: string): string | null {
+	if (paths.length === 0) return null;
+	const elements = `OnlyWorlds/Worlds/${worldName}/Elements`;
+	const sorted = [...paths].sort();
+	return sorted.find((p) => isInCategoryFolder(p, elements, type)) ?? sorted[0];
+}
+
+/**
+ * A note's front matter: the metadata cache's, else the note's own YAML read
+ * from disk (the cache is cold at start-up and for a note written a moment
+ * ago, and a scan that trusted it would silently leave such a note out).
+ */
+export async function readFrontmatter(app: App, file: TFile): Promise<Record<string, unknown> | undefined> {
+	const cached = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+	if (cached && typeof cached.id === "string") return cached;
+	try {
+		return parseRawFrontmatter(await app.vault.read(file)) ?? cached;
+	} catch {
+		return cached;
+	}
+}
+
+/**
  * Find an element note by embedded frontmatter id, wherever it sits in the
  * world's folder (the Markdown profile, sentence 1): a note a person moved out
- * of its type folder is still the element's, and a pull must write to it, not
- * make a second one. A note in the element's own type folder wins over one
- * elsewhere.
+ * of its type folder, with its id and a `type`, is still the element's and a
+ * pull writes to it, not to a second note. Only an element note counts: a note
+ * the plugin would not save is the person's own and is never written over.
  */
 async function findNoteById(
 	app: App,
@@ -694,16 +741,17 @@ async function findNoteById(
 	folderName: string,
 	id: string
 ): Promise<TFile | null> {
-	const elements = `OnlyWorlds/Worlds/${worldName}/Elements`;
-	let elsewhere: TFile | null = null;
+	const found = new Map<string, TFile>();
 	for (const f of app.vault.getMarkdownFiles()) {
 		if (!mayBeElementNote(f.path, worldName)) continue;
-		const fm = app.metadataCache.getFileCache(f)?.frontmatter;
-		if (!fm || fm.id !== id) continue;
-		if (isInCategoryFolder(f.path, elements, folderName)) return f;
-		elsewhere ??= f;
+		const cached = app.metadataCache.getFileCache(f)?.frontmatter;
+		if (cached && cached.id !== id) continue;
+		const fm = cached ?? (await readFrontmatter(app, f));
+		if (!fm || fm.id !== id || !elementNoteType(f.path, fm)) continue;
+		found.set(f.path, f);
 	}
-	return elsewhere;
+	const path = pickNoteForId([...found.keys()], worldName, folderName);
+	return path ? found.get(path) ?? null : null;
 }
 
 /**
@@ -787,12 +835,20 @@ export function buildWikilinkResolver(
 	};
 	const worldName = worldNotePath(sourcePath)?.worldName ?? null;
 	/** Element notes of this world whose basename is `name`, of the target type, wherever they sit. */
+	let byBasename: Map<string, TFile[]> | null = null;
 	const notesNamed = (name: string, target: string): TFile[] => {
 		if (!worldName) return [];
-		const want = name.toLowerCase();
+		// The world's notes by file name, made once per resolver: one pass over the vault, not one per link.
+		if (!byBasename) {
+			byBasename = new Map();
+			for (const f of app.vault.getMarkdownFiles()) {
+				if (!mayBeElementNote(f.path, worldName)) continue;
+				const key = f.basename.toLowerCase();
+				byBasename.set(key, [...(byBasename.get(key) ?? []), f]);
+			}
+		}
 		const out: TFile[] = [];
-		for (const f of app.vault.getMarkdownFiles()) {
-			if (f.basename.toLowerCase() !== want || !mayBeElementNote(f.path, worldName)) continue;
+		for (const f of byBasename.get(name.toLowerCase()) ?? []) {
 			const type = typeOf(f);
 			if (!type || (target !== "any" && type !== target)) continue;
 			out.push(f);

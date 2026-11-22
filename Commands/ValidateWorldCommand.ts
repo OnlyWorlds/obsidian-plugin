@@ -1,7 +1,7 @@
 import { ValidateResultModal } from '../Modals/ValidateResultModal';
 import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
-import { parseRawFrontmatterScalars } from '../vault/element-transform';
+import { isSpanFormat, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { elementNoteType } from '../vault/element-file';
 import { mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
@@ -86,8 +86,9 @@ export class ValidateWorldCommand {
             const content = await this.app.vault.read(file);
             const found = elementNoteType(file.path, parseRawFrontmatterScalars(content, ['id', 'type']));
             if (!found) continue;
-            // In a type folder with no id at all: the person's own note, named and left.
-            if (typeOfPlace(file.path) && content.startsWith('---') && !(parseRawFrontmatterScalars(content, ['id']).id ?? '').trim()) {
+            // In a type folder with no id at all (no front matter id, and not a note in the old span format, whose id is in its text): the person's own note, named and left.
+            const framed = content.startsWith('---');
+            if (typeOfPlace(file.path) && (framed ? !(parseRawFrontmatterScalars(content, ['id']).id ?? '').trim() : !isSpanFormat(content))) {
                 this.couldBeElements.push(`(${found.category}) ${file.basename}`);
                 continue;
             }

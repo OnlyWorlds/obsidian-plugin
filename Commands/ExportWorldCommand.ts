@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { elementNoteType, ownConflictMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -18,7 +18,7 @@ import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
 import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
-import { mayBeElementNote } from '../vault/category-folder';
+import { isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -462,7 +462,7 @@ export class ExportWorldCommand {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
                 // The type's notes, wherever they sit in the world's folder (the Markdown profile, sentences 1 and 2).
-                const files = this.notesOfType(worldFolder, category);
+                const files = await this.notesOfType(worldFolder, category);
      
                 const categoryData = await Promise.all(files.map(async (file) => {
                     // Phase B: frontmatter notes read via the shared element reader
@@ -519,6 +519,22 @@ export class ExportWorldCommand {
             }
         }
     
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): a copy kept in an
+        // archive folder must not overwrite the element, and neither is the element's to choose.
+        const idCount = new Map<string, number>();
+        for (const list of Object.values(worldData)) {
+            if (!Array.isArray(list)) continue;
+            for (const el of list as { id?: unknown }[]) if (el.id) idCount.set(String(el.id), (idCount.get(String(el.id)) ?? 0) + 1);
+        }
+        for (const [category, list] of Object.entries(worldData)) {
+            if (!Array.isArray(list)) continue;
+            worldData[category] = (list as { id?: unknown; name?: unknown }[]).filter((el) => {
+                if (!el.id || (idCount.get(String(el.id)) ?? 0) < 2) return true;
+                this.refusedNotes.push(`${category} "${String(el.name ?? el.id)}" not sent: another note holds the same id. Keep one of them, then try again.`);
+                return false;
+            });
+        }
+
         // Add debug logging at the end of the method, before returning the data
         try {
          //   console.log("WORLD DATA COLLECTION COMPLETE - Raw data structure:");
@@ -709,17 +725,20 @@ export class ExportWorldCommand {
      * either spelling), and only a note outside every type folder is read by its
      * `type` property, with an id that is a UUID.
      */
-    private notesOfType(worldFolder: string, type: string): TFile[] {
+    private async notesOfType(worldFolder: string, type: string): Promise<TFile[]> {
         const want = type.toLowerCase();
-        return this.app.vault.getFiles().filter((file): file is TFile => {
-            if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) return false;
-            const found = elementNoteType(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter);
-            return found?.category.toLowerCase() === want;
-        });
+        const out: TFile[] = [];
+        for (const file of this.app.vault.getFiles()) {
+            if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) continue;
+            // A note in a type folder under Elements/ needs no front matter to be read; any other is read by its id and `type`, from the cache or the disk.
+            const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(this.app, file);
+            if (elementNoteType(file.path, fm)?.category.toLowerCase() === want) out.push(file);
+        }
+        return out;
     }
 
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
-        const files = this.notesOfType(worldFolder, elementType);
+        const files = await this.notesOfType(worldFolder, elementType);
 
         for (const file of files) {
             try {

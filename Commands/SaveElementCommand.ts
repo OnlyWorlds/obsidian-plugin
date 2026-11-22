@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, mayBeElementNote } from '../vault/category-folder';
@@ -338,7 +338,7 @@ export class SaveElementCommand {
         }
 
         // 1. Validate Path and Extract Info
-        const pathInfo = this.extractPathInfo(activeFile.path);
+        const pathInfo = await this.extractPathInfo(activeFile.path);
         if (!pathInfo) {
             return this.fail("The current file is not a valid OnlyWorlds element note.");
         }
@@ -949,7 +949,7 @@ export class SaveElementCommand {
         const index = this.worldNoteIndex(worldName);
         const leftOut = hit.map((id) => {
             const file = index.get(id);
-            const cat = file ? this.extractPathInfo(file.path)?.category.toLowerCase() : undefined;
+            const cat = file ? this.pathInfoCached(file.path)?.category.toLowerCase() : undefined;
             return { type: cat ?? 'element', name: file?.basename ?? id, ...hiddenMark(hidden, id, leftView) };
         });
         return { firsts: [], leftOut, leftOutIds: hit };
@@ -1123,7 +1123,16 @@ export class SaveElementCommand {
     // The world and type of an element note: its place decides (the first folder below the
     // world's folder named for one of the 22, in either spelling), and only a note outside
     // every type folder is read by its `type` property (the Markdown profile, sentence 2).
-    extractPathInfo(filePath: string): { worldName: string; category: string } | null {
+    // The front matter comes from the cache, else from the note on disk: a cold cache must not make a note
+    // outside the type folders look like no element's.
+    async extractPathInfo(filePath: string): Promise<{ worldName: string; category: string } | null> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        const fm = file instanceof TFile ? await readFrontmatter(this.app, file) : undefined;
+        return elementNoteType(filePath, fm);
+    }
+
+    // The same, from the metadata cache alone, where a caller cannot wait (a map over links).
+    private pathInfoCached(filePath: string): { worldName: string; category: string } | null {
         const file = this.app.vault.getAbstractFileByPath(filePath);
         const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
         return elementNoteType(filePath, fm);
@@ -1249,7 +1258,7 @@ export class SaveElementCommand {
         const linkPattern = /\[\[(.*?)\]\]/g; // Find [[Note Name]]
         let match;
 
-        const pathInfo = this.extractPathInfo(currentFilePath);
+        const pathInfo = await this.extractPathInfo(currentFilePath);
         if (!pathInfo) {
             console.error("      Cannot extract IDs: World context not found.");
             return ids;

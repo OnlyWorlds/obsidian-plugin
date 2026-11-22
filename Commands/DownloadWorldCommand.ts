@@ -24,8 +24,8 @@ import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, recordChangeSeqs } from '../vault/change-seq-index';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { parseElementPath, writeElement } from '../vault/element-file';
-import { isElementId, isInCategoryFolder, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
+import { elementNoteType, parseElementPath, pickNoteForId, writeElement } from '../vault/element-file';
+import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
 import { writeWorldBasesFileQuietly } from '../vault/bases-writer';
@@ -613,7 +613,7 @@ export class DownloadWorldCommand {
                 // folder of the world: a note a person moved out of its type
                 // folder is still the element's, never made twice (the Markdown
                 // profile, sentence 1).
-                const existingElementPath: string | null = worldIds.get(String(element.id)) ?? null;
+                const existingElementPath: string | null = pickNoteForId(worldIds.get(String(element.id)) ?? [], worldName, category);
                 // A known-of stub (the folder spec §4.4): written
                 // as it is over no note, a known-of note or a hidden stub; over
                 // a whole note only after a view reset, else that note is kept
@@ -783,8 +783,9 @@ export class DownloadWorldCommand {
         for (const file of files) {
             try {
                 const content = await this.app.vault.read(file);
-                const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
-                if (fm.id) {
+                const fm = parseRawFrontmatterScalars(content, ['id', 'name', 'type']);
+                // A note the plugin would not save (a person's own, a copy with no type) is no element's note: a link never points at it.
+                if (fm.id && elementNoteType(file.path, fm)) {
                     map.set(fm.id, file.basename);
                     if (fm.name) real.set(fm.id, fm.name);
                     else real.delete(fm.id);
@@ -834,10 +835,12 @@ export class DownloadWorldCommand {
         let n = 0;
         for (const id of ids) {
             const file = files.get(id);
-            const category = file ? parseElementPath(file.path)?.category : undefined;
-            if (!file || !category) continue;
+            if (!file) continue;
             try {
                 const content = await this.app.vault.read(file);
+                // The note's type by its place, else by its `type` property: a hidden element's note outside the type folders is stubbed too.
+                const category = elementNoteType(file.path, parseRawFrontmatterScalars(content, ['id', 'type']))?.category;
+                if (!category) continue;
                 const next = stubNote(content, category);
                 if (next === content) continue;
                 this.plugin?.autoSync?.markSelfWrite(file.path);
@@ -861,7 +864,8 @@ export class DownloadWorldCommand {
             if (!mayBeElementNote(file.path, worldName)) continue;
             try {
                 const content = await this.app.vault.read(file);
-                const id = parseRawFrontmatterScalars(content, ['id']).id;
+                const idFm = parseRawFrontmatterScalars(content, ['id', 'type']);
+                const id = idFm.id && elementNoteType(file.path, idFm) ? idFm.id : undefined;
                 if (id) { own.add(id); all.add(id); if (!files.has(id)) files.set(id, file); }
                 // The ids its Properties hold (a raw-id link to an element
                 // with no note here): the deleted list keeps those too, so a
@@ -915,31 +919,31 @@ export class DownloadWorldCommand {
      * The id of every element note in the world's folder, to its path, read
      * from disk (the cache is cold mid-download): the pull's one lookup of "does
      * this element have a note", wherever the note sits. The frontmatter `id:` is
-     * read first, then the legacy span and bold forms, as before. A note in an
-     * element's own type folder is not preferred here: ids are unique, and two
-     * notes with one id are the person's to settle (the pull writes to the first).
+     * read first, then the legacy span and bold forms under Elements/, as before.
+     * Only an element note counts (the rule Save uses): a person's own note, or
+     * a copy with no type outside the type folders, is never a note the pull
+     * writes to. All the notes holding an id are kept; the pull picks one by
+     * `pickNoteForId`, the same rule the writer uses.
      */
-    async worldNoteIds(worldName: string): Promise<Map<string, string>> {
-        const index = new Map<string, string>();
+    async worldNoteIds(worldName: string): Promise<Map<string, string[]>> {
+        const index = new Map<string, string[]>();
         for (const file of this.app.vault.getMarkdownFiles()) {
             if (!mayBeElementNote(file.path, worldName)) continue;
             try {
                 const content = await this.app.vault.read(file);
                 let id: string | undefined;
-                if (typeOfPlace(file.path)) {
-                    // In a type folder: the id in any of the forms the plugin has written.
-                    const idMatch = content.match(/^id:\s*(\S+)/m) ||
-                                    content.match(/^- \*\*ID:\*\* (.+)$/m) ||
+                const fm = parseRawFrontmatterScalars(content, ['id', 'type']);
+                if (fm.id) {
+                    if (elementNoteType(file.path, fm)) id = fm.id;
+                } else if (isUnderElements(file.path) && typeOfPlace(file.path)) {
+                    // The plugin's own folders: the id in the legacy span and bold forms it once wrote. A line of a
+                    // person's writing that looks like an id is never taken for one anywhere else.
+                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m) ||
                                     content.match(/^- .*Id.*: (.+)$/m) ||
                                     content.match(/Id.*: (.+)$/m);
                     id = idMatch?.[1].trim();
-                } else {
-                    // Anywhere else the note is the person's own unless its front matter holds an element id: a line in
-                    // their writing that looks like an id is never taken for one, or the pull would write over the note.
-                    const fmId = parseRawFrontmatterScalars(content, ['id']).id;
-                    id = isElementId(fmId) ? fmId : undefined;
                 }
-                if (id && !index.has(id)) index.set(id, file.path);
+                if (id) index.set(id, [...(index.get(id) ?? []), file.path]);
             } catch (error) {
                 console.error(`Error reading element file: ${file.path}`, error);
             }

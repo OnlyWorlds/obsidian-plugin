@@ -1,0 +1,152 @@
+/**
+ * What the cold read of the notes-anywhere change found, each as a test that is red without its fix:
+ * a person's own note must never make anything fail or be written over; the pull and Save must agree on
+ * what an element note is; a group entry must never break a note's front matter.
+ */
+import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { TFile } from "obsidian";
+import { makeApp } from "./support/obsidian-mock";
+import { AutoSyncEngine } from "../sync/auto-sync";
+import { ExportWorldCommand } from "../Commands/ExportWorldCommand";
+import { WorldService } from "../Scripts/WorldService";
+import { ExportFolderCommand } from "../Commands/ExportFolderCommand";
+import { ValidateWorldCommand } from "../Commands/ValidateWorldCommand";
+import { SaveElementCommand } from "../Commands/SaveElementCommand";
+import { elementNoteType, parseRawFrontmatter, readElement, readFrontmatter, writeElement } from "../vault/element-file";
+import { apiDataToFrontmatter, frontmatterToPayloadFields, isPlainKeyName, serializeFrontmatter } from "../vault/element-transform";
+
+const W = "OnlyWorlds/Worlds/W";
+const ID = "0199c000-0000-7000-8000-0000000000d1";
+const ID2 = "0199c000-0000-7000-8000-0000000000d2";
+
+async function seed(app: ReturnType<typeof makeApp>["app"], path: string, text: string) {
+	const folder = path.slice(0, path.lastIndexOf("/"));
+	if (!app.vault.getAbstractFileByPath(folder)) await app.vault.createFolder(folder);
+	return (await app.vault.create(path, text)) as unknown as TFile;
+}
+
+const engineOf = (app: ReturnType<typeof makeApp>["app"]) =>
+	new AutoSyncEngine(app, { settings: { autoSync: true, debounceMs: 1 }, registerEvent: () => undefined, setSyncStatus: () => undefined } as never) as unknown as {
+		isElementFile(f: TFile): Promise<boolean>;
+	};
+
+test("★ auto-sync says nothing about a person's own note in a type-named folder outside Elements/", async () => {
+	const { app } = makeApp();
+	const own = await seed(app, `${W}/Sessions/Event/Session 3.md`, "---\ntags: [session]\n---\nNotes.\n");
+	const noFm = await seed(app, `${W}/Sessions/Map/Plan.md`, "Just a plan.\n");
+	const other = await seed(app, `${W}/Notes/Character/Idea.md`, "---\nid: idea-20231122\nname: Idea\n---\nA note.\n");
+	const engine = engineOf(app);
+	assert.equal(await engine.isElementFile(own), false);
+	assert.equal(await engine.isElementFile(noFm), false);
+	assert.equal(await engine.isElementFile(other), false, "another plugin's id is not an element's outside Elements/");
+});
+
+test("auto-sync still syncs the plugin's own folders, and a typed note with a UUID id anywhere in the world", async () => {
+	const { app } = makeApp();
+	const inElements = await seed(app, `${W}/Elements/Character/Ireena.md`, "---\nname: Ireena\nid: legacy-id\n---\n");
+	const spanNote = await seed(app, `${W}/Elements/Character/Old.md`, "- <span class=\"text-field\" data-tooltip=\"Text\">Id</span>: x\n");
+	const typed = await seed(app, `${W}/Cast/Yuma.md`, `---\nname: Yuma\nid: ${ID}\ntype: location\n---\n`);
+	const typeless = await seed(app, `${W}/Cast/Typeless.md`, `---\nname: T\nid: ${ID2}\n---\n`);
+	const engine = engineOf(app);
+	assert.equal(await engine.isElementFile(inElements), true);
+	assert.equal(await engine.isElementFile(spanNote), true);
+	assert.equal(await engine.isElementFile(typed), true);
+	assert.equal(await engine.isElementFile(typeless), false);
+});
+
+test("★ an id that is not a UUID is an element's only under Elements/: a note with another plugin's id in a type-named folder elsewhere is the person's own", () => {
+	assert.equal(elementNoteType(`${W}/Notes/Character/Idea.md`, { id: "idea-20231122" }), null);
+	assert.equal(elementNoteType(`${W}/Notes/Character/Idea.md`, { id: ID })?.category, "Character");
+	assert.equal(elementNoteType(`${W}/Elements/Character/Old.md`, { id: "legacy-id" })?.category, "Character");
+});
+
+test("★ a body section headed Properties is prose, and never replaces the group of the person's own properties", async () => {
+	const { app, vault } = makeApp();
+	const f = await vault.seed(`${W}/Elements/Character/Ireena.md`, `---\nname: Ireena\nid: ${ID}\nstatus: draft\nmood: tense\n---\n\n### Description\n\nA noble.\n\n### Properties\n\nShe owns three houses.\n`);
+	const read = await readElement(app, f as unknown as TFile);
+	assert.deepEqual(read?.fields.x_properties, { status: "draft", mood: "tense" });
+	assert.match(String(read?.fields.description), /She owns three houses\./, "the section is kept as prose, not dropped");
+});
+
+test("★ an entry whose name cannot be a plain YAML key stays in the note's group, and the note stays readable", async () => {
+	const names = ["a: b", "#x", "[x]", "- y", "", "yes", "007", " pad"];
+	for (const n of names) assert.equal(isPlainKeyName(n), false, JSON.stringify(n));
+	for (const n of ["status", "Home town", "star-sign", "Résidence", "level 2", "x2"]) assert.equal(isPlainKeyName(n), true, n);
+	const group = { "a: b": 1, "#x": 2, "[x]": 3, status: "ok", "Home town": "Gela" };
+	const fm = apiDataToFrontmatter({ name: "Ireena", x_properties: group }, "character", ID);
+	assert.equal(fm.status, "ok");
+	assert.equal(fm["Home town"], "Gela");
+	assert.deepEqual(fm.x_properties, { "a: b": 1, "#x": 2, "[x]": 3 });
+	const yaml = serializeFrontmatter(fm);
+	const back = parseRawFrontmatter(yaml);
+	assert.ok(back, "the front matter no longer parses: " + yaml);
+	assert.deepEqual(back?.x_properties, { "a: b": 1, "#x": 2, "[x]": 3 });
+	assert.deepEqual(frontmatterToPayloadFields(back as Record<string, unknown>, "character").x_properties, group);
+});
+
+test("★ a pull never changes a typed note's type through an entry named type in the server's group", async () => {
+	const { app, vault } = makeApp();
+	const path = `${W}/Cast/Ireena.md`;
+	await vault.createFolder(`${W}/Cast`);
+	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\ntype: Character\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble.", x_properties: { type: "Hero", mood: "calm" } });
+	const text = vault.contentAt(path) ?? "";
+	assert.match(text, /^type: Character$/m, text);
+	assert.match(text, /^mood: calm$/m, text);
+	assert.ok(await readElement(app, app.vault.getAbstractFileByPath(path) as unknown as TFile), "the note stopped being an element's");
+});
+
+test("a pull keeps the group a person typed into a note when the element arrives with none", async () => {
+	const { app, vault } = makeApp();
+	const path = `${W}/Elements/Character/Ireena.md`;
+	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\nx_properties:\n  a: 1\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble." });
+	assert.match(vault.contentAt(path) ?? "", /x_properties:/);
+});
+
+test("a kept entry is not left beside a key of its name the note already holds (a note that would be refused at its next save)", async () => {
+	const { app, vault } = makeApp();
+	const path = `${W}/Elements/Character/Ireena.md`;
+	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\ntags:\n  - a\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble.", x_properties: { tags: ["server"], "a: b": 1 } });
+	const read = await readElement(app, app.vault.getAbstractFileByPath(path) as unknown as TFile);
+	assert.equal(read?.ownConflicts, undefined, JSON.stringify(read?.ownConflicts));
+});
+
+test("★ a cold metadata cache does not make a typed note look like no element's", async () => {
+	const { app } = makeApp();
+	const f = await seed(app, `${W}/Cast/Yuma.md`, `---\nname: Yuma\nid: ${ID}\ntype: location\n---\n`);
+	(app.metadataCache as unknown as { coldCache: boolean }).coldCache = true;
+	assert.equal(elementNoteType(f.path, (await readFrontmatter(app, f)) ?? undefined)?.category, "Location");
+	const cmd = new SaveElementCommand(app, {} as never) as unknown as { extractPathInfo(p: string): Promise<{ category: string } | null> };
+	assert.equal((await cmd.extractPathInfo(f.path))?.category, "Location");
+});
+
+test("★ two notes holding one id are both refused by Upload and by the folder export, neither sent", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **API Key:** ow_k_test\n");
+	await seed(app, `${W}/Elements/Character/Ireena.md`, `---\nname: Ireena\nid: ${ID}\n---\n\n### Description\n\nLive.\n`);
+	await seed(app, `${W}/Archive/Character/Ireena (old).md`, `---\nname: Ireena (old)\nid: ${ID}\n---\n\n### Description\n\nOld.\n`);
+	await seed(app, `${W}/Elements/Character/Kolyan.md`, `---\nname: Kolyan\nid: ${ID2}\n---\n\n### Description\n\nHere.\n`);
+	const up = new ExportWorldCommand(app, {} as never, new WorldService(app));
+	const data = (await up.collectWorldData("W")) as Record<string, { id?: string }[]>;
+	assert.deepEqual((data.Character ?? []).map((e) => e.id), [ID2]);
+	assert.ok((up as unknown as { refusedNotes: string[] }).refusedNotes.some((n) => /another note holds the same id/.test(n)));
+	const before = new Set(vault.files.keys());
+	await (new ExportFolderCommand(app) as unknown as { exportWorld(w: string, d: { kind: "vault" }): Promise<void> }).exportWorld("W", { kind: "vault" });
+	const out = [...vault.files.keys()].filter((p) => !before.has(p) && /elements\/character\//.test(p));
+	assert.equal(out.length, 1, JSON.stringify(out));
+	assert.match(out[0], /kolyan/);
+});
+
+test("Validate world does not count a plain note in a type-named folder as an element, and still validates an old span note", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	await seed(app, `${W}/Sessions/Event/Plan.md`, "Just a plan.\n");
+	const cmd = new ValidateWorldCommand(app, {} as never, new WorldService(app), false);
+	await cmd.execute("W");
+	assert.equal(cmd.elementCount, 0);
+	assert.equal(cmd.errorCount, 0);
+});

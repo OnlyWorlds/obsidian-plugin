@@ -1,6 +1,6 @@
 import { App, Modal, Notice, TFile } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, readElement } from '../vault/element-file';
+import { elementNoteType, readElement, readFrontmatter } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { isStaleWrite, V2ApiError } from '../client-v2';
 import { readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -31,7 +31,7 @@ export class DeleteElementCommand {
             new Notice('Open an element note first.');
             return;
         }
-        const pathInfo = this.extractPathInfo(activeFile.path);
+        const pathInfo = await this.extractPathInfo(activeFile.path);
         if (!pathInfo) {
             new Notice('The active note is not an OnlyWorlds element.');
             return;
@@ -134,9 +134,9 @@ export class DeleteElementCommand {
         }).open();
     }
 
-    private extractPathInfo(filePath: string): { worldName: string; category: string } | null {
+    private async extractPathInfo(filePath: string): Promise<{ worldName: string; category: string } | null> {
         const file = this.app.vault.getAbstractFileByPath(filePath);
-        const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+        const fm = file instanceof TFile ? await readFrontmatter(this.app, file) : undefined;
         return elementNoteType(filePath, fm);
     }
 }

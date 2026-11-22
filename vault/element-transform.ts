@@ -1622,6 +1622,17 @@ export interface WriteFrontmatterOptions {
 	scaffoldEmptyFields?: boolean;
 }
 
+/**
+ * True when a name can be written as a plain YAML key and read back as the same
+ * name: letters, digits, `_`, spaces and `-` inside it, and not a word YAML reads as a
+ * number, a boolean or null. Any other name (`a: b`, `#x`, `[x]`, an empty one) stays
+ * inside the note's own `x_properties`, where it cannot break the front matter.
+ */
+export function isPlainKeyName(name: string): boolean {
+	if (!/^[\p{L}\p{N}_](?:[\p{L}\p{N}_ -]*[\p{L}\p{N}_])?$/u.test(name)) return false;
+	return !/^[0-9._-]+$/.test(name) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(name);
+}
+
 /** True when a person's own property of this name cannot be a property of the note: the profile writes that key itself. */
 function ownNameIsTaken(
 	name: string,
@@ -1731,7 +1742,7 @@ export function apiDataToFrontmatter(
 	if (ownGroup) {
 		const kept: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(ownGroup)) {
-			if (ownNameIsTaken(k, schema, bodyField, content)) kept[k] = v;
+			if (ownNameIsTaken(k, schema, bodyField, content) || !isPlainKeyName(k)) kept[k] = v;
 			else content[k] = v;
 		}
 		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;

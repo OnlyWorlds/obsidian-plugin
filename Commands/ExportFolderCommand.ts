@@ -284,8 +284,6 @@ export class ExportFolderCommand {
 		// Hidden by the world's owner: a stub, or an id on a
 		// hidden list, is no element to carry; counted on its own line.
 		let hidden = 0;
-		// Notes of the person's own: no element id and no type folder; left as they are.
-		let ownNotes = 0;
 		for (const file of files) {
 			try {
 				const text = await this.app.vault.read(file);
@@ -303,7 +301,7 @@ export class ExportFolderCommand {
 					if (!typeOfPlace(file.path)) {
 						const idLine = isElementId(parseRawFrontmatterScalars(text, ["id"]).id);
 						if (idLine) failed.push({ path: file.path, reason: "not in a type folder, and its type property names none of the 22 types" });
-						else ownNotes++;
+						// else: the person's own note (no element id, no type folder), left as it is.
 						continue;
 					}
 					failed.push({ path: file.path, reason: "no id, so it is left as your own note (it could be made an element), or unreadable" });
@@ -345,6 +343,16 @@ export class ExportFolderCommand {
 			} catch (e) {
 				failed.push({ path: file.path, reason: e instanceof Error ? e.message : String(e) });
 			}
+		}
+		// Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
+		const idCount = new Map<string, number>();
+		for (const el of elements) idCount.set(String(el.payload.id), (idCount.get(String(el.payload.id)) ?? 0) + 1);
+		for (const el of [...elements]) {
+			if ((idCount.get(String(el.payload.id)) ?? 0) < 2) continue;
+			failed.push({ path: el.path, reason: "another note holds the same id, so neither is exported" });
+			refusedPaths.add(el.path);
+			elements.splice(elements.indexOf(el), 1);
+			byPath.delete(el.path);
 		}
 		if (elements.length === 0) {
 			new Notice(`Export aborted — no readable elements in ${world}.`);
