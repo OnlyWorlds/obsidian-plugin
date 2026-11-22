@@ -201,7 +201,7 @@ test("★ Save refuses a note whose id another element note holds, by name, and 
 		server: { [ID]: { name: "Ireena", description: "Live." } },
 	});
 	assert.equal(r.sent.length, 0);
-	assert.ok(r.notices.some((n) => /Ireena not saved: Ireena \(old\)\.md holds the same id/.test(n)), r.notices.join(" | "));
+	assert.ok(r.notices.some((n) => /Ireena not saved: Archive\/Character\/Ireena \(old\)\.md holds the same id/.test(n)), r.notices.join(" | "));
 });
 
 test("Save's id index never lets a type-less copy hide the element's note", async () => {
@@ -222,4 +222,65 @@ test("the folder export leaves a person's own note in a type-named folder outsid
 	const { __modals } = await import("./support/obsidian-mock");
 	const skipped = (__modals.at(-1) as unknown as { failed?: { path: string }[] })?.failed ?? [];
 	assert.deepEqual(skipped.map((f) => f.path), [], JSON.stringify(skipped));
+});
+
+test("★ the pull's plan reads a note's front matter as Save does: a comment after the type, flow style or a quoted key do not make it miss the note", async () => {
+	const { DownloadWorldCommand } = await import("../Commands/DownloadWorldCommand");
+	const shapes: Record<string, string> = {
+		comment: `---\nname: Ireena\nid: ${ID}\ntype: Character # an NPC\n---\n\n### Description\n\nA noble.\n`,
+		flow: `---\n{name: Ireena, id: ${ID}, type: Character}\n---\n\n### Description\n\nA noble.\n`,
+		quoted: `---\nname: Ireena\n"id": ${ID}\n'type': Character\n---\n\n### Description\n\nA noble.\n`,
+	};
+	for (const [shape, text] of Object.entries(shapes)) {
+		const { app, vault } = makeApp();
+		await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+		await vault.createFolder(`${W}/Elements`);
+		await seed(app, `${W}/Cast/Ireena.md`, text);
+		await new DownloadWorldCommand(app, {}).generateElementNotes(`${W}/Elements`, { Character: [{ id: ID, name: "Ireena", description: "Changed on the server." }] }, false);
+		const mds = [...vault.files.keys()].filter((p) => p.endsWith(".md") && !p.endsWith("World.md"));
+		assert.deepEqual(mds, [`${W}/Cast/Ireena.md`], `${shape}: a second note was made: ${JSON.stringify(mds)}`);
+		assert.match(vault.contentAt(`${W}/Cast/Ireena.md`) ?? "", /Changed on the server\./, shape);
+	}
+});
+
+test("★ the writer finds the element's note by id when the plan's note is gone (moved during a long pull)", async () => {
+	const { app, vault } = makeApp();
+	await vault.createFolder(`${W}/Cast`);
+	await vault.seed(`${W}/Cast/Ireena.md`, `---\nname: Ireena\nid: ${ID}\ntype: Character\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "Changed on the server." }, { existingPath: `${W}/Elements/Character/Ireena.md` });
+	const mds = [...vault.files.keys()].filter((p) => p.endsWith(".md"));
+	assert.deepEqual(mds, [`${W}/Cast/Ireena.md`], JSON.stringify(mds));
+});
+
+test("★ a property may be named like Object.prototype's members and still travels and comes back", async () => {
+	const group = { constructor: "brave", toString: "x", valueOf: 1, hasOwnProperty: "y", ["__proto__"]: "p" } as Record<string, unknown>;
+	Object.defineProperty(group, "__proto__", { value: "p", enumerable: true, configurable: true, writable: true });
+	const fm = apiDataToFrontmatter({ name: "Ireena", x_properties: group }, "character", ID);
+	for (const k of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]) assert.ok(Object.prototype.hasOwnProperty.call(fm, k), k);
+	const back = parseRawFrontmatter(serializeFrontmatter(fm)) as Record<string, unknown>;
+	const sent = frontmatterToPayloadFields(back, "character") as Record<string, unknown>;
+	assert.deepEqual(Object.keys(sent.x_properties as object).sort(), ["__proto__", "constructor", "hasOwnProperty", "toString", "valueOf"]);
+	for (const top of ["constructor", "toString", "valueOf", "hasOwnProperty"]) assert.equal(Object.prototype.hasOwnProperty.call(sent, top), false, top + " went out as a field");
+});
+
+test("a name needs quotes only when a bare key cannot hold it: slashes, brackets and apostrophes stay bare, number-like names are quoted, a very long name stays in the group", () => {
+	const yaml = serializeFrontmatter({ name: "I", id: ID, "HP/MP": 1, "Age (years)": 2, "Ireena's sword": 3, "2nd wind": 4, "0x10": 5, "1e3": 6, yes: 7, "a: b": 8 });
+	for (const bare of ["HP/MP: 1", "Age (years): 2", "Ireena's sword: 3", "2nd wind: 4"]) assert.ok(yaml.includes("\n" + bare + "\n"), bare + " in " + yaml);
+	for (const quoted of ['"0x10": 5', '"1e3": 6', '"yes": 7', '"a: b": 8']) assert.ok(yaml.includes(quoted), quoted + " in " + yaml);
+	const long = "x".repeat(1100);
+	const fm = apiDataToFrontmatter({ name: "I", x_properties: { [long]: 1 } }, "character", ID);
+	assert.deepEqual(fm.x_properties, { [long]: 1 });
+});
+
+test("the folder export names an unreadable element note in a type-named folder outside Elements/", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	await seed(app, `${W}/Elements/Character/Kolyan.md`, `---\nname: Kolyan\nid: ${ID2}\n---\n\n### Description\n\nHere.\n`);
+	await seed(app, `${W}/Archive/Character/Old.md`, `---\nname: Old\nid: ${ID}\nmood: [unclosed\n---\n\nText.\n`);
+	const { __modals } = await import("./support/obsidian-mock");
+	const before = __modals.length;
+	await (new ExportFolderCommand(app) as unknown as { exportWorld(w: string, d: { kind: "vault" }): Promise<void> }).exportWorld("W", { kind: "vault" });
+	assert.ok(__modals.length > before, "the export opened no report");
+	const skipped = (__modals.at(-1) as unknown as { failed?: { path: string; reason: string }[] })?.failed ?? [];
+	assert.deepEqual(skipped.map((f) => f.path), [`${W}/Archive/Character/Old.md`], JSON.stringify(skipped));
 });

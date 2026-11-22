@@ -24,7 +24,7 @@ import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, recordChangeSeqs } from '../vault/change-seq-index';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, parseElementPath, pickNoteForId, writeElement } from '../vault/element-file';
+import { elementNoteType, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -935,8 +935,11 @@ export class DownloadWorldCommand {
             try {
                 const content = await this.app.vault.read(file);
                 let id: string | undefined;
-                const fm = parseRawFrontmatterScalars(content, ['id', 'type']);
-                if (fm.id) {
+                // The note's own YAML, as Save reads it, so the plan and Save cannot disagree about a note (a comment on the
+                // id line, flow style, a quoted key); the line scan only where the YAML is not readable.
+                const yaml = parseRawFrontmatter(content);
+                const fm = yaml && typeof yaml.id === 'string' ? yaml : parseRawFrontmatterScalars(content, ['id', 'type']);
+                if (typeof fm.id === 'string' && fm.id) {
                     if (elementNoteType(file.path, fm)) id = fm.id;
                 } else if (isUnderElements(file.path) && typeOfPlace(file.path)) {
                     // The plugin's own folders: the id in the legacy span and bold forms it once wrote. A line of a

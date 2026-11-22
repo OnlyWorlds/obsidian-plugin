@@ -57,6 +57,16 @@ export function isUserCustomKey(key: string): boolean {
  */
 export const OWN_PROPERTIES_KEY = "x_properties";
 
+/** True when `key` is an own property of `obj` (not one of Object.prototype's: `constructor`, `toString`...). */
+export function hasOwn(obj: object, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/** Set an own property of `obj` even for a name like `__proto__` or `constructor`, which a plain assignment treats as the prototype's. */
+function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
+	Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
 /** A plain JSON object: not null, not a list. */
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -648,8 +658,11 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
  * A property name as a YAML key: bare when it reads back as the same string, else double-quoted (JSON's quoting is
  * YAML's). A person's own property may be named anything (`Ireena's sword`, `HP/MP`, `a: b`, `#x`, `0x10`, `yes`).
  */
+/** A name YAML reads as a number (`0x10`, `1e3`, `0o17`, `1.5`): written quoted, or it comes back renamed. */
+const NUMBER_LIKE = /^[-+]?(?:\d[\d_]*(?:\.[\d_]*)?(?:[eE][-+]?\d+)?|0[xob][0-9a-f_]+|\.\d+)$/i;
+
 export function yamlKey(key: string): string {
-	return isPlainKeyName(key) && !/^[0-9]/.test(key) ? key : JSON.stringify(key);
+	return isPlainKeyName(key) && !NUMBER_LIKE.test(key) ? key : JSON.stringify(key);
 }
 
 /** An array item `yamlScalar` writes faithfully (see serializeFrontmatter). */
@@ -1541,7 +1554,7 @@ export function frontmatterToPayloadFields(
 			out[key] = dateToFieldString(value); // unknown category — pass through, API arbitrates
 			continue;
 		}
-		const field = schema[key];
+		const field = hasOwn(schema, key) ? schema[key] : undefined;
 		if (!field) {
 			// A key that is neither a schema field nor already namespaced. The API
 			// REJECTS these outright ("Unknown field: x") — so historically we
@@ -1557,7 +1570,7 @@ export function frontmatterToPayloadFields(
 			// A `type` that only repeats the note's own type (its place says the
 			// same) is no property of the person's: it does not cross.
 			if (key === "type" && typeof value === "string" && normalizeCategory(value) === normalizeCategory(category)) continue;
-			own[key] = dateToFieldString(value);
+			setOwn(own, key, dateToFieldString(value));
 			opts.adopted?.push({ from: key, to: OWN_PROPERTIES_KEY });
 			continue;
 		}
@@ -1637,7 +1650,7 @@ export interface WriteFrontmatterOptions {
  * or null. Any other name is double-quoted when written (`yamlKey`).
  */
 export function isPlainKeyName(name: string): boolean {
-	if (!/^[\p{L}\p{N}_](?:[\p{L}\p{N}_ -]*[\p{L}\p{N}_])?$/u.test(name)) return false;
+	if (!/^[\p{L}\p{N}_](?:[\p{L}\p{N}_ \-/().']*[\p{L}\p{N}_)'])?$/u.test(name)) return false;
 	return !/^[0-9._-]+$/.test(name) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(name);
 }
 
@@ -1649,9 +1662,9 @@ function ownNameIsTaken(
 	content: Record<string, unknown>
 ): boolean {
 	return (
-		name === "id" || name === "name" || name === bodyField ||
+		name === "id" || name === "name" || name === bodyField || name.length > 1024 ||
 		NON_PAYLOAD_KEYS.has(name) || isServerField(name) || isExtensionKey(name) ||
-		(schema ? name in schema : false) || name in content
+		(schema ? hasOwn(schema, name) : false) || hasOwn(content, name)
 	);
 }
 
@@ -1714,7 +1727,7 @@ export function apiDataToFrontmatter(
 			if (!isEmptyFieldValue(value)) content[key] = value;
 			continue;
 		}
-		const field = schema[key];
+		const field = hasOwn(schema, key) ? schema[key] : undefined;
 		if (!field) {
 			// Not a known field and not an extension key. Drop from frontmatter to
 			// keep notes clean — the API would not have returned it anyway.
@@ -1750,8 +1763,8 @@ export function apiDataToFrontmatter(
 	if (ownGroup) {
 		const kept: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(ownGroup)) {
-			if (ownNameIsTaken(k, schema, bodyField, content)) kept[k] = v;
-			else content[k] = v;
+			if (ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
+			else setOwn(content, k, v);
 		}
 		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;
 	}
@@ -1798,7 +1811,7 @@ export function apiDataToFrontmatter(
 		.map((k, i) => ({ k, i, r: rank(k) }))
 		.sort((a, b) => a.r - b.r || a.i - b.i)
 		.forEach(({ k }) => {
-			fm[k] = content[k];
+			setOwn(fm, k, content[k]);
 		});
 	// The server's keys last, in SERVER_FIELDS order: machine fields the
 	// person reads least, and never edits (a save sends none of them).

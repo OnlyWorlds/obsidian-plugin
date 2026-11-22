@@ -300,8 +300,9 @@ export class ExportFolderCommand {
 					// type folder without an id, as before.
 					if (!(isUnderElements(file.path) && typeOfPlace(file.path))) {
 						// Not in the plugin's own type folders: the person's own note, unless it holds an element id and no type to read it by.
-						const idLine = isElementId(parseRawFrontmatterScalars(text, ["id"]).id) && !typeOfPlace(file.path);
-						if (idLine) failed.push({ path: file.path, reason: "not in a type folder, and its type property names none of the 22 types" });
+						const hasId = isElementId(parseRawFrontmatterScalars(text, ["id"]).id);
+						if (hasId && !typeOfPlace(file.path)) failed.push({ path: file.path, reason: "not in a type folder, and its type property names none of the 22 types" });
+						else if (hasId) failed.push({ path: file.path, reason: "its front matter could not be read" });
 						// else: the person's own note (no element id, no type folder), left as it is.
 						continue;
 					}

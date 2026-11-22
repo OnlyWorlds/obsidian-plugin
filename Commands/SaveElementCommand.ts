@@ -353,7 +353,7 @@ export class SaveElementCommand {
         // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
         const twin = v2?.id ? this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
         if (twin) {
-            const reason = `${v2!.name} not saved: ${twin.split('/').pop()} holds the same id. Keep one of the two notes, then try again.`;
+            const reason = `${v2!.name} not saved: ${twin.replace(/^OnlyWorlds\/Worlds\/[^/]+\//i, '')} holds the same id. Keep one of the two notes, then try again.`;
             if (!manual && duplicateShown.has(activeFile.path)) return { ok: false, reason };
             if (!manual) duplicateShown.add(activeFile.path);
             return this.fail(reason, 15000);

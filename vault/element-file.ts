@@ -28,6 +28,7 @@ import {
 	bodyTextFields,
 	SERVER_FIELDS,
 	OWN_PROPERTIES_KEY,
+	hasOwn,
 	serverFieldsOf,
 	DEPENDS_ON_KEY,
 	DEPENDS_ON_CUSTOM_KEY,
@@ -512,12 +513,16 @@ export async function writeElement(
 	// it). Only when no note carries this id does the NAME pick the path — and
 	// then never a path another element already holds (see claimNotePath).
 	const planned = opts.existingPath;
-	const existing =
+	let existing: TFile | null =
 		planned === undefined
 			? await findNoteById(app, worldName, folderName, elementId)
 			: planned
 				? (app.vault.getAbstractFileByPath(planned) as TFile | null)
 				: null;
+	// The plan's note is gone (moved or deleted since the plan) or is no longer this element's: look by id, as the writer always did.
+	if (planned && !(existing instanceof TFile && (await noteIdOf(app, existing)) === elementId)) {
+		existing = await findNoteById(app, worldName, folderName, elementId);
+	}
 	const filePath = existing
 		? existing.path // keep the existing file; rename is a separate concern
 		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
@@ -598,7 +603,7 @@ export async function writeElement(
 	}
 	const merged: Record<string, unknown> = { ...fm };
 	for (const [k, v] of Object.entries(preserved)) {
-		if (!(k in merged)) merged[k] = v;
+		if (!hasOwn(merged, k)) merged[k] = v;
 	}
 	// A note outside every type folder is of the type its `type` property names: a `type` entry in the server's group
 	// (written from another place, where the note sits in a type folder) cannot be that property. The note keeps its
