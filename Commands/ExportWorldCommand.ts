@@ -429,6 +429,7 @@ export class ExportWorldCommand {
     
 
     async collectWorldData(worldFolder: string) {
+        this.noteTypes = null; // classified afresh for each collection (a vault changes between uploads)
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
         this.refusedNotes = [];
@@ -726,16 +727,23 @@ export class ExportWorldCommand {
      * `type` property, with an id that is a UUID.
      */
     private async notesOfType(worldFolder: string, type: string): Promise<TFile[]> {
-        const want = type.toLowerCase();
-        const out: TFile[] = [];
-        for (const file of this.app.vault.getFiles()) {
-            if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) continue;
-            // A note in a type folder under Elements/ needs no front matter to be read; any other is read by its id and `type`, from the cache or the disk.
-            const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(this.app, file);
-            if (elementNoteType(file.path, fm)?.category.toLowerCase() === want) out.push(file);
+        // Every note of the world is classified once per upload (its type, or none), not once per type.
+        if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
+            const byFile = new Map<TFile, string>();
+            for (const file of this.app.vault.getFiles()) {
+                if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) continue;
+                // A note in a type folder under Elements/ needs no front matter to be read; any other is read by its id and `type`, from the cache or the disk.
+                const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(this.app, file);
+                const found = elementNoteType(file.path, fm);
+                if (found) byFile.set(file, found.category.toLowerCase());
+            }
+            this.noteTypes = { world: worldFolder, byFile };
         }
-        return out;
+        const want = type.toLowerCase();
+        return [...this.noteTypes.byFile].filter(([, t]) => t === want).map(([f]) => f);
     }
+    /** The classification `notesOfType` made for the world being collected. */
+    private noteTypes: { world: string; byFile: Map<TFile, string> } | null = null;
 
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
         const files = await this.notesOfType(worldFolder, elementType);

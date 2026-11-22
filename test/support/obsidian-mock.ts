@@ -406,7 +406,7 @@ export class MockMetadataCache {
 	coldCache = false;
 	constructor(private vault: MockVault) {}
 	getFileCache(file: TFile): { frontmatter?: Record<string, unknown> } | null {
-		if (this.coldCache) return {};
+		if (this.coldCache) return null;
 		const e = this.vault.files.get(file.path);
 		if (!e) return null;
 		const fm = extractFrontmatter(e.content);

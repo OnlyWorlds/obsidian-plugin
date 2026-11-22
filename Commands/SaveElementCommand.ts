@@ -3,7 +3,7 @@ import type OnlyWorldsPlugin from '../main';
 import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
-import { categoryFolderType, mayBeElementNote } from '../vault/category-folder';
+import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
@@ -105,6 +105,8 @@ const misnamedShown = new Set<string>();
 
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
+/** Notes whose id another note holds, said once a session per note by auto-sync. */
+const duplicateShown = new Set<string>();
 
 /** Note paths whose kept Depends on lines auto-sync has named this session. */
 const dependsOnShown = new Set<string>();
@@ -348,6 +350,14 @@ export class SaveElementCommand {
         let elementData: ElementData | null = null;
         const v2 = await readElement(this.app, activeFile);
         if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
+        const twin = v2?.id ? this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
+        if (twin) {
+            const reason = `${v2!.name} not saved: ${twin.split('/').pop()} holds the same id. Keep one of the two notes, then try again.`;
+            if (!manual && duplicateShown.has(activeFile.path)) return { ok: false, reason };
+            if (!manual) duplicateShown.add(activeFile.path);
+            return this.fail(reason, 15000);
+        }
         // A known-of note is never sent, by any path (the folder spec §4.4
         // rule 3): before any read of the server, so no create,
         // re-create or update can follow.
@@ -1023,15 +1033,31 @@ export class SaveElementCommand {
         return names;
     }
 
-    /** This world's element notes by their frontmatter id. */
+    /**
+     * This world's element notes by their frontmatter id: only a note Save itself would read as an element's (a person's
+     * own note, or a copy with no type, never hides the element's note), the one in Elements/ first, then by path.
+     */
     private worldNoteIndex(worldName: string): Map<string, TFile> {
         const index = new Map<string, TFile>();
-        for (const f of this.app.vault.getMarkdownFiles()) {
-            if (!mayBeElementNote(f.path, worldName)) continue;
-            const id = this.app.metadataCache.getFileCache(f)?.frontmatter?.id;
-            if (typeof id === 'string' && !index.has(id)) index.set(id, f);
+        const files = this.app.vault.getMarkdownFiles()
+            .filter((f) => mayBeElementNote(f.path, worldName))
+            .sort((a, b) => Number(isUnderElements(b.path)) - Number(isUnderElements(a.path)) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+        for (const f of files) {
+            const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+            const id = fm?.id;
+            if (typeof id === 'string' && !index.has(id) && elementNoteType(f.path, fm)) index.set(id, f);
         }
         return index;
+    }
+
+    /** Another element note of this world that holds `id`, if any (cache only): two notes with one id are both refused. */
+    private otherNoteHolding(worldName: string, id: string, path: string): string | null {
+        for (const f of this.app.vault.getMarkdownFiles()) {
+            if (f.path === path || !mayBeElementNote(f.path, worldName)) continue;
+            const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+            if (fm?.id === id && elementNoteType(f.path, fm)) return f.path;
+        }
+        return null;
     }
 
     /**

@@ -2,7 +2,7 @@ import { App, Modal, Notice, Platform, Setting, TFile, TFolder, normalizePath } 
 import { v7 as uuidv7 } from "uuid";
 import { ownConflictMessage, readElement, unclosedFenceMessage } from "../vault/element-file";
 import { bodyFieldForCategory, getCategorySchema, parseRawFrontmatterScalars } from "../vault/element-transform";
-import { inUnreadFolder, isElementId, typeOfPlace, worldNotePath } from "../vault/category-folder";
+import { inUnreadFolder, isElementId, isUnderElements, typeOfPlace, worldNotePath } from "../vault/category-folder";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar } from "../vault/folder-sidecar";
@@ -298,8 +298,9 @@ export class ExportFolderCommand {
 					// person's own (sentence 1): left as it is, no failure. One with
 					// an element id and no type to read it by is named; a note in a
 					// type folder without an id, as before.
-					if (!typeOfPlace(file.path)) {
-						const idLine = isElementId(parseRawFrontmatterScalars(text, ["id"]).id);
+					if (!(isUnderElements(file.path) && typeOfPlace(file.path))) {
+						// Not in the plugin's own type folders: the person's own note, unless it holds an element id and no type to read it by.
+						const idLine = isElementId(parseRawFrontmatterScalars(text, ["id"]).id) && !typeOfPlace(file.path);
 						if (idLine) failed.push({ path: file.path, reason: "not in a type folder, and its type property names none of the 22 types" });
 						// else: the person's own note (no element id, no type folder), left as it is.
 						continue;

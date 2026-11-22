@@ -623,7 +623,8 @@ export function idsInFrontmatter(content: string): string[] {
  */
 export function serializeFrontmatter(fm: Record<string, unknown>): string {
 	const lines: string[] = ["---"];
-	for (const [key, value] of Object.entries(fm)) {
+	for (const [rawKey, value] of Object.entries(fm)) {
+		const key = yamlKey(rawKey);
 		if (value === null || value === undefined) {
 			lines.push(`${key}:`);
 		} else if (Array.isArray(value)) {
@@ -641,6 +642,14 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
 	}
 	lines.push("---");
 	return lines.join("\n");
+}
+
+/**
+ * A property name as a YAML key: bare when it reads back as the same string, else double-quoted (JSON's quoting is
+ * YAML's). A person's own property may be named anything (`Ireena's sword`, `HP/MP`, `a: b`, `#x`, `0x10`, `yes`).
+ */
+export function yamlKey(key: string): string {
+	return isPlainKeyName(key) && !/^[0-9]/.test(key) ? key : JSON.stringify(key);
 }
 
 /** An array item `yamlScalar` writes faithfully (see serializeFrontmatter). */
@@ -1623,10 +1632,9 @@ export interface WriteFrontmatterOptions {
 }
 
 /**
- * True when a name can be written as a plain YAML key and read back as the same
- * name: letters, digits, `_`, spaces and `-` inside it, and not a word YAML reads as a
- * number, a boolean or null. Any other name (`a: b`, `#x`, `[x]`, an empty one) stays
- * inside the note's own `x_properties`, where it cannot break the front matter.
+ * True when a name can be a bare YAML key and read back as the same name: letters,
+ * digits, `_`, spaces and `-` inside it, and not a word YAML reads as a number, a boolean
+ * or null. Any other name is double-quoted when written (`yamlKey`).
  */
 export function isPlainKeyName(name: string): boolean {
 	if (!/^[\p{L}\p{N}_](?:[\p{L}\p{N}_ -]*[\p{L}\p{N}_])?$/u.test(name)) return false;
@@ -1742,7 +1750,7 @@ export function apiDataToFrontmatter(
 	if (ownGroup) {
 		const kept: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(ownGroup)) {
-			if (ownNameIsTaken(k, schema, bodyField, content) || !isPlainKeyName(k)) kept[k] = v;
+			if (ownNameIsTaken(k, schema, bodyField, content)) kept[k] = v;
 			else content[k] = v;
 		}
 		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;

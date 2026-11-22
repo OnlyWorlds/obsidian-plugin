@@ -455,6 +455,12 @@ export interface WriteElementOpts {
 	 * stub that arrives whole is written whole (rule 4).
 	 */
 	knownOf?: boolean;
+	/**
+	 * The note the caller's plan already found for this element (a pull plans
+	 * every note before it writes any): the write goes there with no scan of the
+	 * world's notes. `null`: the plan found none. Absent: the writer looks by id.
+	 */
+	existingPath?: string | null;
 }
 
 export async function writeElement(
@@ -505,7 +511,13 @@ export async function writeElement(
 	// present (so a rename on the server moves the file rather than orphaning
 	// it). Only when no note carries this id does the NAME pick the path — and
 	// then never a path another element already holds (see claimNotePath).
-	const existing = await findNoteById(app, worldName, folderName, elementId);
+	const planned = opts.existingPath;
+	const existing =
+		planned === undefined
+			? await findNoteById(app, worldName, folderName, elementId)
+			: planned
+				? (app.vault.getAbstractFileByPath(planned) as TFile | null)
+				: null;
 	const filePath = existing
 		? existing.path // keep the existing file; rename is a separate concern
 		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
@@ -589,15 +601,18 @@ export async function writeElement(
 		if (!(k in merged)) merged[k] = v;
 	}
 	// A note outside every type folder is of the type its `type` property names: a `type` entry in the server's group
-	// (written from another place, where the note sits in a type folder) never changes it.
-	if (!typeOfPlace(filePath) && existingFm.type !== undefined) merged.type = existingFm.type;
-	// An entry the group keeps in the note (a name the note cannot write as a key) is not kept beside a key of that
-	// name the note already holds: that would make the note one that holds a name twice, and refused at its next save.
-	const kept = merged[OWN_PROPERTIES_KEY];
-	if (kept && typeof kept === "object" && !Array.isArray(kept)) {
-		const left = Object.fromEntries(Object.entries(kept as Record<string, unknown>).filter(([name]) => !(name in preserved)));
-		if (Object.keys(left).length > 0) merged[OWN_PROPERTIES_KEY] = left;
-		else delete merged[OWN_PROPERTIES_KEY];
+	// (written from another place, where the note sits in a type folder) cannot be that property. The note keeps its
+	// type, and the entry stays in the note's own group, so the next save sends it back with the rest.
+	const serverGroup = data[OWN_PROPERTIES_KEY];
+	if (!typeOfPlace(filePath) && existingFm.type !== undefined) {
+		merged.type = existingFm.type;
+		if (serverGroup && typeof serverGroup === "object" && !Array.isArray(serverGroup) && "type" in serverGroup) {
+			const held = merged[OWN_PROPERTIES_KEY];
+			merged[OWN_PROPERTIES_KEY] = {
+				...(held && typeof held === "object" && !Array.isArray(held) ? (held as Record<string, unknown>) : {}),
+				type: (serverGroup as Record<string, unknown>).type,
+			};
+		}
 	}
 	// The record goes last, under everything the person reads first.
 	if (knownOf) merged[KNOWN_OF_WRITTEN_KEY] = knownOfWritten(data, cat);
@@ -719,12 +734,13 @@ export function pickNoteForId(paths: string[], worldName: string, type: string):
  * ago, and a scan that trusted it would silently leave such a note out).
  */
 export async function readFrontmatter(app: App, file: TFile): Promise<Record<string, unknown> | undefined> {
-	const cached = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-	if (cached && typeof cached.id === "string") return cached;
+	const entry = app.metadataCache.getFileCache(file);
+	// A note Obsidian has indexed is trusted, a note with no front matter included (no read of every plain note, every time).
+	if (entry) return entry.frontmatter as Record<string, unknown> | undefined;
 	try {
-		return parseRawFrontmatter(await app.vault.read(file)) ?? cached;
+		return parseRawFrontmatter(await app.vault.read(file)) ?? undefined;
 	} catch {
-		return cached;
+		return undefined;
 	}
 }
 
@@ -744,9 +760,9 @@ async function findNoteById(
 	const found = new Map<string, TFile>();
 	for (const f of app.vault.getMarkdownFiles()) {
 		if (!mayBeElementNote(f.path, worldName)) continue;
-		const cached = app.metadataCache.getFileCache(f)?.frontmatter;
-		if (cached && cached.id !== id) continue;
-		const fm = cached ?? (await readFrontmatter(app, f));
+		const entry = app.metadataCache.getFileCache(f);
+		if (entry && entry.frontmatter?.id !== id) continue;
+		const fm = entry ? entry.frontmatter : await readFrontmatter(app, f);
 		if (!fm || fm.id !== id || !elementNoteType(f.path, fm)) continue;
 		found.set(f.path, f);
 	}

@@ -70,19 +70,19 @@ test("★ a body section headed Properties is prose, and never replaces the grou
 	assert.match(String(read?.fields.description), /She owns three houses\./, "the section is kept as prose, not dropped");
 });
 
-test("★ an entry whose name cannot be a plain YAML key stays in the note's group, and the note stays readable", async () => {
-	const names = ["a: b", "#x", "[x]", "- y", "", "yes", "007", " pad"];
-	for (const n of names) assert.equal(isPlainKeyName(n), false, JSON.stringify(n));
+test("★ a property may be named anything: it is written as a quoted key when it needs one, and comes back as the same name", async () => {
+	const names = ["a: b", "#x", "[x]", "- y", "", "yes", "007", " pad", "0x10", "1e3", "0o17", "Ireena's sword", "HP/MP", "Age (years)", "quote\"d", "multi\nline"];
+	for (const n of names.slice(0, 8)) assert.equal(isPlainKeyName(n), false, JSON.stringify(n));
 	for (const n of ["status", "Home town", "star-sign", "Résidence", "level 2", "x2"]) assert.equal(isPlainKeyName(n), true, n);
-	const group = { "a: b": 1, "#x": 2, "[x]": 3, status: "ok", "Home town": "Gela" };
+	const group: Record<string, unknown> = { status: "ok", "Home town": "Gela" };
+	names.forEach((n, i) => { group[n] = `v${i}`; });
 	const fm = apiDataToFrontmatter({ name: "Ireena", x_properties: group }, "character", ID);
 	assert.equal(fm.status, "ok");
-	assert.equal(fm["Home town"], "Gela");
-	assert.deepEqual(fm.x_properties, { "a: b": 1, "#x": 2, "[x]": 3 });
+	assert.equal(fm["Ireena's sword"], "v11");
+	assert.equal("x_properties" in fm, false, "every name is a property of the note");
 	const yaml = serializeFrontmatter(fm);
 	const back = parseRawFrontmatter(yaml);
 	assert.ok(back, "the front matter no longer parses: " + yaml);
-	assert.deepEqual(back?.x_properties, { "a: b": 1, "#x": 2, "[x]": 3 });
 	assert.deepEqual(frontmatterToPayloadFields(back as Record<string, unknown>, "character").x_properties, group);
 });
 
@@ -106,13 +106,52 @@ test("a pull keeps the group a person typed into a note when the element arrives
 	assert.match(vault.contentAt(path) ?? "", /x_properties:/);
 });
 
-test("a kept entry is not left beside a key of its name the note already holds (a note that would be refused at its next save)", async () => {
+test("★ a co-author's edit to a property with an unusual name reaches the note, and a save sends it back unchanged", async () => {
 	const { app, vault } = makeApp();
 	const path = `${W}/Elements/Character/Ireena.md`;
-	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\ntags:\n  - a\n---\n\n### Description\n\nA noble.\n`);
-	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble.", x_properties: { tags: ["server"], "a: b": 1 } });
+	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\n"Ireena's sword": Old blade\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble.", x_properties: { "Ireena's sword": "Glamdring, reforged" } });
 	const read = await readElement(app, app.vault.getAbstractFileByPath(path) as unknown as TFile);
-	assert.equal(read?.ownConflicts, undefined, JSON.stringify(read?.ownConflicts));
+	assert.deepEqual(read?.fields.x_properties, { "Ireena's sword": "Glamdring, reforged" });
+	assert.equal(read?.ownConflicts, undefined);
+});
+
+test("★ a server entry named like one of the note's own keys that the save never reads as a property (tags, an x_ key) stays in the group, and goes back", async () => {
+	const { app, vault } = makeApp();
+	const path = `${W}/Elements/Character/Ireena.md`;
+	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\ntags:\n  - npc\nx_rank: captain\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble.", x_properties: { tags: ["from-the-web"], x_rank: "general", mood: "tense" } });
+	const read = await readElement(app, app.vault.getAbstractFileByPath(path) as unknown as TFile);
+	assert.deepEqual(read?.fields.x_properties, { tags: ["from-the-web"], x_rank: "general", mood: "tense" });
+	assert.match(vault.contentAt(path) ?? "", /^tags:\n  - npc$/m, "the note's own tags are left as they are");
+});
+
+test("★ a `type` entry in the server's group, on a note read by its type property, is kept in the group and not lost at the next save", async () => {
+	const { app, vault } = makeApp();
+	const path = `${W}/Cast/Ireena.md`;
+	await vault.createFolder(`${W}/Cast`);
+	await vault.seed(path, `---\nname: Ireena\nid: ${ID}\ntype: Character\n---\n\n### Description\n\nA noble.\n`);
+	await writeElement(app, "W", "character", ID, { name: "Ireena", description: "A noble.", x_properties: { type: "Hero", mood: "tense" } });
+	const read = await readElement(app, app.vault.getAbstractFileByPath(path) as unknown as TFile);
+	assert.equal(read?.category, "character");
+	assert.deepEqual(read?.fields.x_properties, { type: "Hero", mood: "tense" });
+});
+
+test("★ a pull writes each element with no scan of the world's notes when the plan found its note, and a cold cache costs no quadratic reads", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	await vault.createFolder(`${W}/Elements`);
+	await vault.createFolder(`${W}/Diary`);
+	for (let i = 0; i < 30; i++) await vault.create(`${W}/Diary/Day ${i}.md`, `Plain note ${i}.\n`);
+	const els = Array.from({ length: 30 }, (_, i) => ({ id: `0199c000-0000-7000-8000-${String(i).padStart(12, "0")}`, name: `Person ${i}`, description: "A person." }));
+	(app.metadataCache as unknown as { coldCache: boolean }).coldCache = true;
+	let reads = 0;
+	const realRead = app.vault.read.bind(app.vault);
+	(app.vault as unknown as { read: (f: TFile) => Promise<string> }).read = async (f: TFile) => { reads++; return realRead(f); };
+	const { DownloadWorldCommand } = await import("../Commands/DownloadWorldCommand");
+	await new DownloadWorldCommand(app, {}).generateElementNotes(`${W}/Elements`, { Character: els }, false);
+	// the plan reads every note of the world once (60 at most); a scan per element would read ~30 x 60
+	assert.ok(reads < 400, `reads ${reads}`);
 });
 
 test("★ a cold metadata cache does not make a typed note look like no element's", async () => {
@@ -149,4 +188,38 @@ test("Validate world does not count a plain note in a type-named folder as an el
 	await cmd.execute("W");
 	assert.equal(cmd.elementCount, 0);
 	assert.equal(cmd.errorCount, 0);
+});
+
+test("★ Save refuses a note whose id another element note holds, by name, and sends nothing", async () => {
+	const { harnessSave } = await import("./support/save-harness");
+	const r = await harnessSave({
+		notes: {
+			"Character/Ireena.md": `---\nname: Ireena\nid: ${ID}\n---\n\n### Description\n\nLive.\n`,
+			"~/Archive/Character/Ireena (old).md": `---\nname: Ireena (old)\nid: ${ID}\n---\n\n### Description\n\nOld.\n`,
+		},
+		save: "Character/Ireena.md",
+		server: { [ID]: { name: "Ireena", description: "Live." } },
+	});
+	assert.equal(r.sent.length, 0);
+	assert.ok(r.notices.some((n) => /Ireena not saved: Ireena \(old\)\.md holds the same id/.test(n)), r.notices.join(" | "));
+});
+
+test("Save's id index never lets a type-less copy hide the element's note", async () => {
+	const { app } = makeApp();
+	await seed(app, `${W}/Drafts/A copy.md`, `---\nname: Ireena rewrite\nid: ${ID}\n---\n\nMine.\n`);
+	const real = await seed(app, `${W}/Elements/Character/Ireena.md`, `---\nname: Ireena\nid: ${ID}\n---\n`);
+	const cmd = new SaveElementCommand(app, {} as never) as unknown as { worldNoteIndex(w: string): Map<string, TFile> };
+	assert.equal(cmd.worldNoteIndex("W").get(ID)?.path, real.path);
+});
+
+test("the folder export leaves a person's own note in a type-named folder outside Elements/ out of its failures, whatever its id", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	await seed(app, `${W}/Elements/Character/Kolyan.md`, `---\nname: Kolyan\nid: ${ID2}\n---\n\n### Description\n\nHere.\n`);
+	await seed(app, `${W}/Sessions/Event/Session 3.md`, "---\ntags: [session]\n---\nNotes.\n");
+	await seed(app, `${W}/Notes/Character/Idea.md`, "---\nid: idea-20231122\nname: Idea\n---\nA note.\n");
+	await (new ExportFolderCommand(app) as unknown as { exportWorld(w: string, d: { kind: "vault" }): Promise<void> }).exportWorld("W", { kind: "vault" });
+	const { __modals } = await import("./support/obsidian-mock");
+	const skipped = (__modals.at(-1) as unknown as { failed?: { path: string }[] })?.failed ?? [];
+	assert.deepEqual(skipped.map((f) => f.path), [], JSON.stringify(skipped));
 });

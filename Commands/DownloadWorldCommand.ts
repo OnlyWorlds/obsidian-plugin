@@ -738,6 +738,8 @@ export class DownloadWorldCommand {
                         scaffoldEmptyFields: true,
                         keepAbove,
                         knownOf: plan.knownOf,
+                        // The note the plan found, so the write makes no scan of the world's notes for each element.
+                        existingPath: existingElementPath ? notePath : null,
                     }
                 );
             }
@@ -779,7 +781,8 @@ export class DownloadWorldCommand {
 
         // Source 2 (disk) first, so Source 1 (the plan) overwrites on any id
         // present in both.
-        const files = this.app.vault.getMarkdownFiles().filter(f => mayBeElementNote(f.path, worldName));
+        // Largest path first, so that for two notes holding one id the smallest path is the one a link names (as the pull's plan picks).
+        const files = this.app.vault.getMarkdownFiles().filter(f => mayBeElementNote(f.path, worldName)).sort((a, b) => (a.path < b.path ? 1 : a.path > b.path ? -1 : 0));
         for (const file of files) {
             try {
                 const content = await this.app.vault.read(file);
@@ -860,7 +863,7 @@ export class DownloadWorldCommand {
         const own = new Set<string>();
         const all = new Set<string>();
         const files = new Map<string, TFile>();
-        for (const file of this.app.vault.getMarkdownFiles()) {
+        for (const file of [...this.app.vault.getMarkdownFiles()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
             if (!mayBeElementNote(file.path, worldName)) continue;
             try {
                 const content = await this.app.vault.read(file);
