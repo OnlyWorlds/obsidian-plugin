@@ -1,4 +1,4 @@
-import { App, Notice, TFile, TFolder, normalizePath } from 'obsidian';
+import { App, Notice, TFile, TFolder } from 'obsidian';
 import {
 	bodyTextFields,
 	fieldToHeading,
@@ -10,10 +10,14 @@ import {
 	normalizeCategory,
 	splitNote,
 	joinNote,
+	serializeFrontmatter,
+	hasOwn,
+	isSpanFormat,
+	parseRawFrontmatterScalars,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
-import { noteFence, parseElementPath, unclosedFenceMessage } from '../vault/element-file';
+import { noteFence, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isKnownOfNote } from '../sync/known-of';
 import { isStubNote } from '../sync/hidden-on-server';
 import { UpdateWorldFormatModal, WorldFormatPlan, NotePlan } from '../Modals/UpdateWorldFormatModal';
@@ -52,28 +56,29 @@ export class UpdateWorldFormatCommand {
 
 	/** Inspect every element note and work out what it needs. Reads only. */
 	async buildPlan(worldName: string): Promise<WorldFormatPlan> {
-		const prefix = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`);
-		const files = this.app.vault
-			.getMarkdownFiles()
-			.filter((f) => f.path.startsWith(prefix + '/'));
+		// The world's element notes wherever they sit in its folder, each of the
+		// type its folder decides, else its `type` property (the Markdown profile).
+		const elementNotes = await worldElementNotes(this.app, worldName);
 
 		const notes: NotePlan[] = [];
 		let scanned = 0;
 
-		for (const file of files) {
-			const info = parseElementPath(file.path);
-			if (!info) continue;
-			scanned++;
-			const category = normalizeCategory(info.category);
+		for (const { file, category: type } of elementNotes) {
+			const category = normalizeCategory(type);
 			const schema = getCategorySchema(category);
 			if (!schema) continue;
 
 			const content = await this.app.vault.read(file);
+			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
+			// A note with no id is the person's own (the Markdown profile,
+			// sentence 3), even in a type folder: never given a scaffold. An old
+			// span note keeps its id in its text and is read as before.
+			if (!parseRawFrontmatterScalars(splitNote(content).frontmatter, ['id']).id && !isSpanFormat(content)) continue;
+			scanned++;
 			// A known-of note leaves out what its reader does not know, and a
 			// hidden element's stub holds no field of it: no scaffold is added
 			// to either (the folder spec §4.4).
 			if (isKnownOfNote(content) || isStubNote(content)) continue;
-			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
 			// The spine list's generated section is no field.
 			const { body } = ownBody(content);
 			const textFields = bodyTextFields(category);
@@ -155,7 +160,17 @@ export class UpdateWorldFormatCommand {
 			// hidden element's stub holds no field of it: no scaffold is added
 			// to either (the folder spec §4.4).
 			if (isKnownOfNote(content) || isStubNote(content)) continue;
-			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
+			// The front matter of the bytes being rewritten, not the metadata
+			// cache's: this is the one read the one write is built from.
+			const fmBlock = extractFrontmatterBlock(content);
+			const read = fmBlock ? parseRawFrontmatter(fmBlock) : {};
+			if (!read) {
+				// Front matter YAML cannot read: rebuilt from nothing, it would lose every property.
+				skipped++;
+				refusals.push(`${file.basename} not updated: its properties are not valid YAML. Fix them, then try again.`);
+				continue;
+			}
+			const fm: Record<string, unknown> = read;
 			// The fields are rebuilt; the generated section goes back last as it
 			// was, never folded into the description of a note that lacks one.
 			const { body, section } = ownBody(content);
@@ -190,32 +205,32 @@ export class UpdateWorldFormatCommand {
 				values[`x_${u.heading.trim().toLowerCase().replace(/\s+/g, '_')}`] = u.text;
 			}
 
-			const fmBlock = extractFrontmatterBlock(content);
+			// Frontmatter: add missing props, remove text fields now in the body.
+			// Every other key stays where it was, a `type` that makes a note
+			// outside the type folders an element among them.
+			const target: Record<string, unknown> = { ...fm };
+			for (const [key, def] of Object.entries(schema)) {
+				if (BASE_KEYS.has(key)) continue;
+				if (def.type === 'text') {
+					delete target[key]; // its content is in the body now
+					continue;
+				}
+				if (!hasOwn(target, key)) {
+					target[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
+				}
+			}
+
 			const newBody = buildElementBody(values, category, customKeys);
+			// ★ ONE write for the whole note, front matter and body together
+			// (THE WRITE RULE): never processFrontMatter on an element note.
 			// The body ends as writeElement ends it, one newline after the last
 			// section, or the last value's own final newline is read away
 			// (round C, 11).
-			const newContent = joinNote(fmBlock, withDependsOn(`${newBody}\n`, section));
+			const newContent = joinNote(serializeFrontmatter(target), withDependsOn(`${newBody}\n`, section));
 			if (newContent !== content) {
 				this.markSelfWrite?.(file.path);
 				await this.app.vault.modify(file, newContent);
 			}
-
-			// Frontmatter: add missing props, remove text fields now in the body.
-			this.markSelfWrite?.(file.path);
-			await this.app.fileManager.processFrontMatter(file, (front) => {
-				const target = front as Record<string, unknown>;
-				for (const [key, def] of Object.entries(schema)) {
-					if (BASE_KEYS.has(key)) continue;
-					if (def.type === 'text') {
-						delete target[key]; // its content is in the body now
-						continue;
-					}
-					if (!(key in target)) {
-						target[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
-					}
-				}
-			});
 			changed++;
 		}
 

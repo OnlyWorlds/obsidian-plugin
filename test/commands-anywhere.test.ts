@@ -144,3 +144,51 @@ test("★ Import folder sees an element note the person moved out of its type fo
 	assert.deepEqual(report.result.created, [NEW]);
 	assert.match(vault.contentAt(`${E}/Character/Doru.md`) ?? "", /\[\[Kolyan Indirovich\]\]/, vault.contentAt(`${E}/Character/Doru.md`));
 });
+
+// --- Update world format --------------------------------------------------------
+
+type Plan = { scanned: number; notes: { path: string; category: string; needsReview: boolean }[] };
+function updater(app: App) {
+	return new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<Plan>; apply(p: Plan): Promise<void> };
+}
+
+/** A 3.0/3.1 note: text in the body with no section, nothing scaffolded. */
+const legacyBody = (text: string) => `${text}\n`;
+
+test("★ Update world format plans every element note wherever it sits, of the type its folder or type property decides, and never a note with no id", async () => {
+	const { app, vault } = makeApp();
+	await seedFourNotes(vault, legacyBody);
+	const plan = await updater(app).buildPlan("W");
+	const byPath = Object.fromEntries(plan.notes.map((n) => [n.path, n.category]));
+	assert.deepEqual(byPath, {
+		[PATHS.ireena]: "character",
+		[PATHS.akragas]: "location",
+		[PATHS.misfiled]: "character",
+		[PATHS.kolyan]: "character",
+	}, JSON.stringify(plan.notes));
+	assert.equal(plan.scanned, 4);
+});
+
+test("★ Update world format rewrites a note outside the type folders in one write: its sections, its type's properties, its type property kept", async () => {
+	const { app, vault } = makeApp();
+	await seedFourNotes(vault, legacyBody);
+	const w = watchWrites(app, vault);
+	const cmd = updater(app);
+	await cmd.apply(await cmd.buildPlan("W"));
+	assert.deepEqual(w.fmCalls, [], "processFrontMatter on an element note");
+	for (const p of [PATHS.ireena, PATHS.akragas, PATHS.misfiled, PATHS.kolyan]) assert.equal(w.modifies.get(p), 1, `${p} written ${w.modifies.get(p)} times`);
+	const text = vault.contentAt(PATHS.akragas) ?? "";
+	assert.match(text, /^type: location$/m, text);
+	assert.match(text, /^### Description\n\nA hill town\.$/m, text);
+	assert.match(text, /^parent_location:/m, "the type's properties were not added: " + text);
+	const el = await readElement(app, app.vault.getAbstractFileByPath(PATHS.akragas) as TFile);
+	assert.equal(el?.category, "location");
+	assert.equal(el?.fields.description, "A hill town.");
+	// a text field the 3.0 note held in its front matter moves to the body, and leaves the front matter
+	await vault.seed(`${W}/Cast/Strahd.md`, note({ name: "Strahd", id: "019b0000-0000-7000-8000-0000000000d1", type: "character", physicality: "Tall." }, legacyBody("A count.")));
+	await cmd.apply(await cmd.buildPlan("W"));
+	const strahd = vault.contentAt(`${W}/Cast/Strahd.md`) ?? "";
+	assert.doesNotMatch(strahd.split("\n---")[0], /physicality/, strahd);
+	assert.match(strahd, /^### Physicality\n\nTall\.$/m, strahd);
+	assert.equal(vault.contentAt(PATHS.npcOne), note({ name: "Npc one", type: "npc" }, legacyBody("No id, in Character/.")), "a note with no id was rewritten");
+});
