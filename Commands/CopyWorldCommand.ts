@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { readElement, unclosedFenceMessage } from '../vault/element-file';
+import { readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -143,14 +143,17 @@ export class CopyWorldCommand {
         // (Kael's fixes read, should-fix 1). Named once the walk is done.
         const refused: string[] = [];
 
+        // The world's element notes wherever they sit in its folder, each of the
+        // type its folder decides, else its `type` property (the Markdown
+        // profile); every other note is the person's own and is not copied.
+        const elementNotes = await worldElementNotes(this.app, worldName);
+
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                // The type's notes in either folder spelling (`Location`, an older `Location (2)`).
-                const elementsPath = normalizePath(`${worldFolder}/Elements`);
-                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, category));
-     
+                const files = elementNotes.filter(n => n.category === category).map(n => n.file);
+
                 const categoryData = await Promise.all(files.map(async (file) => {
                     const fileContent = await fs.read(file.path);
                     // Hidden by the world's owner: a stub, or
@@ -175,9 +178,10 @@ export class CopyWorldCommand {
                         // `known_of: true` and only what it keeps, no field
                         // filled in (the folder spec §4.4 rule 1).
                         if (parsed?.knownOf) return { id: parsed.id, ...parsed.fields, known_of: true };
-                        parsedElement = parsed
-                            ? { id: parsed.id, ...parsed.fields }
-                            : await this.parseTemplate(fileContent, worldName);
+                        // A note with no id is the person's own (the Markdown profile): never
+                        // copied as an element under an id made up for it.
+                        if (!parsed) return {};
+                        parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
                         parsedElement = await this.parseTemplate(fileContent, worldName);
                     }
