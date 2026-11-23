@@ -750,6 +750,27 @@ export async function readFrontmatter(app: App, file: TFile): Promise<Record<str
 }
 
 /**
+ * A world's element notes, wherever they sit in its folder, each with its type
+ * (the Markdown profile, sentences 1 and 2), by `elementNoteType`: the first
+ * type folder on its path decides, and only a note outside every type folder is
+ * read by its `type` property, with an id that is a UUID. Every other note is
+ * the person's own and is not listed. A note in a type folder under Elements/
+ * needs no front matter to be read (an old span note has none); any other is
+ * read from the metadata cache, or from the disk when the cache is cold. One
+ * pass over the vault. `category` is the type's folder spelling (`Location`).
+ */
+export async function worldElementNotes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string }>> {
+	const out: Array<{ file: TFile; category: string }> = [];
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(file.path, worldName)) continue;
+		const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(app, file);
+		const found = elementNoteType(file.path, fm);
+		if (found) out.push({ file, category: found.category });
+	}
+	return out;
+}
+
+/**
  * Find an element note by embedded frontmatter id, wherever it sits in the
  * world's folder (the Markdown profile, sentence 1): a note a person moved out
  * of its type folder, with its id and a `type`, is still the element's and a

@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { elementNoteType, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
+import { ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -18,7 +18,6 @@ import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
 import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
-import { isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -730,13 +729,7 @@ export class ExportWorldCommand {
         // Every note of the world is classified once per upload (its type, or none), not once per type.
         if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
             const byFile = new Map<TFile, string>();
-            for (const file of this.app.vault.getFiles()) {
-                if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) continue;
-                // A note in a type folder under Elements/ needs no front matter to be read; any other is read by its id and `type`, from the cache or the disk.
-                const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(this.app, file);
-                const found = elementNoteType(file.path, fm);
-                if (found) byFile.set(file, found.category.toLowerCase());
-            }
+            for (const { file, category } of await worldElementNotes(this.app, worldFolder)) byFile.set(file, category.toLowerCase());
             this.noteTypes = { world: worldFolder, byFile };
         }
         const want = type.toLowerCase();
