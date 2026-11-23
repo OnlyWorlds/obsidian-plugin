@@ -115,3 +115,32 @@ test("★ Migrate converts an old span note wherever the profile reads it as an 
 	assert.deepEqual(w.fmCalls, [], "processFrontMatter on an element note");
 	for (const p of r.converted) assert.equal(w.modifies.get(p), 1, `${p} written ${w.modifies.get(p)} times`);
 });
+
+// --- Import folder --------------------------------------------------------------
+
+test("★ Import folder sees an element note the person moved out of its type folder: it is skipped, never written over, and a link to it names its note", async () => {
+	const { app, vault } = makeApp();
+	await seedFourNotes(vault);
+	// Kolyan's note moved and renamed by the person
+	const moved = note({ name: "Kolyan", id: KOLYAN, type: "character" }, "### Description\n\nMine, moved.\n");
+	await vault.seed(`${W}/Cast/Kolyan Indirovich.md`, moved);
+	await app.vault.delete(app.vault.getAbstractFileByPath(PATHS.kolyan)!);
+	const akragasBefore = vault.contentAt(PATHS.akragas);
+	const dir = "import/w";
+	await vault.seed(`${dir}/world.json`, JSON.stringify({ id: "0199aaaa-0000-7000-8000-0000000000f0", name: "W" }));
+	const NEW = "019b0000-0000-7000-8000-0000000000c1";
+	await vault.seed(`${dir}/elements/character/kolyan.json`, JSON.stringify({ id: KOLYAN, type: "character", name: "Kolyan", description: "From the folder." }));
+	await vault.seed(`${dir}/elements/location/akragas.json`, JSON.stringify({ id: AKRAGAS, type: "location", name: "Akragas", description: "From the folder." }));
+	await vault.seed(`${dir}/elements/character/doru.json`, JSON.stringify({ id: NEW, type: "character", name: "Doru", friends: [KOLYAN] }));
+	__modals.length = 0;
+	await (new ImportFolderCommand(app) as unknown as { importFolder(dir: string): Promise<void> }).importFolder(dir);
+
+	assert.equal(vault.contentAt(`${W}/Cast/Kolyan Indirovich.md`), moved, "the moved note was written over");
+	assert.equal(vault.contentAt(PATHS.akragas), akragasBefore, "the typed note in a folder of no type was written over");
+	assert.equal(vault.contentAt(`${E}/Character/Kolyan.md`), undefined, "a second note was made for an element the world holds");
+	assert.equal(vault.contentAt(`${E}/Location/Akragas.md`), undefined, "a second note was made for an element the world holds");
+	const report = __modals.find((m) => m.constructor.name === "ImportReportModal") as unknown as { result: { created: string[]; skipped: string[] } };
+	assert.deepEqual(report.result.skipped.sort(), [AKRAGAS, KOLYAN].sort(), JSON.stringify(report.result));
+	assert.deepEqual(report.result.created, [NEW]);
+	assert.match(vault.contentAt(`${E}/Character/Doru.md`) ?? "", /\[\[Kolyan Indirovich\]\]/, vault.contentAt(`${E}/Character/Doru.md`));
+});
