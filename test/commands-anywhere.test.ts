@@ -68,3 +68,50 @@ test("★ Copy world copies an element note wherever it sits, of the type its fo
 	const akragas = data.Location.find((e) => e.id === AKRAGAS)!;
 	assert.equal(akragas.description, "A hill town.");
 });
+
+// --- Migrate ------------------------------------------------------------------
+
+const SPAN = (id: string, name: string, text: string) =>
+	`## Base\n- <span class="text-field" data-tooltip="Text">Id</span>: ${id}\n` +
+	`- <span class="text-field" data-tooltip="Text">Name</span>: ${name}\n` +
+	`- <span class="text-field" data-tooltip="Text">Description</span>: ${text}\n`;
+
+const GELA = "019b0000-0000-7000-8000-0000000000b1";
+const LORE = "019b0000-0000-7000-8000-0000000000b2";
+const SELINUS = "019b0000-0000-7000-8000-0000000000b3";
+const DRAFT = "019b0000-0000-7000-8000-0000000000b4";
+
+async function migrate(app: App): Promise<{ converted: string[]; skipped: string[]; failed: { path: string; reason: string }[] }> {
+	__modals.length = 0;
+	await (new MigrateWorldCommand(app) as unknown as { migrateWorld(w: string): Promise<void> }).migrateWorld("W");
+	return (__modals.at(-1) as unknown as { result: { converted: string[]; skipped: string[]; failed: { path: string; reason: string }[] } }).result;
+}
+
+test("★ Migrate converts an old span note wherever the profile reads it as an element, keeps its type property, and leaves a note of no type alone", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	// the control: a span note in its type folder
+	await vault.seed(`${E}/Location/Gela.md`, SPAN(GELA, "Gela", "A town."));
+	// in a type-named folder outside Elements/: the folder decides
+	await vault.seed(`${W}/Lore/Location/Lore town.md`, SPAN(LORE, "Lore town", "From the lore."));
+	// moved into a folder that is no type's, a `type` added in Properties
+	await vault.seed(`${E}/Places/Selinus.md`, `---\ntype: location\n---\n${SPAN(SELINUS, "Selinus", "A temple town.")}`);
+	// moved into a folder that is no type's with no `type`: the person's own now
+	const draft = SPAN(DRAFT, "Draft", "Mine.");
+	await vault.seed(`${E}/Places/Draft.md`, draft);
+	const w = watchWrites(app, vault);
+
+	const r = await migrate(app);
+	assert.deepEqual(r.failed, [], JSON.stringify(r.failed));
+	assert.deepEqual(r.converted.sort(), [`${E}/Location/Gela.md`, `${E}/Places/Selinus.md`, `${W}/Lore/Location/Lore town.md`].sort(), JSON.stringify(r));
+	assert.equal(vault.contentAt(`${E}/Places/Draft.md`), draft, "a note of no type was rewritten");
+	for (const [path, id] of [[`${W}/Lore/Location/Lore town.md`, LORE], [`${E}/Places/Selinus.md`, SELINUS]]) {
+		const el = await readElement(app, app.vault.getAbstractFileByPath(path) as TFile);
+		assert.equal(el?.id, id, path + "\n" + vault.contentAt(path));
+		assert.equal(el?.category, "location", path + "\n" + vault.contentAt(path));
+	}
+	assert.match(vault.contentAt(`${E}/Places/Selinus.md`) ?? "", /^type: location$/m, "the type property that makes it an element was dropped");
+	// THE WRITE RULE: one write per note, never processFrontMatter
+	assert.deepEqual(w.fmCalls, [], "processFrontMatter on an element note");
+	for (const p of r.converted) assert.equal(w.modifies.get(p), 1, `${p} written ${w.modifies.get(p)} times`);
+});

@@ -5,9 +5,13 @@ import {
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
+	hasOwn,
+	joinNote,
+	serializeFrontmatter,
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
-import { categoryFolderType } from '../vault/category-folder';
+import { mayBeElementNote } from '../vault/category-folder';
+import { elementNoteType, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
 	converted: string[];
@@ -64,15 +68,31 @@ export class MigrateWorldCommand {
 		return root.children.filter((c): c is TFolder => c instanceof TFolder).map((f) => f.name);
 	}
 
-	private elementFilesFor(world: string): TFile[] {
-		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
-		return this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
-	}
-
-	private categoryForPath(path: string): string | null {
-		const m = /^OnlyWorlds\/Worlds\/[^/]+\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
-		if (!m) return null;
-		return normalizeCategory(categoryFolderType(m[1]));
+	/**
+	 * The world's element notes wherever they sit in its folder, each with its
+	 * type (the Markdown profile, sentences 1 and 2: the first type folder on its
+	 * path decides, else its `type` property). An old span note keeps its id in
+	 * its text, not in front matter, so that id stands in for the front matter's
+	 * when the note is classified: a span note moved out of `Elements/` into a
+	 * type-named folder, or given a `type` in Properties, is found. Any other
+	 * note is the person's own and is never touched, backed up or counted.
+	 */
+	private async elementFilesFor(world: string): Promise<Array<{ file: TFile; category: string }>> {
+		const out: Array<{ file: TFile; category: string }> = [];
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			if (!mayBeElementNote(file.path, world)) continue;
+			let content: string;
+			try {
+				content = await this.app.vault.read(file);
+			} catch {
+				continue;
+			}
+			const fm = parseRawFrontmatter(content) ?? {};
+			const id = typeof fm.id === 'string' ? fm.id : isSpanFormat(content) ? parseSpanNote(content).id : null;
+			const found = elementNoteType(file.path, id ? { ...fm, id } : fm);
+			if (found) out.push({ file, category: normalizeCategory(found.category) });
+		}
+		return out;
 	}
 
 	// A cache-independent span id/name scrape for building the resolver, since a
@@ -111,7 +131,9 @@ export class MigrateWorldCommand {
 	}
 
 	private async migrateWorld(world: string): Promise<void> {
-		const files = this.elementFilesFor(world);
+		const notes = await this.elementFilesFor(world);
+		const files = notes.map((n) => n.file);
+		const categoryOf = new Map(notes.map((n) => [n.file.path, n.category]));
 		if (files.length === 0) {
 			new Notice(`No element notes found in ${world}.`);
 			return;
@@ -147,7 +169,7 @@ export class MigrateWorldCommand {
 					result.skipped.push(file.path); // already frontmatter — idempotent
 					continue;
 				}
-				const category = this.categoryForPath(file.path);
+				const category = categoryOf.get(file.path);
 				if (!category) {
 					result.failed.push({ path: file.path, reason: 'not an element path' });
 					continue;
@@ -158,7 +180,7 @@ export class MigrateWorldCommand {
 					continue;
 				}
 				const { frontmatter, bodyValue, unresolved } = spanFieldsToFrontmatter(parsed, category, resolve);
-				await this.writeFrontmatterNote(file, category, parsed.id, frontmatter, bodyValue, idToName);
+				await this.writeFrontmatterNote(file, content, category, parsed.id, frontmatter, bodyValue, idToName);
 				result.converted.push(file.path);
 				if (unresolved.length > 0) {
 					result.unresolvedLinks.push({ path: file.path, names: unresolved });
@@ -202,29 +224,31 @@ export class MigrateWorldCommand {
 	 * Overwrite `file` in place with frontmatter + body. In-place (not via
 	 * writeElement) so the filename/location is preserved exactly and the
 	 * backup remains the sole source of the old bytes.
+	 *
+	 * ONE write (THE WRITE RULE): the block is built here and joined to the
+	 * body, never processFrontMatter. `frontmatter` already excludes the body
+	 * field (span parse split it into bodyValue), and apiDataToFrontmatter
+	 * normalizes link ids and preserves extension keys. A key the note already
+	 * held in front matter that the migration does not write (a `type` that
+	 * makes a note outside the type folders an element, a person's own
+	 * property) is kept after the migrated ones.
 	 */
 	private async writeFrontmatterNote(
 		file: TFile,
+		content: string,
 		category: string,
 		id: string,
 		frontmatter: Record<string, unknown>,
 		bodyValue: string,
 		idToName: (id: string) => string | null
 	): Promise<void> {
-		// Seed the frontmatter block + body, then let processFrontMatter type the
-		// values. `frontmatter` already excludes the body field (span parse split
-		// it into bodyValue), and apiDataToFrontmatter normalizes link ids and
-		// preserves extension keys.
-		// The guard is one-shot per path and BOTH calls below fire a 'modify'
-		// event — mark before each so auto-sync never sees migration writes.
-		this.markSelfWrite(file.path);
-		await this.app.vault.modify(file, `---\nid: ${id}\n---\n\n${bodyValue}\n`);
 		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
+		const held = parseRawFrontmatter(content) ?? {};
+		for (const [k, v] of Object.entries(held)) if (!hasOwn(fm, k)) fm[k] = v;
+		// The guard is one-shot per path: marked before the one 'modify' so
+		// auto-sync never sees a migration write.
 		this.markSelfWrite(file.path);
-		await this.app.fileManager.processFrontMatter(file, (target) => {
-			const t = target as Record<string, unknown>;
-			for (const [k, v] of Object.entries(fm)) t[k] = v;
-		});
+		await this.app.vault.modify(file, joinNote(serializeFrontmatter(fm), `${bodyValue}\n`));
 	}
 }
 
