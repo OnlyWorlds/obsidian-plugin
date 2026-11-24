@@ -17,7 +17,7 @@ import {
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
-import { editFrontmatterLines, noteFence, ownFrontmatterId, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { editFrontmatterLines, frontmatterHasIdKey, noteFence, ownFrontmatterId, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isElementId, isUnderElements } from '../vault/category-folder';
 import { isKnownOfNote } from '../sync/known-of';
 import { isStubNote } from '../sync/hidden-on-server';
@@ -78,7 +78,7 @@ export class UpdateWorldFormatCommand {
 			// wrote them (a type folder under Elements/, no front matter id, its
 			// Id line outside every code fence), read as before.
 			const fmId = ownFrontmatterId(content);
-			const oldSpanNote = !fmId && isUnderElements(file.path) && spanNoteId(content) !== null;
+			const oldSpanNote = !frontmatterHasIdKey(content) && isUnderElements(file.path) && spanNoteId(content) !== null;
 			if (!isElementId(fmId) && !oldSpanNote) continue;
 			scanned++;
 			// A known-of note leaves out what its reader does not know, and a

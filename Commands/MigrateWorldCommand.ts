@@ -12,7 +12,7 @@ import {
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { isUnderElements, mayBeElementNote } from '../vault/category-folder';
-import { editFrontmatterLines, elementNoteType, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
+import { editFrontmatterLines, elementNoteType, frontmatterHasIdKey, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
 	converted: string[];
@@ -104,8 +104,9 @@ export class MigrateWorldCommand {
 			}
 			const fm = parseRawFrontmatter(content.replace(/^\s+/, ''));
 			const fmId = ownFrontmatterId(content);
-			if (fmId) {
-				if (elementNoteType(file.path, fm ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
+			// An id key of any value (`false`, a list, nothing) is never an old note's: its id is in its text.
+			if (frontmatterHasIdKey(content)) {
+				if (fmId && elementNoteType(file.path, fm ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
 				continue;
 			}
 			if (!spanNoteId(content)) continue; // the person's own note
@@ -194,7 +195,7 @@ export class MigrateWorldCommand {
 		for (const file of files) {
 			try {
 				const content = await this.app.vault.read(file);
-				if (ownFrontmatterId(content)) {
+				if (frontmatterHasIdKey(content)) {
 					result.skipped.push(file.path); // given a front matter id since the survey
 					continue;
 				}

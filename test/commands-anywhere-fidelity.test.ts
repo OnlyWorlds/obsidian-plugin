@@ -64,3 +64,18 @@ test("★ an old note's value holding inline code migrates, copies and uploads w
 	const up = await harnessUpload({ notes: { "Character/Bob.md": SPAN(A, "Bob", MOON) }, changes: [] });
 	assert.equal(up.bulkSent[0]?.description, MOON, "Upload: " + JSON.stringify(up.bulkSent));
 });
+
+// --- 2 an id key of any value ---------------------------------------------------------------
+
+test("★ Migrate never takes a note whose front matter holds an id key of any value for an old note", async () => {
+	const { app, vault } = makeApp();
+	const notes: Record<string, string> = {
+		[`${E}/Character/Diary.md`]: `---\nid: false\ntags: [draft]\n---\n\nMy chapter.\n\n${SPAN(A, "Example", "Example only.")}`,
+		[`${E}/Character/Listed.md`]: `---\nid: [1, 2]\n---\n\nMine.\n\n${SPAN(B, "Example", "Example only.")}`,
+		[`${E}/Character/Empty.md`]: `---\nid:\n---\n\nMine.\n\n${SPAN(C, "Example", "Example only.")}`,
+	};
+	await seedAll(vault, notes);
+	const r = await migrate(app);
+	assertUnchanged(vault, notes);
+	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
+});

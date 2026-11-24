@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { elementNoteType, ownFrontmatterId, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { elementNoteType, frontmatterHasIdKey, ownFrontmatterId, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { spanFieldText, spanNoteId } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -190,7 +190,7 @@ export class CopyWorldCommand {
                     // span reader takes only a note with none whose Id line stands
                     // outside every code context (spanNoteId), and reads only that text.
                     let parsedElement: Record<string, any>;
-                    const oldSpanNote = !ownId && spanNoteId(fileContent) !== null;
+                    const oldSpanNote = !frontmatterHasIdKey(fileContent) && spanNoteId(fileContent) !== null;
                     if (!oldSpanNote && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
                         if (parsed?.unclosedFence) {
