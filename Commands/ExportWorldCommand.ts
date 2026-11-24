@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -457,6 +457,16 @@ export class ExportWorldCommand {
             return {}; // Stop further processing if the World file cannot be read
         }
     
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): a copy kept in an
+        // archive folder must not overwrite the element, and neither is the element's to choose. Counted over every
+        // listed note before any other refusal, so a note refused for something else never makes its twin look
+        // unique. A known-of note and a hidden element's stub are never sent, so they hold no id among the sent notes.
+        const twins = duplicateIds((await this.listedNotes(worldFolder))
+            .filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content))
+            .map((n) => n.id));
+        const twinRefusal = (category: string, name: unknown, id: string) =>
+            `${category} "${String(name ?? id)}" not sent: another note holds the same id. Keep one of them, then try again.`;
+
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
@@ -465,7 +475,7 @@ export class ExportWorldCommand {
                 // Each note was read once, and everything below is decided from those bytes.
                 const notes = await this.notesOfType(worldFolder, category);
 
-                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent }) => {
+                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent, id: listedId }) => {
                     // Phase B: frontmatter notes read via the shared element reader
                     // (id + typed fields + extension namespaces preserved); legacy
                     // span notes still fall through to the span parser so a mixed,
@@ -501,6 +511,10 @@ export class ExportWorldCommand {
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
+                        if (parsed && listedId && twins.has(listedId)) {
+                            this.refusedNotes.push(twinRefusal(category, parsed.name, listedId));
+                            return {};
+                        }
                         if (parsed?.unclosedFence) {
                             // Never sent cut short: named in the summary instead.
                             this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
@@ -516,28 +530,18 @@ export class ExportWorldCommand {
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
-                    return oldSpanNote ? await this.parseTemplate(fileContent, worldFolder) : {};
+                    if (!oldSpanNote) return {};
+                    const old = await this.parseTemplate(fileContent, worldFolder);
+                    if (old.id && listedId && twins.has(listedId)) {
+                        this.refusedNotes.push(twinRefusal(category, old.name, listedId));
+                        return {};
+                    }
+                    return old;
                 }));
     
                 // Filter out empty entries
                 worldData[category] = categoryData.filter(item => Object.keys(item).length > 0);
             }
-        }
-    
-        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): a copy kept in an
-        // archive folder must not overwrite the element, and neither is the element's to choose.
-        const idCount = new Map<string, number>();
-        for (const list of Object.values(worldData)) {
-            if (!Array.isArray(list)) continue;
-            for (const el of list as { id?: unknown }[]) if (el.id) idCount.set(String(el.id), (idCount.get(String(el.id)) ?? 0) + 1);
-        }
-        for (const [category, list] of Object.entries(worldData)) {
-            if (!Array.isArray(list)) continue;
-            worldData[category] = (list as { id?: unknown; name?: unknown }[]).filter((el) => {
-                if (!el.id || (idCount.get(String(el.id)) ?? 0) < 2) return true;
-                this.refusedNotes.push(`${category} "${String(el.name ?? el.id)}" not sent: another note holds the same id. Keep one of them, then try again.`);
-                return false;
-            });
         }
 
         // Add debug logging at the end of the method, before returning the data
@@ -730,21 +734,21 @@ export class ExportWorldCommand {
      * either spelling), and only a note outside every type folder is read by its
      * `type` property, with an id that is a UUID.
      */
-    private async notesOfType(worldFolder: string, type: string): Promise<Array<{ file: TFile; content: string }>> {
-        // Every note of the world is read once per upload, from its bytes, and
-        // classified from them (its type, or none): never the metadata cache.
-        if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
-            const byFile = new Map<TFile, { type: string; content: string }>();
-            for (const { file, category, content } of await worldElementNotesFromBytes(this.app, worldFolder)) {
-                byFile.set(file, { type: category.toLowerCase(), content });
-            }
-            this.noteTypes = { world: worldFolder, byFile };
-        }
+    private async notesOfType(worldFolder: string, type: string): Promise<Array<{ file: TFile; content: string; id: string | null }>> {
         const want = type.toLowerCase();
-        return [...this.noteTypes.byFile].filter(([, n]) => n.type === want).map(([file, n]) => ({ file, content: n.content }));
+        return (await this.listedNotes(worldFolder)).filter((n) => n.type === want);
     }
-    /** The classification `notesOfType` made for the world being collected, with each note's content. */
-    private noteTypes: { world: string; byFile: Map<TFile, { type: string; content: string }> } | null = null;
+    /** Every element note of the world, read once per upload from its bytes and classified from them (its type, or none): never the metadata cache. */
+    private async listedNotes(worldFolder: string): Promise<Array<{ file: TFile; type: string; content: string; id: string | null }>> {
+        if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
+            const notes = (await worldElementNotesFromBytes(this.app, worldFolder))
+                .map(({ file, category, content, id }) => ({ file, type: category.toLowerCase(), content, id }));
+            this.noteTypes = { world: worldFolder, notes };
+        }
+        return this.noteTypes.notes;
+    }
+    /** The classification `listedNotes` made for the world being collected, with each note's content and id. */
+    private noteTypes: { world: string; notes: Array<{ file: TFile; type: string; content: string; id: string | null }> } | null = null;
 
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
         const notes = await this.notesOfType(worldFolder, elementType);

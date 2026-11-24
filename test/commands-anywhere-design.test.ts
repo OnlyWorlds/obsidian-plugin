@@ -380,7 +380,23 @@ test("★ Upload world sends no element from an old span note outside the type f
 
 const D = "019e0000-0000-7000-8000-0000000000d4";
 const FENCED = (id: string) => `---\nid: ${id}\nname: Fenced\n---\n\n### Description\n\nA.\n\n### Background\n\n~~~\ncode\n\n### Physicality\n\nTall.\n`;
+const CONFLICT = `---\nid: ${A}\nname: Moody\nmood: tense\nx_properties:\n  mood: calm\n---\n\n### Description\n\nA.\n`;
 const CLEAN = (id: string, name: string) => `---\nid: ${id}\nname: ${name}\n---\n\n### Description\n\nClean.\n`;
+
+/** An upload, with every failure the summary lists (the notice names the first; the console holds them all). */
+async function uploadFailures(notes: Record<string, string>) {
+	const failures: string[] = [];
+	const orig = console.error;
+	console.error = (...args: unknown[]) => {
+		if (args[0] === "Upload failures:" && Array.isArray(args[1])) failures.push(...(args[1] as string[]));
+	};
+	try {
+		const up = await harnessUpload({ notes, changes: [] });
+		return { up, failures };
+	} finally {
+		console.error = orig;
+	}
+}
 
 test("★ Copy world refuses both notes that hold one id when one of them is also refused for an open fence; a fenced note alone is refused for its fence", async () => {
 	const r = await copyWithCache({ [`${E}/Character/Fenced.md`]: FENCED(A), [`${E}/Character/Twin.md`]: CLEAN(A, "Twin") }, {});
@@ -391,4 +407,17 @@ test("★ Copy world refuses both notes that hold one id when one of them is als
 	assert.deepEqual(holds(alone.data, D), [], "Copy: " + JSON.stringify(alone.data));
 	assert.ok(alone.notices.some((n) => /Fenced not copied: the code fence/.test(n)), alone.notices.join(" | "));
 	assert.deepEqual(holds(alone.data, C), ["Character"], "Clean: " + JSON.stringify(alone.data));
+});
+
+test("★ Upload world sends neither of two notes that hold one id when one is also refused for an open fence or an own-property conflict; a fenced note alone is refused for its fence", async () => {
+	for (const [label, other] of [["fence", FENCED(A)], ["own-property conflict", CONFLICT]] as const) {
+		const { up, failures } = await uploadFailures({ "Character/Other.md": other, "Character/Twin.md": CLEAN(A, "Twin") });
+		assert.ok(!sentIds(up).includes(A), `${label}: Upload sent a note whose id another note holds: ` + JSON.stringify(up.bulkSent));
+		assert.equal(failures.filter((f) => /not sent: another note holds the same id/.test(f)).length, 2, `${label}: ` + failures.join(" | "));
+		assert.ok(failures.some((f) => /"Twin" not sent: another note holds the same id/.test(f)), `${label}: ` + failures.join(" | "));
+	}
+	const { up, failures } = await uploadFailures({ "Character/Fenced.md": FENCED(D), "Character/Clean.md": CLEAN(C, "Clean") });
+	assert.ok(!sentIds(up).includes(D), JSON.stringify(up.bulkSent));
+	assert.ok(failures.some((f) => /"Fenced" not sent: the code fence/.test(f)), failures.join(" | "));
+	assert.equal(up.bulkTypes[C], "character", JSON.stringify(up.bulkTypes));
 });
