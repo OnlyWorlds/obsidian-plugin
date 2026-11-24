@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
@@ -338,7 +338,7 @@ export class SaveElementCommand {
         const v2 = await readElement(this.app, activeFile, { content });
         if (v2?.id && (isHiddenId(this.plugin.settings, v2.id) || isStubNote(content))) return this.hiddenRefusal(activeFile, manual);
         // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
-        const twin = v2?.id ? this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
+        const twin = v2?.id ? await this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
         if (twin) {
             const reason = `${v2!.name} not saved: ${twin.replace(/^OnlyWorlds\/Worlds\/[^/]+\//i, '')} holds the same id. Keep one of the two notes, then try again.`;
             if (!manual && duplicateShown.has(activeFile.path)) return { ok: false, reason };
@@ -1041,12 +1041,27 @@ export class SaveElementCommand {
         return index;
     }
 
-    /** Another element note of this world that holds `id`, if any (cache only): two notes with one id are both refused. */
-    private otherNoteHolding(worldName: string, id: string, path: string): string | null {
+    /**
+     * Another element note of this world that holds `id`, if any: two notes with one id are both refused. A
+     * front-matter note is known by the cache; a note the cache shows no id for is read from its bytes, since an
+     * old span note holds its id in a line of its text, not in front matter. A note that cannot be read is skipped,
+     * as the cache skips what it has not read.
+     */
+    private async otherNoteHolding(worldName: string, id: string, path: string): Promise<string | null> {
+        const unknown: TFile[] = [];
         for (const f of this.app.vault.getMarkdownFiles()) {
             if (f.path === path || !mayBeElementNote(f.path, worldName)) continue;
             const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
             if (fm?.id === id && elementNoteType(f.path, fm)) return f.path;
+            // Only a note whose place decides its type can be an old span note (it has no front matter to say).
+            if (typeof fm?.id !== 'string' && elementNoteType(f.path, undefined)) unknown.push(f);
+        }
+        for (const f of unknown) {
+            try {
+                if (noteIdIn(await this.app.vault.read(f)) === id) return f.path;
+            } catch {
+                continue;
+            }
         }
         return null;
     }
