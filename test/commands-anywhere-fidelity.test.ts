@@ -116,3 +116,29 @@ test("★ Copy world never writes over a note that is JSON with a type's name as
 	assert.equal(vault.contentAt(`${W}/World Data File.md`), chapter, "a person's note was overwritten");
 	assert.ok(__notices.some((n) => /World Data File/.test(n) && /not overwritten/.test(n)), __notices.join(" | "));
 });
+
+// --- 5 two prose copies of one field -----------------------------------------------------------
+
+async function update(app: App): Promise<void> {
+	__notices.length = 0;
+	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<unknown>; apply(p: unknown): Promise<void> };
+	await cmd.apply(await cmd.buildPlan("W"));
+}
+
+test("★ Update world format refuses a note whose description is both a property and the note's body, and names it", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${W}/Drafts/Zel.md`]: `---\nid: ${A}\ntype: character\nname: Zel\ndescription: "Old summary"\n---\n\nMy irreplaceable chapter.\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Zel not updated/.test(n)), __notices.join(" | "));
+});
+
+test("★ Update world format refuses a note whose text field is both a property and a body section, and names it", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${E}/Character/Kai.md`]: `---\nname: Kai\nid: ${B}\nphysicality: "Short"\n---\n\n### Description\n\nA guard.\n\n### Physicality\n\nTall.\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Kai not updated/.test(n)), __notices.join(" | "));
+});

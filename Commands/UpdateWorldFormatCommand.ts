@@ -189,6 +189,23 @@ export class UpdateWorldFormatCommand {
 			}
 			const bodyField = bodyFieldForCategory(category);
 
+			// A text field written in two places (a property and its body section,
+			// or a description property and a body with no sections) would keep
+			// only one of them: the note is not touched, and is named.
+			const legacyText = [parsed.preamble, ...parsed.unknown.map((u) => u.text)].filter(Boolean).join('\n\n');
+			const twice = bodyTextFields(category).filter((key) => {
+				const held = fm[key];
+				if (typeof held !== 'string' || !held.trim()) return false;
+				const inBody = parsed.fields[key] !== undefined ? String(parsed.fields[key]) : key === bodyField ? legacyText : '';
+				return inBody.trim() !== '' && inBody.trim() !== held.trim();
+			});
+			if (twice.length > 0) {
+				skipped++;
+				const one = twice.length === 1;
+				refusals.push(`${file.basename} not updated: ${twice.join(', ')} ${one ? 'is' : 'are'} written both in the properties and in the note's body, and updating would keep only one. Keep one of them, then try again. Nothing was changed.`);
+				continue;
+			}
+
 			// Values for the new body: existing sections win, then frontmatter text
 			// being moved, then the legacy whole-body-is-description case.
 			const values: Record<string, unknown> = { ...parsed.fields };
