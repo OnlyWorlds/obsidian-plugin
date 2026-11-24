@@ -306,6 +306,20 @@ async function copyWithCache(notes: Record<string, string>, entries: Record<stri
 	return { data, vault, notices: [...__notices] };
 }
 
+/** An upload, with the metadata cache answering `entries` the same way. */
+async function uploadWithCache(notes: Record<string, string>, entries: Record<string, unknown>) {
+	const proto = (await import("./support/obsidian-mock")).MockMetadataCache.prototype as unknown as { getFileCache(f: { path: string }): unknown };
+	const orig = proto.getFileCache;
+	proto.getFileCache = function (this: unknown, f: { path: string }) {
+		return pick(entries, f.path) ?? orig.call(this, f);
+	};
+	try {
+		return await harnessUpload({ notes, changes: [] });
+	} finally {
+		proto.getFileCache = orig;
+	}
+}
+const sentIds = (up: Awaited<ReturnType<typeof harnessUpload>>) => [...up.bulkSent.map((e) => String(e.id)), ...Object.keys(up.patches)];
 
 test("★ Copy world takes a note's type from its bytes alone: a stale cache's type changes nothing, and a type property in a type folder is still the folder's", async () => {
 	const notes = { [`${W}/Drafts/Chapter.md`]: CHAPTER, [`${E}/Character/Misfiled.md`]: MISFILED };
@@ -336,4 +350,28 @@ test("★ Copy world copies no element from an old span note outside the type fo
 	);
 	assert.deepEqual(holds(r.data, A), [], "Copy: " + JSON.stringify(r.data));
 	assert.deepEqual(holds(r.data, C), ["Character"], "Real: " + JSON.stringify(r.data));
+});
+
+test("★ Upload world takes a note's type from its bytes alone: a stale cache's type changes nothing, and a type property in a type folder is still the folder's", async () => {
+	const up = await uploadWithCache({ "Drafts/Chapter.md": CHAPTER, "Character/Misfiled.md": MISFILED }, { "Drafts/Chapter.md": STALE_TYPE });
+	assert.equal(up.bulkTypes[A], "narrative", JSON.stringify(up.bulkTypes) + " " + up.notices.join(" | "));
+	assert.equal(up.bulkSent.find((e) => e.id === A)?.story, "The only copy of my chapter.");
+	assert.equal(up.bulkTypes[B], "character", JSON.stringify(up.bulkTypes));
+});
+
+test("★ Upload world sends a note whose bytes hold an id and a type though the cache shows no id", async () => {
+	const up = await uploadWithCache({ "Drafts/Chapter.md": CHAPTER }, { "Drafts/Chapter.md": NO_ID });
+	assert.equal(up.bulkTypes[A], "narrative", JSON.stringify(up.bulkTypes) + " " + up.notices.join(" | "));
+});
+
+test("★ Upload world sends neither of two notes that hold one id, whatever the cache says of either", async () => {
+	const up = await uploadWithCache({ "Drafts/Chapter.md": CHAPTER, "Archive/Old.md": OLD_TWIN }, { "Drafts/Chapter.md": STALE_TYPE });
+	assert.ok(!sentIds(up).includes(A), "Upload sent a note whose id another note holds: " + JSON.stringify(up.bulkSent));
+	assert.ok(up.notices.some((n) => /another note holds the same id/.test(n)), up.notices.join(" | "));
+});
+
+test("★ Upload world sends no element from an old span note outside the type folders, whatever the cache says; one in its type folder is sent", async () => {
+	const up = await uploadWithCache({ "Drafts/Chapter.md": SPAN_CHAPTER, "Character/Real.md": OLD(C, "Real", "A real old note.") }, { "Drafts/Chapter.md": STALE_TYPE });
+	assert.ok(!sentIds(up).includes(A), "Upload sent an old span note outside the type folders: " + JSON.stringify(up.bulkTypes));
+	assert.equal(up.bulkTypes[C], "character", JSON.stringify(up.bulkTypes));
 });

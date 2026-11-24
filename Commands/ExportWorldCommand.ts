@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { ownConflictMessage, readElement, sameElementType, typeReadTwiceMessage, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -462,14 +462,14 @@ export class ExportWorldCommand {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
                 // The type's notes, wherever they sit in the world's folder (the Markdown profile, sentences 1 and 2).
-                const files = await this.notesOfType(worldFolder, category);
-     
-                const categoryData = await Promise.all(files.map(async (file) => {
+                // Each note was read once, and everything below is decided from those bytes.
+                const notes = await this.notesOfType(worldFolder, category);
+
+                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent }) => {
                     // Phase B: frontmatter notes read via the shared element reader
                     // (id + typed fields + extension namespaces preserved); legacy
                     // span notes still fall through to the span parser so a mixed,
                     // partly-migrated world uploads correctly either way.
-                    const fileContent = await fs.read(file.path);
                     if (isKnownOfNote(fileContent) && !isStubNote(fileContent)) {
                         // Known of: a stub of the server's element, never sent
                         // (the folder spec §4.4 rule 3). Links to
@@ -497,17 +497,10 @@ export class ExportWorldCommand {
                     // own, so a quoted Id line is never sent as an id.
                     const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
-                        const parsed = await readElement(this.app, file, { fromBytes: true });
+                        const parsed = await readElement(this.app, file, { content: fileContent });
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
-                        // The type the bytes give must be the type the note was listed
-                        // under (the metadata cache, a moment before): otherwise it is
-                        // left out and named in the summary, never sent under either type.
-                        if (parsed && !sameElementType(category, parsed.category)) {
-                            this.refusedNotes.push(typeReadTwiceMessage(`"${parsed.name}"`, category, parsed.category, 'not sent', 'Upload world'));
-                            return {};
-                        }
                         if (parsed?.unclosedFence) {
                             // Never sent cut short: named in the summary instead.
                             this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
@@ -737,25 +730,27 @@ export class ExportWorldCommand {
      * either spelling), and only a note outside every type folder is read by its
      * `type` property, with an id that is a UUID.
      */
-    private async notesOfType(worldFolder: string, type: string): Promise<TFile[]> {
-        // Every note of the world is classified once per upload (its type, or none), not once per type.
+    private async notesOfType(worldFolder: string, type: string): Promise<Array<{ file: TFile; content: string }>> {
+        // Every note of the world is read once per upload, from its bytes, and
+        // classified from them (its type, or none): never the metadata cache.
         if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
-            const byFile = new Map<TFile, string>();
-            for (const { file, category } of await worldElementNotes(this.app, worldFolder)) byFile.set(file, category.toLowerCase());
+            const byFile = new Map<TFile, { type: string; content: string }>();
+            for (const { file, category, content } of await worldElementNotesFromBytes(this.app, worldFolder)) {
+                byFile.set(file, { type: category.toLowerCase(), content });
+            }
             this.noteTypes = { world: worldFolder, byFile };
         }
         const want = type.toLowerCase();
-        return [...this.noteTypes.byFile].filter(([, t]) => t === want).map(([f]) => f);
+        return [...this.noteTypes.byFile].filter(([, n]) => n.type === want).map(([file, n]) => ({ file, content: n.content }));
     }
-    /** The classification `notesOfType` made for the world being collected. */
-    private noteTypes: { world: string; byFile: Map<TFile, string> } | null = null;
+    /** The classification `notesOfType` made for the world being collected, with each note's content. */
+    private noteTypes: { world: string; byFile: Map<TFile, { type: string; content: string }> } | null = null;
 
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
-        const files = await this.notesOfType(worldFolder, elementType);
+        const notes = await this.notesOfType(worldFolder, elementType);
 
-        for (const file of files) {
+        for (const { file, content: fileContent } of notes) {
             try {
-                const fileContent = await this.app.vault.read(file);
                 const { name, id } = this.parseElement(fileContent);
 
                 // Match by name content rather than filename. Compare sanitized
