@@ -428,6 +428,16 @@ export class ExportWorldCommand {
     
 
     async collectWorldData(worldFolder: string) {
+        try {
+            return await this.collectWorldDataFromNotes(worldFolder);
+        } finally {
+            // Every reader of the listing (the count, the per-note pass, the link lookup by name) runs inside the
+            // collection: the notes' text is not kept on the command afterwards, whether it finished, stopped or threw.
+            this.noteTypes = null;
+        }
+    }
+
+    private async collectWorldDataFromNotes(worldFolder: string) {
         this.noteTypes = null; // classified afresh for each collection (a vault changes between uploads)
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
@@ -556,9 +566,6 @@ export class ExportWorldCommand {
                 worldData[category] = categoryData.filter(item => Object.keys(item).length > 0);
             }
         }
-        // Every reader of the listing (the count, the pass above, the link lookup by name) is done: the notes'
-        // text is not kept on the command until the next upload.
-        this.noteTypes = null;
 
         // Add debug logging at the end of the method, before returning the data
         try {

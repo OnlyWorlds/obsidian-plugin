@@ -502,12 +502,17 @@ test("★ Upload world stops when a note cannot be read: no request leaves, noth
 	}
 });
 
-test("Upload world keeps no note's text on the command once its collection is done", async () => {
+test("Upload world keeps no note's text on the command once its collection is done, or once it throws", async () => {
 	const { app, vault } = makeApp();
-	await seedAll(vault, { [`${E}/Character/Clean.md`]: CLEAN(C, "Clean") });
+	await seedAll(vault, { [`${E}/Character/Clean.md`]: CLEAN(C, "Clean"), [`${E}/Character/Real.md`]: OLD(B, "Real", "A real old note.") });
 	const { ExportWorldCommand } = await import("../Commands/ExportWorldCommand");
 	const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app), { settings: {} } as never);
 	const data = (await cmd.collectWorldData("W")) as Record<string, { id?: unknown }[]>;
-	assert.equal(data.Character?.[0]?.id, C, JSON.stringify(data));
+	assert.ok(data.Character?.some((e) => e.id === C), JSON.stringify(data));
 	assert.equal((cmd as unknown as { noteTypes: unknown }).noteTypes, null, "the listed notes' contents are still held after the collection");
+	(cmd as unknown as { parseTemplate(): Promise<never> }).parseTemplate = async () => {
+		throw new Error("a parse that throws");
+	};
+	await assert.rejects(cmd.collectWorldData("W"), /a parse that throws/);
+	assert.equal((cmd as unknown as { noteTypes: unknown }).noteTypes, null, "the listed notes' contents are still held after a collection that threw");
 });
