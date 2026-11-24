@@ -131,3 +131,66 @@ test("★ Manage fields leaves a note with a heading there twice, from the comma
 		assert.ok(twiceNamed(__notices, heading, "not changed"), __notices.join(" | "));
 	}
 });
+
+// --- 3 Save reads a note's identity from the bytes it sends ----------------------------------------
+
+const B = "019e0000-0000-7000-8000-0000000000b2";
+
+/** A save with the metadata cache answering `entry` for every note whose path ends in `end`. */
+async function saveWithCache(end: string, entry: unknown, o: Parameters<typeof harnessSave>[0]) {
+	const proto = (await import("./support/obsidian-mock")).MockMetadataCache.prototype as unknown as { getFileCache(f: { path: string }): unknown };
+	const orig = proto.getFileCache;
+	proto.getFileCache = function (this: unknown, f: { path: string }) {
+		return f.path.endsWith(end) ? entry : orig.call(this, f);
+	};
+	try {
+		return await harnessSave(o);
+	} finally {
+		proto.getFileCache = orig;
+	}
+}
+const STALE_BOB = { frontmatter: { id: A, name: "Bob" } };
+
+test("★ Save sends nothing from a note whose front matter was just removed, though the cache still holds its id, by hand or by auto-sync", async () => {
+	const mine = "My private rewrite, no longer an element.\n";
+	const server = { [A]: { name: "Bob", description: "Bob's chapter." } };
+	for (const manual of [true, false]) {
+		const r = await saveWithCache("Character/Bob.md", STALE_BOB, { notes: { "Character/Bob.md": mine }, save: "Character/Bob.md", server, manual });
+		assert.deepEqual(r.calls, [], `manual ${manual}: ` + r.calls.join(" | ") + " :: " + JSON.stringify(r.sent));
+		assert.equal(r.vault.contentAt(`${E}/Character/Bob.md`), mine);
+	}
+});
+
+test("★ Save sends nothing from a note outside the type folders whose id was taken out, though the cache still says it is an element", async () => {
+	const diary = `---\nid: false\n---\n\n### Description\n\nA new private chapter.\n`;
+	const r = await saveWithCache("Drafts/Diary.md", { frontmatter: { id: A, name: "Diary", type: "character" } }, {
+		notes: { "~/Drafts/Diary.md": diary },
+		save: "~/Drafts/Diary.md",
+		server: { [A]: { name: "Diary", description: "Old." } },
+		manual: false,
+	});
+	assert.deepEqual(r.calls, [], r.calls.join(" | ") + " :: " + JSON.stringify(r.sent));
+});
+
+test("★ Save sends a note under the id and name its bytes hold, not the cache's", async () => {
+	const bobby = `---\nname: Bobby\nid: ${B}\n---\n\n### Description\n\nBobby's chapter.\n`;
+	const r = await saveWithCache("Character/Bob.md", STALE_BOB, {
+		notes: { "Character/Bob.md": bobby },
+		save: "Character/Bob.md",
+		server: { [A]: { name: "Bob", description: "Bob's chapter." }, [B]: { name: "Bob", description: "Old." } },
+		manual: true,
+	});
+	assert.deepEqual(r.calls, [`get character ${B}`, `update character ${B}`], r.calls.join(" | ") + " :: " + r.notices.join(" | "));
+	assert.equal(r.sent[0]?.name, "Bobby", JSON.stringify(r.sent));
+});
+
+test("★ Save refuses a note whose bytes hold a hidden or last-known id, whatever id the cache holds", async () => {
+	const held = `---\nname: Bob\nid: ${B}\n---\n\n### Description\n\nA new chapter.\n`;
+	const server = { [A]: { name: "Bob", description: "Bob's chapter." }, [B]: { name: "Bob", description: "Old." } };
+	const hidden = await saveWithCache("Character/Bob.md", STALE_BOB, { notes: { "Character/Bob.md": held }, save: "Character/Bob.md", server, hidden: [B], manual: true });
+	assert.deepEqual(hidden.calls, [], "hidden: " + hidden.calls.join(" | "));
+	assert.ok(hidden.notices.some((n) => /Hidden by the world's owner/.test(n)), hidden.notices.join(" | "));
+	const last = await saveWithCache("Character/Bob.md", STALE_BOB, { notes: { "Character/Bob.md": held }, save: "Character/Bob.md", server, lastKnown: [B], manual: true });
+	assert.deepEqual(last.calls, [], "last known: " + last.calls.join(" | "));
+	assert.ok(last.notices.some((n) => /Known of now/.test(n)), last.notices.join(" | "));
+});

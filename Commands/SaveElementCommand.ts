@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, parseRawFrontmatter, readElement, unclosedFenceMessage } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
@@ -324,8 +324,12 @@ export class SaveElementCommand {
             return this.fail("No active file selected or it's not a valid file.");
         }
 
-        // 1. Validate Path and Extract Info
-        const pathInfo = await this.extractPathInfo(activeFile.path);
+        // 1. Validate Path and Extract Info. The note is read once, and its id,
+        // type and name come from those bytes, never the metadata cache: a cache
+        // that still holds an id the note no longer carries would send the new
+        // text under that id.
+        const content = await this.app.vault.read(activeFile);
+        const pathInfo = await this.extractPathInfo(activeFile.path, content);
         if (!pathInfo) {
             return this.fail("The current file is not a valid OnlyWorlds element note.");
         }
@@ -333,8 +337,8 @@ export class SaveElementCommand {
 
         // 2. Read the note with the one reader: front matter, or an old span note by its one grammar.
         let elementData: ElementData | null = null;
-        const v2 = await readElement(this.app, activeFile);
-        if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
+        const v2 = await readElement(this.app, activeFile, { content });
+        if (v2?.id && (isHiddenId(this.plugin.settings, v2.id) || isStubNote(content))) return this.hiddenRefusal(activeFile, manual);
         // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
         const twin = v2?.id ? this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
         if (twin) {
@@ -1143,12 +1147,22 @@ export class SaveElementCommand {
     // The world and type of an element note: its place decides (the first folder below the
     // world's folder named for one of the 22, in either spelling), and only a note outside
     // every type folder is read by its `type` property (the Markdown profile, sentence 2).
-    // The front matter comes from the cache, else from the note on disk: a cold cache must not make a note
-    // outside the type folders look like no element's.
-    async extractPathInfo(filePath: string): Promise<{ worldName: string; category: string } | null> {
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        const fm = file instanceof TFile ? await readFrontmatter(this.app, file) : undefined;
-        return elementNoteType(filePath, fm);
+    // The front matter comes from the note's own bytes (`content` when the caller has read them), never the
+    // cache: a cold cache must not make a note outside the type folders look like no element's, and a stale one
+    // must not make a note whose id was taken out look like one.
+    async extractPathInfo(filePath: string, content?: string): Promise<{ worldName: string; category: string } | null> {
+        let bytes = content;
+        if (bytes === undefined) {
+            const file = this.app.vault.getAbstractFileByPath(filePath);
+            if (file instanceof TFile) {
+                try {
+                    bytes = await this.app.vault.read(file);
+                } catch {
+                    bytes = undefined;
+                }
+            }
+        }
+        return elementNoteType(filePath, bytes === undefined ? undefined : parseRawFrontmatter(bytes) ?? undefined);
     }
 
     // The same, from the metadata cache alone, where a caller cannot wait (a map over links).
