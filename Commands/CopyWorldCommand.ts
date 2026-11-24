@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -168,18 +168,29 @@ export class CopyWorldCommand {
         // bytes: never the metadata cache, never a second read.
         const elementNotes = await worldElementNotesFromBytes(this.app, worldName);
 
+        // Hidden by the world's owner: a stub, or an id on a hidden list, is
+        // never copied as an element, and so holds no id among the copied notes.
+        const hidden = (content: string): boolean => {
+            if (isStubNote(content)) return true;
+            const ownId = ownFrontmatterId(content);
+            return !!(ownId && this.host && isHiddenId(this.host.settings, ownId));
+        };
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1), as Upload world
+        // refuses them: a copy kept in an archive folder must not stand for the element in the pasted world, and
+        // neither is the element's to choose. Counted over every listed note before any other refusal, so a note
+        // refused for something else never makes its twin look unique.
+        const twins = duplicateIds(elementNotes.filter(n => !hidden(n.content)).map(n => n.id));
+        const twinRefusal = (category: string, name: unknown, id: string) =>
+            `${category} "${String(name ?? id)}" not copied: another note holds the same id. Keep one of them, then try again.`;
+
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
                 const notes = elementNotes.filter(n => n.category === category);
 
-                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent }) => {
-                    // Hidden by the world's owner: a stub, or
-                    // an id on a hidden list, is never copied as an element.
-                    if (isStubNote(fileContent)) return {};
-                    const ownId = ownFrontmatterId(fileContent);
-                    if (ownId && this.host && isHiddenId(this.host.settings, ownId)) return {};
+                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent, id: listedId }) => {
+                    if (hidden(fileContent)) return {};
                     // Phase B: frontmatter notes read via the shared reader; legacy
                     // span notes fall through to the span parser (mixed worlds copy
                     // correctly either way). The span reader takes only a note in the
@@ -190,6 +201,10 @@ export class CopyWorldCommand {
                     const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
                         const parsed = await readElement(this.app, file, { content: fileContent });
+                        if (parsed && listedId && twins.has(listedId)) {
+                            refused.push(twinRefusal(category, parsed.name, listedId));
+                            return {};
+                        }
                         if (parsed?.unclosedFence) {
                             refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
                             return {};
@@ -209,6 +224,10 @@ export class CopyWorldCommand {
                         parsedElement = await this.parseTemplate(fileContent, worldName);
                         // Span markup with no Id line is a note showing the old format, never an element under a made-up id.
                         if (!parsedElement.id) return {};
+                        if (listedId && twins.has(listedId)) {
+                            refused.push(twinRefusal(category, parsedElement.name, listedId));
+                            return {};
+                        }
                     }
                     return this.addMissingElementFields(parsedElement, category);
                 }));
@@ -218,23 +237,6 @@ export class CopyWorldCommand {
             }
         }
         
-        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1), as Upload world
-        // refuses them: a copy kept in an archive folder must not stand for the element in the pasted world, and
-        // neither is the element's to choose.
-        const idCount = new Map<string, number>();
-        for (const list of Object.values(worldData)) {
-            if (!Array.isArray(list)) continue;
-            for (const el of list as { id?: unknown }[]) if (el.id) idCount.set(String(el.id), (idCount.get(String(el.id)) ?? 0) + 1);
-        }
-        for (const [category, list] of Object.entries(worldData)) {
-            if (!Array.isArray(list)) continue;
-            worldData[category] = (list as { id?: unknown; name?: unknown }[]).filter((el) => {
-                if (!el.id || (idCount.get(String(el.id)) ?? 0) < 2) return true;
-                refused.push(`${category} "${String(el.name ?? el.id)}" not copied: another note holds the same id. Keep one of them, then try again.`);
-                return false;
-            });
-        }
-
       //  console.log(`Final world data: ${JSON.stringify(worldData)}`);
         for (const r of refused) new Notice(r, 15000);
         return worldData;

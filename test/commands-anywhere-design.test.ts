@@ -375,3 +375,20 @@ test("★ Upload world sends no element from an old span note outside the type f
 	assert.ok(!sentIds(up).includes(A), "Upload sent an old span note outside the type folders: " + JSON.stringify(up.bulkTypes));
 	assert.equal(up.bulkTypes[C], "character", JSON.stringify(up.bulkTypes));
 });
+
+// --- 11 Copy and Upload count duplicate ids before any other refusal --------------------------------
+
+const D = "019e0000-0000-7000-8000-0000000000d4";
+const FENCED = (id: string) => `---\nid: ${id}\nname: Fenced\n---\n\n### Description\n\nA.\n\n### Background\n\n~~~\ncode\n\n### Physicality\n\nTall.\n`;
+const CLEAN = (id: string, name: string) => `---\nid: ${id}\nname: ${name}\n---\n\n### Description\n\nClean.\n`;
+
+test("★ Copy world refuses both notes that hold one id when one of them is also refused for an open fence; a fenced note alone is refused for its fence", async () => {
+	const r = await copyWithCache({ [`${E}/Character/Fenced.md`]: FENCED(A), [`${E}/Character/Twin.md`]: CLEAN(A, "Twin") }, {});
+	assert.deepEqual(holds(r.data, A), [], "Copy: " + JSON.stringify(r.data));
+	assert.ok(r.notices.some((n) => /"Fenced" not copied: another note holds the same id/.test(n)), r.notices.join(" | "));
+	assert.ok(r.notices.some((n) => /"Twin" not copied: another note holds the same id/.test(n)), r.notices.join(" | "));
+	const alone = await copyWithCache({ [`${E}/Character/Fenced.md`]: FENCED(D), [`${E}/Character/Clean.md`]: CLEAN(C, "Clean") }, {});
+	assert.deepEqual(holds(alone.data, D), [], "Copy: " + JSON.stringify(alone.data));
+	assert.ok(alone.notices.some((n) => /Fenced not copied: the code fence/.test(n)), alone.notices.join(" | "));
+	assert.deepEqual(holds(alone.data, C), ["Character"], "Clean: " + JSON.stringify(alone.data));
+});

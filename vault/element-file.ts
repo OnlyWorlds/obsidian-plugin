@@ -898,18 +898,39 @@ export async function worldElementNotes(app: App, worldName: string): Promise<Ar
  * bytes hold it (place decides, else the `type` property with a UUID id), as
  * `readElement` reads it from the same bytes. An old span note has no front
  * matter, so it is listed only where its place gives the type. Returns each
- * note with its type (the folder spelling) and the content read, for every
- * read after: no second read of a note in the run.
+ * note with its type (the folder spelling), the content read, for every
+ * read after (no second read of a note in the run), and its id as
+ * `readElement` reads it from those bytes: the front matter's string id, or
+ * an old span note's Id line (null when it has none).
  */
-export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string; content: string }>> {
-	const out: Array<{ file: TFile; category: string; content: string }> = [];
+export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string; content: string; id: string | null }>> {
+	const out: Array<{ file: TFile; category: string; content: string; id: string | null }> = [];
 	for (const file of app.vault.getMarkdownFiles()) {
 		if (!mayBeElementNote(file.path, worldName)) continue;
 		const content = await app.vault.read(file);
-		const found = elementNoteType(file.path, parseRawFrontmatter(content) ?? undefined);
-		if (found) out.push({ file, category: found.category, content });
+		const fm = parseRawFrontmatter(content) ?? undefined;
+		const found = elementNoteType(file.path, fm);
+		if (!found) continue;
+		const id = typeof fm?.id === "string" ? fm.id : oldSpanNoteId(content);
+		out.push({ file, category: found.category, content, id });
 	}
 	return out;
+}
+
+/**
+ * The ids two or more of these notes hold: counted over every note a command
+ * listed, before any note is refused for anything else, so a refused note
+ * never makes its twin look unique.
+ */
+export function duplicateIds(ids: Array<string | null>): Set<string> {
+	const seen = new Set<string>();
+	const twice = new Set<string>();
+	for (const id of ids) {
+		if (!id) continue;
+		if (seen.has(id)) twice.add(id);
+		seen.add(id);
+	}
+	return twice;
 }
 
 /**
