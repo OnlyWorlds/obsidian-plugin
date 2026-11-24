@@ -123,3 +123,32 @@ test("★ Migrate never reads span markup in front matter, inline code, an inden
 	assertUnchanged(vault, examples);
 	assert.deepEqual(r?.converted, [`${E}/Location/Gela.md`], JSON.stringify(r));
 });
+
+// --- 3 Copy and Upload: front matter wins -----------------------------------------------
+
+test("★ Copy world reads a note with a front matter id by its front matter, and a span example never becomes or refuses an element", async () => {
+	const { app, vault } = makeApp();
+	await seedAll(vault, {
+		[`${E}/Character/Quoted.md`]: `---\nname: Quoted\nid: ${CC}\n---\n\n### Description\n\nThe real one.\n`,
+		[`${W}/Cast/Quoter.md`]: `---\nname: Quoter\nid: ${BA}\ntype: character\n---\n\n### Description\n\nThe old plugin wrote this:\n${ID_LINE(CC)}\nLong prose of mine.\n`,
+		[`${E}/Character/Mentions.md`]: `---\nname: Mentions\nid: ${BD}\n---\n\n### Description\n\nAn old line looked like \`- <span class="text-field" data-tooltip="Text">Name</span>: X\`.\n`,
+		[`${E}/Character/Fenced.md`]: `My draft.\n\n\`\`\`\n${SPAN(B, "Example", "Example only.")}\`\`\`\n`,
+		[`${W}/Cast/Mine.md`]: `---\nname: Mine\nid: ${C}\ntype: character\n---\n\n### Description\n\nI used \`<span class="text-field">\` once.\n`,
+		[`${E}/Character/Bob.md`]: `---\nname: Bob\nid: ${A}\n---\n\n### Description\n\nBob.\n`,
+		[`${E}/Character/Example.md`]: `An example:\n\n\`\`\`\n${SPAN(A, "Bob", "Example.")}\`\`\`\n`,
+	});
+	__notices.length = 0;
+	const data = (await new CopyWorldCommand(app, {} as never, new WorldService(app)).collectWorldData(W)) as Record<string, Record<string, unknown>[]>;
+	assert.deepEqual(data.Character.map((e) => `${e.name} ${e.id}`).sort(), [`Bob ${A}`, `Mentions ${BD}`, `Mine ${C}`, `Quoted ${CC}`, `Quoter ${BA}`].sort(), JSON.stringify(data.Character));
+	assert.ok(!__notices.some((n) => /not copied/.test(n)), __notices.join(" | "));
+	assert.match(String(data.Character.find((e) => e.id === BA)?.description), /Long prose of mine/);
+});
+
+test("★ Upload world sends a note with its own id under that id, though its prose quotes another element's old Id line", async () => {
+	const r = await harnessUpload({
+		notes: { "Character/Quoter.md": `---\nname: Quoter\nid: ${BA}\n---\n\n### Description\n\nThe old plugin wrote this:\n${ID_LINE(CC)}\nLong prose of mine.\n` },
+		changes: [],
+	});
+	const ids = [...r.bulkSent.map((e) => String(e.id)), ...Object.keys(r.patches)];
+	assert.deepEqual(ids, [BA], JSON.stringify({ bulk: r.bulkSent, patches: r.patches }));
+});

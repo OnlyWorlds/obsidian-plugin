@@ -9,8 +9,8 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
-import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
+import { ownConflictMessage, ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { outsideCode, parseRawFrontmatterScalars, spanNoteId, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
@@ -491,7 +491,12 @@ export class ExportWorldCommand {
                         }
                         return {};
                     }
-                    if (!isSpanFormat(fileContent) && file instanceof TFile) {
+                    // Front matter wins: a note with an id in its front matter is read by
+                    // it, whatever its prose quotes; the span reader takes only a note with
+                    // none whose Id line stands outside every code context (spanNoteId),
+                    // and reads only that text, so a quoted Id line is never sent as an id.
+                    const oldSpanNote = !ownFrontmatterId(fileContent) && spanNoteId(fileContent) !== null;
+                    if (!oldSpanNote && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
@@ -511,7 +516,7 @@ export class ExportWorldCommand {
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
-                    return await this.parseTemplate(fileContent, worldFolder);
+                    return oldSpanNote ? await this.parseTemplate(outsideCode(fileContent), worldFolder) : {};
                 }));
     
                 // Filter out empty entries

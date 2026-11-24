@@ -20,7 +20,9 @@ import {
 	normalizeCategory,
 	getCategorySchema,
 	isSpanFormat,
+	outsideCode,
 	parseSpanNote,
+	spanNoteId,
 	spanFieldsToFrontmatter,
 	parseRawFrontmatterScalars,
 	AMBIGUOUS_LINK,
@@ -373,9 +375,11 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		};
 	}
 
-	// Legacy span-format fallback (pre-migration notes).
-	if (isSpanFormat(content)) {
-		const parsed = parseSpanNote(content);
+	// Legacy span-format fallback (pre-migration notes): only span lines outside
+	// every code context are the note's own; an example shown as code is not.
+	const spanText = outsideCode(content);
+	if (isSpanFormat(spanText)) {
+		const parsed = parseSpanNote(spanText);
 		if (!parsed.id) return null;
 		const resolver = buildVaultLinkResolver(app, pathInfo.worldName);
 		const { frontmatter, bodyValue } = spanFieldsToFrontmatter(parsed, category, resolver);
@@ -806,7 +810,9 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	// is still this element's, and rewriting it in place is what heals it.
 	const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ""), ["id"]).id;
 	if (fmId) return fmId;
-	if (isSpanFormat(content)) return parseSpanNote(content).id;
+	// An old span note's id, from span lines outside every code context: a quoted example never makes a note an element's.
+	const spanId = spanNoteId(content);
+	if (spanId) return spanId;
 	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
 }
 
