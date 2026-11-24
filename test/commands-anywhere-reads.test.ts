@@ -177,3 +177,41 @@ test("★ Update world format leaves a note in a type folder whose id is no elem
 	await cmd.apply(plan);
 	for (const [p, t] of Object.entries(notes)) assert.equal(vault.contentAt(p), t, `${p} was rewritten`);
 });
+
+// --- 4 Import folder: an id any note holds is held ----------------------------------
+
+async function importOne(app: App, vault: MockVault, el: Record<string, unknown>): Promise<{ created: string[]; skipped: string[] }> {
+	const dir = "import/w";
+	await vault.seed(`${dir}/world.json`, JSON.stringify({ id: "0199aaaa-0000-7000-8000-0000000000f0", name: "W" }));
+	await vault.seed(`${dir}/elements/character/one.json`, JSON.stringify({ type: "character", ...el }));
+	__modals.length = 0;
+	await (new ImportFolderCommand(app) as unknown as { importFolder(dir: string): Promise<void> }).importFolder(dir);
+	return (__modals.find((m) => m.constructor.name === "ImportReportModal") as unknown as { result: { created: string[]; skipped: string[] } }).result;
+}
+
+const BOB = "019b0000-0000-7000-8000-0000000000f1";
+const IREENA = "019b0000-0000-7000-8000-0000000000a1";
+
+test("★ Import folder skips an element whose id a note of the person's own holds, typed or not: no second note with one id", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	const mine = `---\nname: Bob\nid: ${BOB}\n---\n\nMy edits.\n`;
+	await vault.seed(`${E}/Drafts/Bob.md`, mine);
+	const r = await importOne(app, vault, { id: BOB, name: "Bob", description: "Imported." });
+	assert.deepEqual(r.skipped, [BOB], JSON.stringify(r));
+	assert.equal(vault.contentAt(`${E}/Character/Bob.md`), undefined, "a second note with one id was made");
+	assert.equal(vault.contentAt(`${E}/Drafts/Bob.md`), mine);
+});
+
+test("★ Import folder reads a held id from the disk when the metadata cache has no front matter for the note", async () => {
+	const { app, vault, cache } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	const path = `${E}/Places/Ireena.md`;
+	await vault.seed(path, `---\nid: ${IREENA}\nname: Ireena\ntype: character\n---\n\nMy version.\n`);
+	const c = cache as unknown as { getFileCache(f: { path: string }): unknown };
+	const get = c.getFileCache.bind(c);
+	c.getFileCache = (f: { path: string }) => (f.path === path ? {} : get(f));
+	const r = await importOne(app, vault, { id: IREENA, name: "Ireena", description: "Imported version." });
+	assert.deepEqual(r.skipped, [IREENA], JSON.stringify(r));
+	assert.equal(vault.contentAt(`${E}/Character/Ireena.md`), undefined, "a second note with one id was made");
+});

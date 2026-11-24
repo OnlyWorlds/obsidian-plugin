@@ -1,5 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
-import { pickNoteForId, worldElementNotes, writeElement } from "../vault/element-file";
+import { pickNoteForId, writeElement } from "../vault/element-file";
+import { mayBeElementNote } from "../vault/category-folder";
 import { isKnownOfElement } from "../sync/known-of";
 import { bodyFieldForCategory, getCategorySchema, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
 import { sanitizeFileName } from "../Scripts/WorldService";
@@ -17,8 +18,8 @@ import {
 	type ElementRef,
 } from "../vault/folder-format";
 
-/** An element note the target world already holds: the note, its id, its type (folder spelling). */
-type HeldNote = { file: TFile; id: string; category: string };
+/** A note in the target world's folder that holds an id, and the id. */
+type HeldNote = { file: TFile; id: string };
 
 /**
  * Import OnlyWorlds folder (S9 Phase C / Rail 2).
@@ -386,8 +387,10 @@ export class ImportFolderCommand {
 		for (const n of held) {
 			if (inFolder.has(n.id) && existingIds.has(n.id)) byId.set(n.id, [...(byId.get(n.id) ?? []), n]);
 		}
+		const typeOf = new Map(parsed.map((el) => [String(el.payload.id), normalizeCategory(el.type)]));
 		for (const [id, notes] of byId) {
-			const path = pickNoteForId(notes.map((n) => n.file.path), world, notes[0].category);
+			const cat = typeOf.get(id) ?? "";
+			const path = pickNoteForId(notes.map((n) => n.file.path), world, cat.charAt(0).toUpperCase() + cat.slice(1));
 			const note = notes.find((n) => n.file.path === path);
 			if (note) names.set(id, note.file.basename);
 		}
@@ -411,19 +414,19 @@ export class ImportFolderCommand {
 	}
 
 	/**
-	 * The target world's element notes and the id each holds (R5), wherever
-	 * they sit in its folder (the Markdown profile: the folder decides the type,
-	 * else the note's `type` property). A note the person moved out of its type
-	 * folder is still the element's: its id is held, so the import skips it
-	 * rather than write over it (writeElement finds a note by id anywhere) or
-	 * make a second one. A note of the person's own is not listed. Each note's
-	 * id is read from disk when the metadata cache has none: on a re-import
-	 * before Obsidian has indexed the notes, a cache-only read missed every id
-	 * and wrote a second note for each (Kael's cold read, 3).
+	 * Every id a note in the target world's folder holds (R5), wherever it sits
+	 * and whether or not the profile reads it as an element: a note the person
+	 * moved out of its type folder, typed or not, is skipped by the import, never
+	 * written over (writeElement finds an element's note by id anywhere) and
+	 * never given a second note with its id. Each note's id is read from disk
+	 * when the metadata cache has none, an entry with no front matter included:
+	 * on a re-import before Obsidian has indexed the notes, a cache-only read
+	 * missed every id and wrote a second note for each (Kael's cold read, 3).
 	 */
 	private async worldElementIds(world: string): Promise<HeldNote[]> {
 		const out: HeldNote[] = [];
-		for (const { file, category } of await worldElementNotes(this.app, world)) {
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			if (!mayBeElementNote(file.path, world)) continue;
 			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
 			let id = fm && typeof fm.id === "string" ? fm.id : undefined;
 			if (!id) {
@@ -433,7 +436,7 @@ export class ImportFolderCommand {
 					/* unreadable note: not an id this import can see */
 				}
 			}
-			if (id) out.push({ file, id, category });
+			if (id) out.push({ file, id });
 		}
 		return out;
 	}
