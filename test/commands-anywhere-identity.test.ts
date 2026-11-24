@@ -166,3 +166,37 @@ test("★ Migrate resolves a link to an old note it leaves for the person, as be
 	assert.deepEqual(r?.unresolvedLinks, [], JSON.stringify(r?.unresolvedLinks));
 	assert.match(vault.contentAt(`${E}/Character/Ana.md`) ?? "", /^location: .*Home/m, vault.contentAt(`${E}/Character/Ana.md`));
 });
+
+// --- 5 front matter the line-keeping edit cannot keep: refused, never rebuilt ------------
+
+test("★ Update world format refuses a note whose front matter it cannot keep line for line, names it, and writes nothing", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${E}/Character/Zel.md`]: `---\nname: Zel\nid: ${A}\nbase: &b {hp: 3}\nother: *b\nphysicality: Tall.\nfounded: 2024-03-01   # my date\n---\n\nA legacy body.\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Zel not updated/.test(n)), __notices.join(" | "));
+});
+
+test("★ Migrate refuses an old note whose front matter cannot be read or kept, names it, and writes nothing", async () => {
+	const { app, vault } = makeApp();
+	const notes = {
+		[`${E}/Location/Selinus.md`]: `---\ntags: [a, b\nmood: calm\n---\n${SPAN(A, "Selinus", "A temple town.")}`,
+		[`${E}/Location/Akragas.md`]: `---\nbase: &b {hp: 3}\nother: *b\n---\n${SPAN(B, "Akragas", "A hill town.")}`,
+	};
+	await seedAll(vault, notes);
+	const r = await migrate(app);
+	assertUnchanged(vault, notes);
+	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
+	assert.deepEqual((r?.failed ?? []).map((f) => f.path).sort(), Object.keys(notes).sort(), JSON.stringify(r?.failed));
+});
+
+test("★ a comment above a property stays when the property before it moves to the body", async () => {
+	const { app, vault } = makeApp();
+	const path = `${E}/Character/Kol.md`;
+	await seedAll(vault, { [path]: `---\nname: Kol\nid: ${A}\n# what the book says\nphysicality: Tall\n# from the book, ch. 3\nage: 5\n---\n\nA legacy body.\n` });
+	await update(app);
+	const text = vault.contentAt(path) ?? "";
+	assert.match(text, /\n# what the book says\n# from the book, ch\. 3\nage: 5\n/, text);
+	assert.doesNotMatch(text.split("\n---")[0], /physicality/, text);
+});

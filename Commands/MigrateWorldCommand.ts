@@ -6,10 +6,7 @@ import {
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
-	hasOwn,
 	joinNote,
-	serializeFrontmatter,
-	setOwn,
 	splitNote,
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
@@ -275,13 +272,15 @@ export class MigrateWorldCommand {
 	): Promise<void> {
 		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
 		// The note's own front matter lines follow the migrated keys as the person
-		// wrote them; the whole block is written only when they cannot be kept so.
+		// wrote them, or the note is not converted (the caller lists it as failed):
+		// never a block YAML cannot read, never a whole block rebuilt in another form.
 		const block = splitNote(content).frontmatter;
-		let fmText = editFrontmatterLines(block ? `${block}\n` : '', [], fm, {});
+		if (block && !parseRawFrontmatter(block)) {
+			throw new Error('its properties are not valid YAML. Fix them, then run Migrate again');
+		}
+		const fmText = editFrontmatterLines(block ? `${block}\n` : '', [], fm, {});
 		if (fmText === null) {
-			const merged: Record<string, unknown> = { ...fm };
-			for (const [k, v] of Object.entries(parseRawFrontmatter(block) ?? {})) if (!hasOwn(merged, k)) setOwn(merged, k, v);
-			fmText = serializeFrontmatter(merged);
+			throw new Error('its properties cannot be kept as you wrote them (an alias, an indented block or another form Migrate does not edit line by line). Nothing was changed');
 		}
 		// The guard is one-shot per path: marked before the one 'modify' so
 		// auto-sync never sees a migration write.

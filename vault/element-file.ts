@@ -714,20 +714,33 @@ export function editFrontmatterLines(
 	last: Record<string, unknown>
 ): string | null {
 	const inner = (o: Record<string, unknown>): string[] => (Object.keys(o).length ? serializeFrontmatter(o).split("\n").slice(1, -1) : []);
+	const dropList = [...drop];
 	if (!block.trim()) {
 		const lines = [...inner(first), ...inner(last)];
 		return lines.length ? ["---", ...lines, "---"].join("\n") : "";
 	}
+	// Nothing to change: the block as it is, whatever form it takes.
+	if (dropList.length === 0 && Object.keys(first).length === 0 && Object.keys(last).length === 0) return block.replace(/(\r?\n)+$/, "");
 	const eol = block.includes("\r\n") ? "\r\n" : "\n";
 	const lines = block.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
 	if (lines.length < 2 || lines[0].trimEnd() !== "---" || lines[lines.length - 1].trimEnd() !== "---") return null;
 	const head: string[] = [];
+	const tail: string[] = [];
 	const entries: Array<{ key: string; lines: string[] }> = [];
 	for (const line of lines.slice(1, -1)) {
-		// A key starts at the line's first character; indented lines, list items and comments belong to the entry above.
+		// A key starts at the line's first character; indented lines and list items belong to the entry above.
 		if (/^[^\s#]/.test(line) && !/^-(\s|$)/.test(line)) entries.push({ key: "", lines: [line] });
 		else if (entries.length) entries[entries.length - 1].lines.push(line);
 		else head.push(line);
+	}
+	// A comment (or blank line) after an entry's own lines belongs to the key below it: it stays when the entry above goes.
+	for (let i = 0; i < entries.length; i++) {
+		const own = entries[i].lines;
+		let cut = own.length;
+		while (cut > 1 && (own[cut - 1].trim() === "" || own[cut - 1].startsWith("#"))) cut--;
+		const moved = own.splice(cut);
+		if (i + 1 < entries.length) entries[i + 1].lines.unshift(...moved);
+		else tail.push(...moved);
 	}
 	for (const e of entries) {
 		const one = parseRawFrontmatter(`---\n${e.lines.join("\n")}\n---`);
@@ -735,9 +748,11 @@ export function editFrontmatterLines(
 		if (keys.length !== 1) return null;
 		e.key = keys[0];
 	}
-	const replaced = new Set<string>([...drop, ...Object.keys(first), ...Object.keys(last)]);
+	const replaced = new Set<string>([...dropList, ...Object.keys(first), ...Object.keys(last)]);
 	const kept = entries.filter((e) => !replaced.has(e.key));
-	const out = ["---", ...head, ...inner(first), ...kept.flatMap((e) => e.lines), ...inner(last), "---"].join(eol);
+	// A dropped entry's comment lines stay where they were; only its key and value go.
+	const body = entries.flatMap((e) => (replaced.has(e.key) ? e.lines.filter((l) => l.startsWith("#")) : e.lines));
+	const out = ["---", ...head, ...inner(first), ...body, ...tail, ...inner(last), "---"].join(eol);
 	// The check: every kept property reads back as it read before, and nothing else came or went.
 	const before = parseRawFrontmatter(block.replace(/\n+$/, "")) ?? {};
 	const after = parseRawFrontmatter(out);

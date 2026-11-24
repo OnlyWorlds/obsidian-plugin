@@ -12,7 +12,6 @@ import {
 	joinNote,
 	serializeFrontmatter,
 	hasOwn,
-	setOwn,
 	spanNoteId,
 	withDependsOn,
 	withoutDependsOn,
@@ -226,11 +225,15 @@ export class UpdateWorldFormatCommand {
 					add[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
 				}
 			}
-			// The whole block is written only when its lines cannot be kept (see editFrontmatterLines).
-			const target: Record<string, unknown> = {};
-			for (const [k, v] of Object.entries(fm)) if (!drop.includes(k)) setOwn(target, k, v);
-			for (const [k, v] of Object.entries(add)) setOwn(target, k, v);
-			const fmText = editFrontmatterLines(fmBlock, drop, {}, add) || serializeFrontmatter(target);
+			// The person's lines are kept as written, or the note is not touched:
+			// never a whole block rebuilt in another form (see editFrontmatterLines).
+			const kept = editFrontmatterLines(fmBlock, drop, {}, add);
+			if (kept === null) {
+				skipped++;
+				refusals.push(`${file.basename} not updated: its properties cannot be kept as you wrote them (an alias, an indented block or another form this command does not edit line by line). Nothing was changed.`);
+				continue;
+			}
+			const fmText = kept || serializeFrontmatter(add);
 
 			const newBody = buildElementBody(values, category, customKeys);
 			// ★ ONE write for the whole note, front matter and body together
