@@ -673,6 +673,77 @@ export function parseRawFrontmatter(content: string): Record<string, unknown> | 
 }
 
 /**
+ * A note's front matter block with the person's own lines kept as they wrote
+ * them: the keys in `drop` are removed, `first` is written before the kept
+ * lines and `last` after them (a key in either replaces the line of that
+ * name). Every other line, its spelling, quoting, comments and order, stays as
+ * it is, so a date stays `2024-01-01`, a block string stays a block, `.inf`
+ * stays `.inf`, whatever the YAML reader makes of them.
+ *
+ * `block` is the note's `---` block, or "" for a note with none. Returns null
+ * when the lines cannot be told apart by key (a top-level line that is not a
+ * key, two keys on one line), or when reading the result back does not give
+ * each kept property its old value: the caller then writes the whole block.
+ */
+export function editFrontmatterLines(
+	block: string,
+	drop: Iterable<string>,
+	first: Record<string, unknown>,
+	last: Record<string, unknown>
+): string | null {
+	const inner = (o: Record<string, unknown>): string[] => (Object.keys(o).length ? serializeFrontmatter(o).split("\n").slice(1, -1) : []);
+	if (!block.trim()) {
+		const lines = [...inner(first), ...inner(last)];
+		return lines.length ? ["---", ...lines, "---"].join("\n") : "";
+	}
+	const eol = block.includes("\r\n") ? "\r\n" : "\n";
+	const lines = block.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
+	if (lines.length < 2 || lines[0].trimEnd() !== "---" || lines[lines.length - 1].trimEnd() !== "---") return null;
+	const head: string[] = [];
+	const entries: Array<{ key: string; lines: string[] }> = [];
+	for (const line of lines.slice(1, -1)) {
+		// A key starts at the line's first character; indented lines, list items and comments belong to the entry above.
+		if (/^[^\s#]/.test(line) && !/^-(\s|$)/.test(line)) entries.push({ key: "", lines: [line] });
+		else if (entries.length) entries[entries.length - 1].lines.push(line);
+		else head.push(line);
+	}
+	for (const e of entries) {
+		const one = parseRawFrontmatter(`---\n${e.lines.join("\n")}\n---`);
+		const keys = one ? Object.keys(one) : [];
+		if (keys.length !== 1) return null;
+		e.key = keys[0];
+	}
+	const replaced = new Set<string>([...drop, ...Object.keys(first), ...Object.keys(last)]);
+	const kept = entries.filter((e) => !replaced.has(e.key));
+	const out = ["---", ...head, ...inner(first), ...kept.flatMap((e) => e.lines), ...inner(last), "---"].join(eol);
+	// The check: every kept property reads back as it read before, and nothing else came or went.
+	const before = parseRawFrontmatter(block.replace(/\n+$/, "")) ?? {};
+	const after = parseRawFrontmatter(out);
+	if (!after) return null;
+	const want = new Set<string>([...kept.map((e) => e.key), ...Object.keys(first), ...Object.keys(last)]);
+	if (Object.keys(after).some((k) => !want.has(k))) return null;
+	for (const e of kept) {
+		if (!hasOwn(after, e.key) || !sameYamlValue(before[e.key], after[e.key])) return null;
+	}
+	return out;
+}
+
+/** Two values a YAML reader made are the same value: dates by their time, NaN as NaN, lists and maps entry by entry. */
+function sameYamlValue(a: unknown, b: unknown): boolean {
+	if (a instanceof Date || b instanceof Date) return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+	if (typeof a === "number" && typeof b === "number") return Object.is(a, b) || a === b;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameYamlValue(x, b[i]));
+	}
+	if (a && b && typeof a === "object" && typeof b === "object") {
+		const ka = Object.keys(a);
+		const kb = Object.keys(b);
+		return ka.length === kb.length && ka.every((k) => hasOwn(b, k) && sameYamlValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+	}
+	return a === b;
+}
+
+/**
  * The path for an element whose note was not found by id: `<base>.md`, unless a
  * DIFFERENT element (or any id-less note) already holds it — then the next free
  * `<base> (N).md`, N from 1, the collision convention create/download/paste

@@ -10,10 +10,12 @@ import {
 	hasOwn,
 	joinNote,
 	serializeFrontmatter,
+	setOwn,
+	splitNote,
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { isUnderElements, mayBeElementNote } from '../vault/category-folder';
-import { elementNoteType, parseRawFrontmatter } from '../vault/element-file';
+import { editFrontmatterLines, elementNoteType, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
 	converted: string[];
@@ -270,12 +272,19 @@ export class MigrateWorldCommand {
 		idToName: (id: string) => string | null
 	): Promise<void> {
 		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
-		const held = parseRawFrontmatter(content) ?? {};
-		for (const [k, v] of Object.entries(held)) if (!hasOwn(fm, k)) fm[k] = v;
+		// The note's own front matter lines follow the migrated keys as the person
+		// wrote them; the whole block is written only when they cannot be kept so.
+		const block = splitNote(content).frontmatter;
+		let fmText = editFrontmatterLines(block ? `${block}\n` : '', [], fm, {});
+		if (fmText === null) {
+			const merged: Record<string, unknown> = { ...fm };
+			for (const [k, v] of Object.entries(parseRawFrontmatter(block) ?? {})) if (!hasOwn(merged, k)) setOwn(merged, k, v);
+			fmText = serializeFrontmatter(merged);
+		}
 		// The guard is one-shot per path: marked before the one 'modify' so
 		// auto-sync never sees a migration write.
 		this.markSelfWrite(file.path);
-		await this.app.vault.modify(file, joinNote(serializeFrontmatter(fm), `${bodyValue}\n`));
+		await this.app.vault.modify(file, joinNote(fmText, `${bodyValue}\n`));
 	}
 }
 

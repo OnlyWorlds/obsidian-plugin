@@ -91,3 +91,71 @@ test("★ Migrate aborts before any conversion when a note cannot be read, and n
 	assert.deepEqual(backups(vault), []);
 	assert.ok(__notices.some((n) => /Unreadable/.test(n) && /aborted/i.test(n)), __notices.join(" | "));
 });
+
+// --- 2 a person's front matter is kept line for line ---------------------------
+
+const ZEL = "019b0000-0000-7000-8000-0000000000d2";
+const OWN_LINES = [
+	"birthday: 2024-01-01",
+	"meta: {a: 1, when: 2023-05-05}",
+	"dates:",
+	"  - 2020-02-02",
+	"  - 2021-03-03",
+	"limit: .inf",
+	'zip: "01234"',
+	"motto: |",
+	"  first line",
+	"  second line",
+	"alive: true",
+];
+
+test("★ Update world format keeps every property it does not change exactly as the person wrote it, in its place", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	const path = `${E}/Character/Zel.md`;
+	await vault.seed(path, `---\nname: Zel\nid: ${ZEL}\n${OWN_LINES.slice(0, 7).join("\n")}\nphysicality: Tall.\n${OWN_LINES.slice(7).join("\n")}\n---\n\nA legacy body.\n`);
+	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<unknown>; apply(p: unknown): Promise<void> };
+	await cmd.apply(await cmd.buildPlan("W"));
+	const text = vault.contentAt(path) ?? "";
+	const block = text.slice(0, text.indexOf("\n---", 3));
+	assert.ok(block.startsWith(`---\nname: Zel\nid: ${ZEL}\n${OWN_LINES.join("\n")}\n`), "the person's lines were rewritten or moved:\n" + block);
+	assert.doesNotMatch(block, /physicality/, "a text field stayed in the front matter");
+	assert.match(block, /\nheight:/, "the type's missing properties were not added");
+	assert.match(text, /### Physicality\n\nTall\./, text);
+});
+
+test("★ Migrate keeps an old note's own front matter line for line after the migrated keys, a property named __proto__ included", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	const path = `${E}/Location/Selinus.md`;
+	const own = "created: 2024-01-01\nnote: |\n  mine\n  two\n__proto__: {kept: mine}";
+	await vault.seed(path, `---\n${own}\n---\n${SPAN(GELA, "Selinus", "A temple town.")}`);
+	const r = await migrate(app);
+	assert.deepEqual(r?.converted, [path], JSON.stringify(r));
+	const text = vault.contentAt(path) ?? "";
+	assert.match(text, new RegExp(`^---\\nname: Selinus\\nid: ${GELA}\\n`), text);
+	assert.ok(text.includes(`\n${own}\n---`), "the note's own lines were rewritten:\n" + text);
+});
+
+test("the serializer writes a date as the plain date and a number YAML calls infinite or not a number as YAML does, in a map or a list too", () => {
+	const out = serializeFrontmatter({
+		d: new Date("2024-01-01T00:00:00Z"),
+		big: Infinity,
+		low: -Infinity,
+		nan: NaN,
+		map: { when: new Date("2023-05-05T00:00:00Z"), inf: Infinity },
+		list: [new Date("2020-02-02T00:00:00Z"), 1],
+		plain: { a: 1 },
+	});
+	assert.equal(out, [
+		"---",
+		"d: 2024-01-01",
+		"big: .inf",
+		"low: -.inf",
+		"nan: .nan",
+		'map: {"when": 2023-05-05, "inf": .inf}',
+		"list: [2020-02-02, 1]",
+		'plain: {"a":1}',
+		"---",
+	].join("\n"));
+});

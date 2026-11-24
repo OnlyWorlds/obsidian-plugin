@@ -637,21 +637,60 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
 		const key = yamlKey(rawKey);
 		if (value === null || value === undefined) {
 			lines.push(`${key}:`);
+		} else if (value instanceof Date || (typeof value === "number" && !Number.isFinite(value))) {
+			lines.push(`${key}: ${yamlFlow(value)}`);
 		} else if (Array.isArray(value)) {
 			if (value.length === 0) lines.push(`${key}: []`);
-			else if (!value.every(isBlockListItem)) lines.push(`${key}: ${JSON.stringify(value)}`);
+			else if (!value.every(isBlockListItem)) lines.push(`${key}: ${structure(value)}`);
 			else {
 				lines.push(`${key}:`);
 				for (const item of value) lines.push(`  - ${yamlScalar(item)}`);
 			}
 		} else if (typeof value === "object") {
-			lines.push(`${key}: ${JSON.stringify(value)}`);
+			lines.push(`${key}: ${structure(value)}`);
 		} else {
 			lines.push(`${key}: ${yamlScalar(value)}`);
 		}
 	}
 	lines.push("---");
 	return lines.join("\n");
+}
+
+/**
+ * A list or map on one line: JSON, as it always was, unless it holds a value
+ * JSON cannot carry (a date a YAML reader made, a number that is infinite or
+ * not a number). Then YAML's flow form, which can: JSON's strings and quoted
+ * keys, the date as the plain date, `.inf` and `.nan` as YAML spells them.
+ * JSON stays for everything else, so no other note's bytes change.
+ */
+function structure(value: unknown): string {
+	return needsYaml(value) ? yamlFlow(value) : JSON.stringify(value);
+}
+
+function needsYaml(value: unknown): boolean {
+	if (value instanceof Date) return true;
+	if (typeof value === "number") return !Number.isFinite(value);
+	if (Array.isArray(value)) return value.some(needsYaml);
+	if (value && typeof value === "object") return Object.values(value).some(needsYaml);
+	return false;
+}
+
+/** One value in YAML's flow form (see `structure`). */
+function yamlFlow(value: unknown): string {
+	if (value instanceof Date) {
+		const s = dateToFieldString(value);
+		return typeof s === "string" ? s : "null";
+	}
+	if (typeof value === "number") {
+		if (Number.isNaN(value)) return ".nan";
+		if (!Number.isFinite(value)) return value > 0 ? ".inf" : "-.inf";
+		return String(value);
+	}
+	if (Array.isArray(value)) return `[${value.map(yamlFlow).join(", ")}]`;
+	if (value && typeof value === "object") {
+		return `{${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${yamlFlow(v)}`).join(", ")}}`;
+	}
+	return JSON.stringify(value ?? null);
 }
 
 /**

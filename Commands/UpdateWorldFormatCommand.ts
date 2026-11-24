@@ -12,12 +12,13 @@ import {
 	joinNote,
 	serializeFrontmatter,
 	hasOwn,
+	setOwn,
 	isSpanFormat,
 	parseRawFrontmatterScalars,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
-import { noteFence, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { editFrontmatterLines, noteFence, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isKnownOfNote } from '../sync/known-of';
 import { isStubNote } from '../sync/hidden-on-server';
 import { UpdateWorldFormatModal, WorldFormatPlan, NotePlan } from '../Modals/UpdateWorldFormatModal';
@@ -206,19 +207,25 @@ export class UpdateWorldFormatCommand {
 			}
 
 			// Frontmatter: add missing props, remove text fields now in the body.
-			// Every other key stays where it was, a `type` that makes a note
-			// outside the type folders an element among them.
-			const target: Record<string, unknown> = { ...fm };
+			// Every other line stays as the person wrote it, a `type` that makes
+			// a note outside the type folders an element among them.
+			const drop: string[] = [];
+			const add: Record<string, unknown> = {};
 			for (const [key, def] of Object.entries(schema)) {
 				if (BASE_KEYS.has(key)) continue;
 				if (def.type === 'text') {
-					delete target[key]; // its content is in the body now
+					if (hasOwn(fm, key)) drop.push(key); // its content is in the body now
 					continue;
 				}
-				if (!hasOwn(target, key)) {
-					target[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
+				if (!hasOwn(fm, key)) {
+					add[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
 				}
 			}
+			// The whole block is written only when its lines cannot be kept (see editFrontmatterLines).
+			const target: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(fm)) if (!drop.includes(k)) setOwn(target, k, v);
+			for (const [k, v] of Object.entries(add)) setOwn(target, k, v);
+			const fmText = editFrontmatterLines(fmBlock, drop, {}, add) || serializeFrontmatter(target);
 
 			const newBody = buildElementBody(values, category, customKeys);
 			// ★ ONE write for the whole note, front matter and body together
@@ -226,7 +233,7 @@ export class UpdateWorldFormatCommand {
 			// The body ends as writeElement ends it, one newline after the last
 			// section, or the last value's own final newline is read away
 			// (round C, 11).
-			const newContent = joinNote(serializeFrontmatter(target), withDependsOn(`${newBody}\n`, section));
+			const newContent = joinNote(fmText, withDependsOn(`${newBody}\n`, section));
 			if (newContent !== content) {
 				this.markSelfWrite?.(file.path);
 				await this.app.vault.modify(file, newContent);
