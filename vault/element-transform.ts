@@ -2018,20 +2018,50 @@ function extractWikilinks(raw: string): string[] {
 	return names;
 }
 
-/** The text without the lines of its closed code fences (the fence lines included): what a fence holds is an example, never the note's own. */
-export function outsideFences(text: string): string {
-	const lines = text.split("\n");
-	const kinds = fenceKinds(lines);
-	return lines.filter((_, i) => kinds[i] === "outside" || kinds[i] === "unmatched").join("\n");
+/**
+ * A note's text with everything Markdown shows as code taken out, for reading
+ * old span markup: what code holds is an example, never the note's own
+ * fields. Out go the front matter (a property may hold an example), every
+ * fence at any indent (one nested in a list item too) with all it holds, and
+ * everything after a fence that never closes (CommonMark reads it as code to
+ * the end); every line indented four spaces or a tab (an indented code block,
+ * or code in a list item); and inline code, a backtick run to the next run of
+ * the same length within a paragraph, across lines. An old note's span lines
+ * stand at the start of their lines, so none of this takes one away.
+ */
+export function outsideCode(content: string): string {
+	const kept: string[] = [];
+	let fence: OpenFence | null = null;
+	for (const raw of splitNote(content).body.split("\n")) {
+		const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+		if (fence) {
+			const close = /^\s*(`{3,}|~{3,})[ \t]*$/.exec(line);
+			if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null;
+			continue;
+		}
+		const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+		if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+			fence = { char: open[1][0], len: open[1].length };
+			continue;
+		}
+		if (/^( {4}|\t)/.test(line) && line.trim() !== "") continue;
+		kept.push(line);
+	}
+	// Inline code, paragraph by paragraph: a run of backticks to the next run of the same length.
+	return kept
+		.join("\n")
+		.split(/\n[ \t]*\n/)
+		.map((para) => para.replace(/(\x60+)(?!\x60)[\s\S]*?(?<!\x60)\1(?!\x60)/g, ""))
+		.join("\n\n");
 }
 
 /**
  * The id an old span note carries in its text: span markup and an `Id` line
- * outside every code fence. Null for a note that only quotes the old format in
- * a fence, or has no `Id` line.
+ * outside every code context (`outsideCode`). Null for a note that only shows
+ * the old format as code, or has no `Id` line.
  */
 export function spanNoteId(content: string): string | null {
-	const text = outsideFences(content);
+	const text = outsideCode(content);
 	return isSpanFormat(text) ? parseSpanNote(text).id : null;
 }
 

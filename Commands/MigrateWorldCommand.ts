@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from 'obsidian';
 import {
-	outsideFences,
+	outsideCode,
 	parseSpanNote,
 	spanNoteId,
 	spanFieldsToFrontmatter,
@@ -123,7 +123,7 @@ export class MigrateWorldCommand {
 		for (const f of files) {
 			try {
 				const content = await this.app.vault.read(f);
-				const parsed = parseSpanNote(outsideFences(content));
+				const parsed = parseSpanNote(outsideCode(content));
 				if (parsed.id) {
 					index.set(parsed.name ?? f.basename, parsed.id);
 					index.set(f.basename, parsed.id);
@@ -141,7 +141,7 @@ export class MigrateWorldCommand {
 		const map = new Map<string, string>();
 		for (const f of files) {
 			try {
-				const parsed = parseSpanNote(outsideFences(await this.app.vault.read(f)));
+				const parsed = parseSpanNote(outsideCode(await this.app.vault.read(f)));
 				const name = parsed.name ?? f.basename;
 				if (parsed.id && name) map.set(parsed.id, sanitizeFileName(name));
 			} catch {
@@ -202,7 +202,7 @@ export class MigrateWorldCommand {
 					result.failed.push({ path: file.path, reason: 'not an element path' });
 					continue;
 				}
-				const parsed = parseSpanNote(outsideFences(content));
+				const parsed = parseSpanNote(outsideCode(content));
 				if (!parsed.id) {
 					result.failed.push({ path: file.path, reason: 'no id found in span note' });
 					continue;

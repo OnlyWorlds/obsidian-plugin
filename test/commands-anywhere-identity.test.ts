@@ -105,3 +105,21 @@ test("★ Update world format reads an element's id under a quoted key, or with 
 	const plan = await updater(app).buildPlan("W");
 	assert.deepEqual(plan.notes.map((n) => n.path).sort(), [`${E}/Character/Commented.md`, `${E}/Character/Quoted key.md`], JSON.stringify(plan));
 });
+
+// --- 2 old span markup that is only an example -----------------------------------------
+
+test("★ Migrate never reads span markup in front matter, inline code, an indented block, a fence in a list, or after a fence that never closes", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${E}/Location/Gela.md`, SPAN(D, "Gela", "A town."));
+	const examples: Record<string, string> = {
+		[`${E}/Character/In front matter.md`]: `---\nexample: |\n  ${ID_LINE(B)}\n  - <span class="text-field" data-tooltip="Text">Name</span>: Example\n---\n\nMy note.\n`,
+		[`${E}/Character/Inline.md`]: `See \`\n${ID_LINE(B)}\n- <span class="text-field" data-tooltip="Text">Name</span>: Example\n\` for the shape.\n`,
+		[`${E}/Character/Indented.md`]: `How the old plugin wrote a note:\n\n${SPAN(B, "Example", "Example.", "    ")}\nMy two pages.\n`,
+		[`${E}/Character/List fence.md`]: `- my list item\n\n    \`\`\`\n${SPAN(B, "Example", "Example.", "    ")}    \`\`\`\n\nMine.\n`,
+		[`${E}/Character/Unclosed.md`]: `My draft.\n\n\`\`\`\n${SPAN(B, "Example", "Example.")}\nNever closed.\n`,
+	};
+	await seedAll(vault, examples);
+	const r = await migrate(app);
+	assertUnchanged(vault, examples);
+	assert.deepEqual(r?.converted, [`${E}/Location/Gela.md`], JSON.stringify(r));
+});
