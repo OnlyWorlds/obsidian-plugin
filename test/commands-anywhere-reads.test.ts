@@ -215,3 +215,51 @@ test("★ Import folder reads a held id from the disk when the metadata cache ha
 	assert.deepEqual(r.skipped, [IREENA], JSON.stringify(r));
 	assert.equal(vault.contentAt(`${E}/Character/Ireena.md`), undefined, "a second note with one id was made");
 });
+
+// --- 5 Copy world: two notes with one id; its own output note ------------------------
+
+test("★ Copy world refuses two notes holding one id, both named, and copies neither", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **Name:** W\n");
+	await vault.seed(`${E}/Character/Bob.md`, `---\nname: Bob\nid: ${BOB}\n---\n\n### Description\n\nCurrent.\n`);
+	await vault.seed(`${W}/Archive/Character/Bob old.md`, `---\nname: Bob old\nid: ${BOB}\n---\n\n### Description\n\nOld draft.\n`);
+	await vault.seed(`${E}/Character/Ireena.md`, `---\nname: Ireena\nid: ${IREENA}\n---\n\n### Description\n\nA noble.\n`);
+	__notices.length = 0;
+	const data = (await new CopyWorldCommand(app, {} as never, new WorldService(app)).collectWorldData(W)) as Record<string, Record<string, unknown>[]>;
+	assert.deepEqual(data.Character.map((e) => e.id), [IREENA], JSON.stringify(data.Character));
+	const said = __notices.join(" | ");
+	assert.ok(/"Bob" not copied/.test(said) && /"Bob old" not copied/.test(said), said);
+});
+
+function withClipboard(): void {
+	Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
+}
+
+test("★ Copy world never writes its output over an element note, and names it", async () => {
+	withClipboard();
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **Name:** W\n");
+	const note = `---\nname: World Data File\nid: ${IREENA}\ntype: character\n---\n\n### Description\n\nMy prose.\n`;
+	await vault.seed(`${W}/World Data File.md`, note);
+	__notices.length = 0;
+	await new CopyWorldCommand(app, {} as never, new WorldService(app)).copyWorldData("W");
+	assert.equal(vault.contentAt(`${W}/World Data File.md`), note, "an element note was overwritten");
+	assert.ok(__notices.some((n) => /World Data File/.test(n) && /element note/.test(n)), __notices.join(" | "));
+});
+
+test("Copy world marks its output write as the plugin's own before it writes", async () => {
+	withClipboard();
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **Name:** W\n");
+	await vault.seed(`${W}/World Data File.md`, "{}");
+	const order: string[] = [];
+	const v = app.vault as unknown as { modify(f: TFile, c: string): Promise<void> };
+	const modify = v.modify.bind(v);
+	v.modify = async (f: TFile, c: string) => {
+		order.push(`modify ${f.path}`);
+		return modify(f, c);
+	};
+	const Copy = CopyWorldCommand as unknown as new (...a: unknown[]) => CopyWorldCommand;
+	await new Copy(app, {} as never, new WorldService(app), undefined, (p: string) => order.push(`mark ${p}`)).copyWorldData("W");
+	assert.deepEqual(order, [`mark ${W}/World Data File.md`, `modify ${W}/World Data File.md`]);
+});

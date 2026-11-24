@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { elementNoteType, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -19,11 +19,15 @@ export class CopyWorldCommand {
     /** The plugin's settings, for the hidden lists; absent, only stubs are known. */
     private host: HiddenListHost | null;
 
-    constructor(app: App, manifest: PluginManifest, worldService: WorldService, host?: HiddenListHost) {
+    /** Auto-sync's self-write guard, called before the World Data File is written. */
+    private markSelfWrite: ((path: string) => void) | null;
+
+    constructor(app: App, manifest: PluginManifest, worldService: WorldService, host?: HiddenListHost, markSelfWrite?: (path: string) => void) {
         this.app = app;
         this.manifest = manifest;
         this.worldService = worldService;
         this.host = host ?? null;
+        this.markSelfWrite = markSelfWrite ?? null;
     }
 
     async execute() {
@@ -68,21 +72,33 @@ export class CopyWorldCommand {
                 const worldData = await this.collectWorldData(worldFolderPath); // Assuming this collects data correctly
                 const worldDataJSON = JSON.stringify(worldData, null, 4);
     
-                // Check if the World Data File exists, create new or modify existing
-                let worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
+                // Check if the World Data File exists, create new or modify existing.
+                // The write is marked as the plugin's own first, so auto-sync never
+                // reads the JSON as a note's prose; and a note there that is an
+                // element note (the Markdown profile: an id and a type, wherever it
+                // sits) is never written over.
+                const worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
+                let kept = false;
                 if (worldDataFile instanceof TFile) {
-                    // Modify existing World Data File
-                    await this.app.vault.modify(worldDataFile, worldDataJSON);
+                    const held = parseRawFrontmatter((await this.app.vault.read(worldDataFile)).replace(/^\s+/, ''));
+                    if (elementNoteType(worldDataPath, held)) {
+                        kept = true;
+                    } else {
+                        this.markSelfWrite?.(worldDataPath);
+                        await this.app.vault.modify(worldDataFile, worldDataJSON);
+                    }
                 } else {
-                    // Create new World Data File if it does not exist
-                    worldDataFile = await this.app.vault.create(worldDataPath, worldDataJSON);
+                    this.markSelfWrite?.(worldDataPath);
+                    await this.app.vault.create(worldDataPath, worldDataJSON);
                 }
-    
+
                 // Copy to clipboard
                 navigator.clipboard.writeText(worldDataJSON);
-    
+
                 // Modal confirmation removed
-                new Notice(`World ${worldFolder} copied to clipboard.`);
+                new Notice(kept
+                    ? `World ${worldFolder} copied to clipboard. World Data File.md is an element note, so it was not overwritten: rename or move it to keep a copy in the vault.`
+                    : `World ${worldFolder} copied to clipboard.`, kept ? 15000 : undefined);
             } catch (error) {
                 console.error('Error during world data processing:', error);
                 new Notice('Could not process world data.');
@@ -193,6 +209,23 @@ export class CopyWorldCommand {
             }
         }
         
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1), as Upload world
+        // refuses them: a copy kept in an archive folder must not stand for the element in the pasted world, and
+        // neither is the element's to choose.
+        const idCount = new Map<string, number>();
+        for (const list of Object.values(worldData)) {
+            if (!Array.isArray(list)) continue;
+            for (const el of list as { id?: unknown }[]) if (el.id) idCount.set(String(el.id), (idCount.get(String(el.id)) ?? 0) + 1);
+        }
+        for (const [category, list] of Object.entries(worldData)) {
+            if (!Array.isArray(list)) continue;
+            worldData[category] = (list as { id?: unknown; name?: unknown }[]).filter((el) => {
+                if (!el.id || (idCount.get(String(el.id)) ?? 0) < 2) return true;
+                refused.push(`${category} "${String(el.name ?? el.id)}" not copied: another note holds the same id. Keep one of them, then try again.`);
+                return false;
+            });
+        }
+
       //  console.log(`Final world data: ${JSON.stringify(worldData)}`);
         for (const r of refused) new Notice(r, 15000);
         return worldData;
