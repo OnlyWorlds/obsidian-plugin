@@ -840,7 +840,7 @@ async function claimNotePath(app: App, folder: string, base: string, elementId: 
 	throw new Error(`No free note name for "${base}" in ${folder}`);
 }
 
-/** The element id a note carries on disk — frontmatter, else a legacy span/bold id line. */
+/** The element id a note carries on disk: its front matter's, else an old span note's (noteIdIn). */
 async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	let content: string;
 	try {
@@ -848,14 +848,25 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	} catch {
 		return null;
 	}
+	return noteIdIn(content);
+}
+
+/**
+ * The element id a note's bytes carry: its front matter's `id`, else the Id
+ * line of an old span note (only a note in the old layout and nothing else:
+ * isOldSpanNote), else none. A `- **ID:**` line is no id: no version of the
+ * plugin, and no upstream template it fetched, wrote one into an element note
+ * (World.md's `- **Id:**` line is the world's), so in a note it is the
+ * person's own writing, and a pull or a paste must never take the note for
+ * the element's.
+ */
+export function noteIdIn(content: string): string | null {
 	// Tolerate leading blank lines (the corruption splitNote repairs): the note
 	// is still this element's, and rewriting it in place is what heals it.
 	const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ""), ["id"]).id;
 	if (fmId) return fmId;
 	// An old span note's id, only from a note in the old layout: a quoted example never makes a note an element's.
-	const spanId = oldSpanNoteId(content);
-	if (spanId) return spanId;
-	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
+	return oldSpanNoteId(content);
 }
 
 /**

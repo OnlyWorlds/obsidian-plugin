@@ -20,6 +20,7 @@ import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
 import { ManageFieldsCommand } from "../Commands/ManageFieldsCommand";
 import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
 import { AutoSyncEngine } from "../sync/auto-sync";
+import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 
 const A = "019e0000-0000-7000-8000-0000000000a1";
 
@@ -235,4 +236,35 @@ test("★ Paste world marks each element note it writes as its own: auto-sync sc
 	assert.equal(statuses[0], "dirty", statuses.join(" | "));
 	const timers = (engine as unknown as { timers: Map<string, ReturnType<typeof setTimeout>> }).timers;
 	for (const t of timers.values()) clearTimeout(t);
+});
+
+// --- 5 a bold ID line in a person's note is no element's id ---------------------------------------
+// No version of the plugin, and no upstream template it fetched, wrote a `- **ID:**` line into an
+// element note (World.md's `- **Id:**` line is the world's): such a line is the person's writing.
+
+const BOLD = `My notes on Bob, the only copy.\n\n- **ID:** ${A}\n\nMore of my writing.\n`;
+const LOOSE = `My notes on Bob, the only copy.\n\n- Bob's Id: ${A}\n`;
+
+test("★ Download leaves a note of the person's own with a bold ID line, or a line naming an Id, unwritten and unrenamed, and gives the element a fresh note", async () => {
+	for (const [mine, name] of [[BOLD, "Bob"], [BOLD, "Robert"], [LOOSE, "Robert"]] as const) {
+		const { app, vault } = makeApp();
+		const path = `${E}/Character/Bob.md`;
+		await seedAll(vault, { [path]: mine });
+		(app as unknown as { realRenames: boolean }).realRenames = true;
+		const dl = new DownloadWorldCommand(app, {});
+		await dl.generateElementNotes(E, { Character: [{ id: A, name, description: "The server's text." }] }, false);
+		const label = `${name} over ${mine === BOLD ? "a bold ID line" : "an Id line"}`;
+		assert.equal(vault.contentAt(path), mine, `${label}: the person's note was written or renamed`);
+		const fresh = name === "Bob" ? `${E}/Character/Bob (1).md` : `${E}/Character/Robert.md`;
+		assert.match(vault.contentAt(fresh) ?? "", new RegExp(`id: ${A}[\\s\\S]*The server's text\\.`), `${label}: ` + JSON.stringify([...vault.files.keys()]));
+	}
+});
+
+test("★ Paste world leaves a note of the person's own with a bold ID line unwritten, and gives the element a fresh note", async () => {
+	const { app, vault } = makeApp();
+	const path = `${E}/Character/Bob.md`;
+	await seedAll(vault, { [path]: BOLD });
+	await new PasteWorldCommand(app, {} as never).generateElementNotes(E, { Character: [{ id: A, name: "Bob", description: "Pasted." }] }, false);
+	assert.equal(vault.contentAt(path), BOLD, "the person's note was written over");
+	assert.match(vault.contentAt(`${E}/Character/Bob (1).md`) ?? "", /Pasted\./, JSON.stringify([...vault.files.keys()]));
 });

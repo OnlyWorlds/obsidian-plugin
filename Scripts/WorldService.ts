@@ -80,12 +80,14 @@ export function isNoteNameFor(basename: string, elementName: unknown, elementId:
     return basename === `${safeName} ${idMark(id)}` || basename === `${safeName} ${sanitizeFileName(id)}`;
 }
 
-/** The element id a note's text carries: frontmatter `id:`, else the legacy bold line. */
+/**
+ * The element id a note's text carries: its frontmatter `id:`. A `- **ID:**`
+ * line is no id: no version of the plugin wrote one into an element note, so
+ * it is the person's writing, and a note holding one is never this element's.
+ */
 function noteIdInText(content: string): string | null {
     const fm = /^id:[ \t]*["']?([^\s"']+)/m.exec(content.replace(/^\s+/, ''));
-    if (fm) return fm[1];
-    const legacy = /^- \*\*ID:\*\* (.+)$/m.exec(content);
-    return legacy ? legacy[1].trim() : null;
+    return fm ? fm[1] : null;
 }
 
 export class WorldService {

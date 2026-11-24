@@ -6,7 +6,7 @@ import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { writeElement } from '../vault/element-file';
+import { noteIdIn, writeElement } from '../vault/element-file';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { knownOfKeptText, knownOfWrite, noteStateOf } from '../sync/known-of';
 
@@ -273,22 +273,11 @@ export class PasteWorldCommand {
                 //    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
                 //    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
-                    // Match the id in either format: frontmatter `id:` (3.0.0)
-                    // or the legacy span/bold forms (older notes not yet migrated).
-                    const idMatch = content.match(/^id:\s*(\S+)/m) ||
-                                  content.match(/^- \*\*ID:\*\* (.+)$/m) ||
-                                  content.match(/^- .*Id.*: (.+)$/m) ||
-                                  content.match(/Id.*: (.+)$/m);
-
-                    if (idMatch) {
-                    //    console.log(`[PasteWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
-                        if (idMatch[1].trim() === elementId) {
-                    //        console.log(`[PasteWorldCommand] MATCH! Found existing element at: ${child.path}`);
-                            return child.path;
-                        }
-                    } else {
-                    //    console.log(`[PasteWorldCommand] No ID found in file: ${child.path}`);
-                    }
+                    // The id as the writer reads it (noteIdIn): the front matter's,
+                    // else an old span note's Id line. A line of the person's
+                    // writing that looks like an id (`- **ID:** …`, which no plugin
+                    // version wrote into an element note) is never taken for one.
+                    if (noteIdIn(content) === elementId) return child.path;
                 } catch (error) {
                     console.error(`Error reading element file: ${child.path}`, error);
                 }

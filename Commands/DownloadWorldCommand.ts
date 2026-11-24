@@ -24,7 +24,7 @@ import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, recordChangeSeqs } from '../vault/change-seq-index';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
+import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -922,7 +922,7 @@ export class DownloadWorldCommand {
      * The id of every element note in the world's folder, to its path, read
      * from disk (the cache is cold mid-download): the pull's one lookup of "does
      * this element have a note", wherever the note sits. The frontmatter `id:` is
-     * read first, then the legacy span and bold forms under Elements/, as before.
+     * read first, then an old span note's Id line under Elements/ (noteIdIn).
      * Only an element note counts (the rule Save uses): a person's own note, or
      * a copy with no type outside the type folders, is never a note the pull
      * writes to. All the notes holding an id are kept; the pull picks one by
@@ -942,12 +942,10 @@ export class DownloadWorldCommand {
                 if (typeof fm.id === 'string' && fm.id) {
                     if (elementNoteType(file.path, fm)) id = fm.id;
                 } else if (isUnderElements(file.path) && typeOfPlace(file.path)) {
-                    // The plugin's own folders: the id in the legacy span and bold forms it once wrote. A line of a
-                    // person's writing that looks like an id is never taken for one anywhere else.
-                    const idMatch = content.match(/^- \*\*ID:\*\* (.+)$/m) ||
-                                    content.match(/^- .*Id.*: (.+)$/m) ||
-                                    content.match(/Id.*: (.+)$/m);
-                    id = idMatch?.[1].trim();
+                    // The plugin's own folders: an old span note's Id line, read as the writer reads it (noteIdIn:
+                    // a note in the old layout and nothing else). A line of a person's writing that looks like an
+                    // id (`- **ID:** …`, which no plugin version wrote into an element note) is never taken for one.
+                    id = noteIdIn(content) ?? undefined;
                 }
                 if (id) index.set(id, [...(index.get(id) ?? []), file.path]);
             } catch (error) {
@@ -955,54 +953,5 @@ export class DownloadWorldCommand {
             }
         }
         return index;
-    }
-
-    async findElementByIdInCategory(categoryDirectory: string, elementId: string): Promise<string | null> {
-     //   console.log(`[DownloadWorldCommand] Looking for element ID ${elementId} in directory: ${categoryDirectory}`);
-        
-        const categoryFolder = this.app.vault.getAbstractFileByPath(categoryDirectory);
-        
-        if (!(categoryFolder instanceof TFolder)) {
-          //  console.log(`[DownloadWorldCommand] Category folder not found or not a folder: ${categoryDirectory}`);
-            return null;
-        }
-
-     //   console.log(`[DownloadWorldCommand] Found ${categoryFolder.children.length} files in category folder`);
-
-        for (const child of categoryFolder.children) {
-            if (child instanceof TFile && child.extension === 'md') {
-             //   console.log(`[DownloadWorldCommand] Checking file: ${child.path}`);
-                try {
-                    const content = await this.app.vault.read(child);
-                  //  console.log(`[DownloadWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
-                    
-                    // Match the id in either format: frontmatter `id:` (3.0.0)
-                    // first, then the legacy span/bold forms. Without the
-                    // frontmatter form, a re-download never matches an existing
-                    // migrated note here, so its rename branch can't fire (stale
-                    // filename after a server rename). writeElement still redirects
-                    // the write by embedded id, so no dup/loss — but match it.
-                    const idMatch = content.match(/^id:\s*(\S+)/m) ||
-                                  content.match(/^- \*\*ID:\*\* (.+)$/m) ||
-                                  content.match(/^- .*Id.*: (.+)$/m) ||
-                                  content.match(/Id.*: (.+)$/m);
-                    
-                    if (idMatch) {
-                     //   console.log(`[DownloadWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
-                        if (idMatch[1].trim() === elementId) {
-                         //   console.log(`[DownloadWorldCommand] MATCH! Found existing element at: ${child.path}`);
-                            return child.path;
-                        }
-                    } else {
-                    //    console.log(`[DownloadWorldCommand] No ID found in file: ${child.path}`);
-                    }
-                } catch (error) {
-                    console.error(`Error reading element file: ${child.path}`, error);
-                }
-            }
-        }
-        
-       // console.log(`[DownloadWorldCommand] No existing element found for ID: ${elementId}`);
-        return null;
     }
 }
