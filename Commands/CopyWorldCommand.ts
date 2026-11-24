@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, unreadableNoteMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -166,7 +166,9 @@ export class CopyWorldCommand {
         // profile); every other note is the person's own and is not copied.
         // Each note is read once, and everything below is decided from those
         // bytes: never the metadata cache, never a second read.
-        const elementNotes = await worldElementNotesFromBytes(this.app, worldName);
+        const { notes: elementNotes, unreadable } = await worldElementNotesFromBytes(this.app, worldName);
+        // A note that could not be read is left out of this copy, and named.
+        for (const f of unreadable) refused.push(unreadableNoteMessage(f.basename));
 
         // Hidden by the world's owner: a stub, or an id on a hidden list, is
         // never copied as an element, and so holds no id among the copied notes.

@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, unreadableNoteMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -464,7 +464,10 @@ export class ExportWorldCommand {
         // Each note counts by the id Upload sends for it: a front-matter note's, as readElement reads it from the same
         // bytes; an old span note's, as Upload's own span parser reads it, so every old span note is parsed once here
         // and the pass below uses that result.
-        const counted = (await this.listedNotes(worldFolder)).filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content));
+        const listed = await this.listedNotes(worldFolder);
+        // A note that could not be read is left out of this upload, and named in its summary.
+        for (const f of listed.unreadable) this.refusedNotes.push(unreadableNoteMessage(f.basename));
+        const counted = listed.notes.filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content));
         const oldParsed = new Map<TFile, Record<string, unknown>>();
         for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, worldFolder));
         const twins = duplicateIds(counted.map((n) => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
@@ -742,19 +745,22 @@ export class ExportWorldCommand {
      */
     private async notesOfType(worldFolder: string, type: string): Promise<Array<{ file: TFile; content: string; id: string | null }>> {
         const want = type.toLowerCase();
-        return (await this.listedNotes(worldFolder)).filter((n) => n.type === want);
+        return (await this.listedNotes(worldFolder)).notes.filter((n) => n.type === want);
     }
     /** Every element note of the world, read once per upload from its bytes and classified from them (its type, or none): never the metadata cache. */
-    private async listedNotes(worldFolder: string): Promise<Array<{ file: TFile; type: string; content: string; id: string | null }>> {
+    private async listedNotes(worldFolder: string): Promise<{ notes: Array<{ file: TFile; type: string; content: string; id: string | null }>; unreadable: TFile[] }> {
         if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
-            const notes = (await worldElementNotesFromBytes(this.app, worldFolder))
-                .map(({ file, category, content, id }) => ({ file, type: category.toLowerCase(), content, id }));
-            this.noteTypes = { world: worldFolder, notes };
+            const { notes, unreadable } = await worldElementNotesFromBytes(this.app, worldFolder);
+            this.noteTypes = {
+                world: worldFolder,
+                notes: notes.map(({ file, category, content, id }) => ({ file, type: category.toLowerCase(), content, id })),
+                unreadable,
+            };
         }
-        return this.noteTypes.notes;
+        return this.noteTypes;
     }
-    /** The classification `listedNotes` made for the world being collected, with each note's content and id. */
-    private noteTypes: { world: string; notes: Array<{ file: TFile; type: string; content: string; id: string | null }> } | null = null;
+    /** The classification `listedNotes` made for the world being collected, with each note's content and id, and the notes it could not read. */
+    private noteTypes: { world: string; notes: Array<{ file: TFile; type: string; content: string; id: string | null }>; unreadable: TFile[] } | null = null;
 
     private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
         const notes = await this.notesOfType(worldFolder, elementType);

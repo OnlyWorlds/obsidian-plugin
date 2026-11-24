@@ -902,19 +902,36 @@ export async function worldElementNotes(app: App, worldName: string): Promise<Ar
  * read after (no second read of a note in the run), and its front matter's
  * string id as `readElement` reads it from those bytes (null for a note with
  * none, an old span note included: each command counts an old span note by the
- * id its own parser emits).
+ * id its own parser emits). A candidate whose read fails (a file deleted
+ * mid-run, a sync placeholder) is left out and returned in `unreadable`, for
+ * the command to name (unreadableNoteMessage); the others are read as ever.
  */
-export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string; content: string; id: string | null }>> {
-	const out: Array<{ file: TFile; category: string; content: string; id: string | null }> = [];
+export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<{
+	notes: Array<{ file: TFile; category: string; content: string; id: string | null }>;
+	unreadable: TFile[];
+}> {
+	const notes: Array<{ file: TFile; category: string; content: string; id: string | null }> = [];
+	const unreadable: TFile[] = [];
 	for (const file of app.vault.getMarkdownFiles()) {
 		if (!mayBeElementNote(file.path, worldName)) continue;
-		const content = await app.vault.read(file);
+		let content: string;
+		try {
+			content = await app.vault.read(file);
+		} catch {
+			unreadable.push(file);
+			continue;
+		}
 		const fm = parseRawFrontmatter(content) ?? undefined;
 		const found = elementNoteType(file.path, fm);
 		if (!found) continue;
-		out.push({ file, category: found.category, content, id: typeof fm?.id === "string" ? fm.id : null });
+		notes.push({ file, category: found.category, content, id: typeof fm?.id === "string" ? fm.id : null });
 	}
-	return out;
+	return { notes, unreadable };
+}
+
+/** What Copy and Upload say of a note in the world's folder they could not read. */
+export function unreadableNoteMessage(name: string): string {
+	return `"${name}" could not be read, so it was left out.`;
 }
 
 /**

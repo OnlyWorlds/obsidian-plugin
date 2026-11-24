@@ -429,6 +429,21 @@ const ANN_OLD = (label: string) => ["## Base", FIELD("Name", "Ann (old)"), FIELD
 const ANN_NOTES = (label: string) => ({ "Character/Ann.md": ANN, "Character/Archive/Ann old.md": ANN_OLD(label) });
 const inElements = (notes: Record<string, string>) => Object.fromEntries(Object.entries(notes).map(([k, v]) => [`${E}/${k}`, v]));
 
+/** Runs `fn` with every read of a note whose path ends in `end` throwing, as a file deleted mid-run or a sync placeholder does. */
+async function withUnreadable<T>(end: string, fn: () => Promise<T>): Promise<T> {
+	const proto = (await import("./support/obsidian-mock")).MockVault.prototype as unknown as { read(f: { path: string }): Promise<string> };
+	const orig = proto.read;
+	proto.read = function (this: unknown, f: { path: string }) {
+		if (f.path.endsWith(end)) return Promise.reject(new Error("ENOENT: no such file"));
+		return orig.call(this, f);
+	};
+	try {
+		return await fn();
+	} finally {
+		proto.read = orig;
+	}
+}
+
 test("★ Copy world counts an old span note by the id it copies: an Id line its own parser reads, under a label the old grammar spells otherwise, is a duplicate; one it does not copy is none", async () => {
 	for (const label of ["iD", "**Id**"]) {
 		const r = await copyWithCache(inElements(ANN_NOTES(label)), {});
@@ -450,4 +465,22 @@ test("★ Upload world counts an old span note by the id it sends: an Id line it
 	const { up, failures } = await uploadFailures(ANN_NOTES("Id "));
 	assert.equal(up.bulkTypes[A], "character", "Id with a trailing space: " + JSON.stringify(up.bulkTypes) + " " + failures.join(" | "));
 	assert.ok(!failures.some((f) => /same id/.test(f)), failures.join(" | "));
+});
+
+test("★ Copy world names a note it could not read and copies the rest of the world", async () => {
+	const r = await withUnreadable("Character/Broken.md", () =>
+		copyWithCache({ [`${E}/Character/Clean.md`]: CLEAN(C, "Clean"), [`${E}/Character/Broken.md`]: CLEAN(D, "Broken") }, {}),
+	);
+	assert.deepEqual(holds(r.data, C), ["Character"], "Copy: " + JSON.stringify(r.data));
+	assert.deepEqual(holds(r.data, D), []);
+	assert.ok(r.notices.some((n) => /Broken/.test(n) && /could not be read/.test(n)), r.notices.join(" | "));
+});
+
+test("★ Upload world names a note it could not read and sends the rest of the world", async () => {
+	const { up, failures } = await withUnreadable("Character/Broken.md", () =>
+		uploadFailures({ "Character/Clean.md": CLEAN(C, "Clean"), "Character/Broken.md": CLEAN(D, "Broken") }),
+	);
+	assert.equal(up.bulkTypes[C], "character", JSON.stringify(up.bulkTypes) + " " + failures.join(" | "));
+	assert.ok(!sentIds(up).includes(D));
+	assert.ok(failures.some((f) => /Broken/.test(f) && /could not be read/.test(f)), failures.join(" | "));
 });
