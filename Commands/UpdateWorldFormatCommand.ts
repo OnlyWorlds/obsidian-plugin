@@ -13,7 +13,7 @@ import {
 	inLineEndingsOf,
 	serializeFrontmatter,
 	hasOwn,
-	oldSpanNoteId,
+	isOldSpanNote,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
@@ -67,7 +67,15 @@ export class UpdateWorldFormatCommand {
 		for (const { file } of elementNotes) {
 			const content = await this.app.vault.read(file);
 			const category = elementTypeOf(file.path, content);
-			if (!category) continue;
+			if (!category) {
+				// An old span note is Migrate's to convert: left byte for byte, and named.
+				const old = oldSpanNoteType(file.path, content);
+				if (old) {
+					scanned++;
+					notes.push({ path: file.path, name: file.basename, category: old, movingFromFm: [], missingSections: [], missingProps: [], needsReview: true, refused: oldSpanNoteMessage(file.basename) });
+				}
+				continue;
+			}
 			const schema = getCategorySchema(category);
 			if (!schema) continue;
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
@@ -302,19 +310,35 @@ export class UpdateWorldFormatCommand {
 
 /**
  * The type a note is an element of (lower case), read from its own bytes, or
- * null when it is none: an element note's id is a lower-case UUID (the
- * Markdown profile, sentence 1), so a note with no id, or another plugin's or
- * a person's own `id`, is the person's even in a type folder, and is never
- * given a scaffold. The one exception is an old span note where the plugin
- * wrote them (a type folder under Elements/, the old layout and nothing else).
- * The type is its folder's, else its `type` property. Asked when the plan is
- * made, and again for each note when the confirmed run starts.
+ * null when it is none: an element note's id is a lower-case UUID in its front
+ * matter (the Markdown profile, sentence 1), so a note with no id, or another
+ * plugin's or a person's own `id`, is the person's even in a type folder, and
+ * is never given a scaffold. An old span note has no front matter, so it is
+ * none either: Migrate converts it (oldSpanNoteType). The type is its
+ * folder's, else its `type` property. Asked when the plan is made, and again
+ * for each note when the confirmed run starts.
  */
 function elementTypeOf(path: string, content: string): string | null {
-	const oldSpanNote = isUnderElements(path) && oldSpanNoteId(content) !== null;
-	if (!isElementId(ownFrontmatterId(content)) && !oldSpanNote) return null;
+	if (!isElementId(ownFrontmatterId(content))) return null;
 	const found = elementNoteType(path, parseRawFrontmatter(content.replace(/^\s+/, '')) ?? undefined);
 	return found ? normalizeCategory(found.category) : null;
+}
+
+/**
+ * The type of an old span note where Migrate converts them (a type folder
+ * under Elements/, the old layout and nothing else: isOldSpanNote), or null.
+ * Update leaves such a note byte for byte and names it: its body is span
+ * lines, not sections, and only Migrate reads them.
+ */
+function oldSpanNoteType(path: string, content: string): string | null {
+	if (!isUnderElements(path) || !isOldSpanNote(content)) return null;
+	const place = elementNoteType(path, undefined);
+	return place ? normalizeCategory(place.category) : null;
+}
+
+/** What Update says of an old span note it leaves. */
+export function oldSpanNoteMessage(name: string): string {
+	return `${name} not updated: it is still in the plugin's old layout. Run Migrate world notes to frontmatter to convert it. Nothing was changed.`;
 }
 
 // Both delegate to splitNote/joinNote (element-transform), the single place that

@@ -14,6 +14,7 @@ import type { App, TFile } from "obsidian";
 import { makeApp, __modals, __notices, type MockVault } from "./support/obsidian-mock";
 import { harnessUpload } from "./support/upload-harness";
 import { harnessSave } from "./support/save-harness";
+import { readElement } from "../vault/element-file";
 import { W, E } from "./support/four-notes";
 import { MigrateWorldCommand } from "../Commands/MigrateWorldCommand";
 import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
@@ -255,4 +256,27 @@ test("Save still saves a genuine old span note, and refuses one whose id another
 	assert.deepEqual(twin.calls, [], twin.calls.join(" | "));
 	assert.ok(twin.notices.some((n) => /holds the same id/.test(n)), twin.notices.join(" | "));
 	assert.equal(twin.vault.contentAt(`${E}/Character/Bob.md`), BOB);
+});
+
+// --- 9 Update leaves an old span note to Migrate ---------------------------------------------------
+
+test("★ Update world format leaves an old span note byte for byte and names Migrate; Migrate then converts it, and a 3.0 note in the same run is updated", async () => {
+	const { app, vault } = makeApp();
+	const old = `${E}/Character/Old.md`;
+	const kai = `${E}/Character/Kai.md`;
+	const kaiText = `---\nname: Kai\nid: ${B}\nphysicality: Tall.\n---\n\nA guard.\n`;
+	await seedAll(vault, { [old]: OLD(A, "Old", "Original."), [kai]: kaiText });
+	await update(app);
+	assert.equal(vault.contentAt(old), OLD(A, "Old", "Original."), `Update rewrote an old span note:\n${vault.contentAt(old)}`);
+	assert.ok(__notices.some((n) => /Old not updated/.test(n) && /Migrate world notes to frontmatter/.test(n)), __notices.join(" | "));
+	const updated = vault.contentAt(kai) ?? "";
+	assert.notEqual(updated, kaiText, "the 3.0 note was not updated");
+	assert.match(updated, /### Physicality\n\nTall\./, updated);
+	assert.match(updated, /### Description\n\nA guard\./, updated);
+	const r = await migrate(app);
+	assert.deepEqual(r?.converted, [old], JSON.stringify(r));
+	const read = await readElement(app, app.vault.getAbstractFileByPath(old) as TFile, { fromBytes: true });
+	assert.equal(read?.id, A, vault.contentAt(old));
+	assert.equal(read?.name, "Old");
+	assert.equal(read?.fields.description, "Original.");
 });
