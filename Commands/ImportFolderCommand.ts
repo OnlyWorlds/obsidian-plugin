@@ -143,7 +143,7 @@ export class ImportFolderCommand {
 			.getFiles()
 			.filter(
 				(f) =>
-					f.extension === "json" &&
+					f.extension === "json" && f.name.endsWith(".json") && // Obsidian lowercases the extension: `M.JSON` is no element file (folder spec §4, the share rulings)
 					(f.path.startsWith(`${dir}/elements/`) || f.path.startsWith(`${dir}/spatial/`))
 			);
 		if (elementFiles.length === 0) {

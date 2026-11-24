@@ -79,7 +79,7 @@ export class TFile extends TAbstractFile {
 		super(vault, p);
 		const dot = this.name.lastIndexOf(".");
 		this.basename = dot > 0 ? this.name.slice(0, dot) : this.name;
-		this.extension = dot > 0 ? this.name.slice(dot + 1) : "";
+		this.extension = dot > 0 ? this.name.slice(dot + 1).toLowerCase() : ""; // real Obsidian lowercases it (seen 2026-11-24: `x.JSON` reads "json")
 	}
 }
 export class TFolder extends TAbstractFile {
@@ -360,7 +360,7 @@ export class MockVault {
 			f.name = np.split("/").pop() ?? np;
 			const dot = f.name.lastIndexOf(".");
 			f.basename = dot > 0 ? f.name.slice(0, dot) : f.name;
-			f.extension = dot > 0 ? f.name.slice(dot + 1) : "";
+			f.extension = dot > 0 ? f.name.slice(dot + 1).toLowerCase() : "";
 			this.files.set(np, e);
 			reparent(f, np);
 		}
