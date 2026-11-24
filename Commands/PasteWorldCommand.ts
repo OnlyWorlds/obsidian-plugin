@@ -18,11 +18,15 @@ export class PasteWorldCommand {
     /** The plugin's settings, for the hidden lists; absent, only stubs are known. */
     private host: HiddenListHost | null;
 
-    constructor(app: App, manifest: any, host?: HiddenListHost) {
+    /** Auto-sync's self-write guard: each element note this writes is the plugin's own, never an edit to save. */
+    private markSelfWrite: ((path: string) => void) | null;
+
+    constructor(app: App, manifest: any, host?: HiddenListHost, markSelfWrite?: (path: string) => void) {
         this.app = app;
         this.manifest = manifest;
         this.worldService = new WorldService(app);
         this.host = host ?? null;
+        this.markSelfWrite = markSelfWrite ?? null;
     }
 
     async execute() {
@@ -160,6 +164,8 @@ export class PasteWorldCommand {
                 // placement (re-finds by embedded id), preserves extension fields,
                 // renders link ids as [[Name]] wikilinks, maps body to
                 // description/story. No Handlebars templates, no span format.
+                // Marked before each write as Download marks it, so auto-sync
+                // does not take the pasted content for an edit and save it.
                 await writeElement(
                     this.app,
                     worldName,
@@ -169,6 +175,7 @@ export class PasteWorldCommand {
                     {
                         folderPath: existingElementPath ? existingElementPath.slice(0, existingElementPath.lastIndexOf('/')) : categoryDirectory,
                         fileName, idToName, idToRealName, keepAbove, knownOf: write === 'stub',
+                        markSelfWrite: (p) => this.markSelfWrite?.(p),
                     }
                 );
             }

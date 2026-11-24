@@ -18,6 +18,8 @@ import { harnessSave } from "./support/save-harness";
 import { W, E } from "./support/four-notes";
 import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
 import { ManageFieldsCommand } from "../Commands/ManageFieldsCommand";
+import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
+import { AutoSyncEngine } from "../sync/auto-sync";
 
 const A = "019e0000-0000-7000-8000-0000000000a1";
 
@@ -193,4 +195,44 @@ test("★ Save refuses a note whose bytes hold a hidden or last-known id, whatev
 	const last = await saveWithCache("Character/Bob.md", STALE_BOB, { notes: { "Character/Bob.md": held }, save: "Character/Bob.md", server, lastKnown: [B], manual: true });
 	assert.deepEqual(last.calls, [], "last known: " + last.calls.join(" | "));
 	assert.ok(last.notices.some((n) => /Known of now/.test(n)), last.notices.join(" | "));
+});
+
+// --- 4 Paste world's writes are the plugin's own -----------------------------------------------------
+
+test("★ Paste world marks each element note it writes as its own: auto-sync schedules no save of pasted content", async () => {
+	const { app, vault } = makeApp();
+	await seedAll(vault, { [`${E}/Character/Bob.md`]: `---\nname: Bob\nid: ${A}\n---\n\n### Description\n\nOld text.\n` });
+	// The real auto-sync engine, its modify listener fed by the vault's writes.
+	const listeners: ((f: unknown) => void)[] = [];
+	const v = app.vault as unknown as { on(name: string, cb: (f: unknown) => void): unknown; modify(f: TFile, c: string): Promise<void> };
+	v.on = (name, cb) => {
+		if (name === "modify") listeners.push(cb);
+		return {};
+	};
+	const modify = v.modify.bind(app.vault);
+	v.modify = async (f, c) => {
+		await modify(f, c);
+		for (const cb of listeners) cb(f);
+	};
+	const statuses: string[] = [];
+	const plugin = { settings: { apiKey: "", debounceMs: 5, autoSync: true }, setSyncStatus: (s: string) => statuses.push(s), registerEvent: () => {} };
+	const engine = new AutoSyncEngine(app, plugin as never);
+	engine.registerListeners();
+	const cmd = new PasteWorldCommand(app, {} as never, undefined, (p: string) => engine.markSelfWrite(p));
+	await cmd.generateElementNotes(`${E}`, {
+		Character: [
+			{ id: A, name: "Bob", description: "Pasted over." },
+			{ id: B, name: "Kai", description: "Pasted new." },
+		],
+	}, false);
+	await new Promise((r) => setTimeout(r, 30));
+	assert.match(vault.contentAt(`${E}/Character/Bob.md`) ?? "", /Pasted over\./);
+	assert.match(vault.contentAt(`${E}/Character/Kai.md`) ?? "", /Pasted new\./);
+	assert.deepEqual(statuses, [], "auto-sync took a pasted note for an edit: " + statuses.join(" | "));
+	// The marks are one-shot: the person's next edit of a pasted note is saved.
+	await app.vault.modify(app.vault.getAbstractFileByPath(`${E}/Character/Kai.md`) as TFile, "---\nname: Kai\nid: " + B + "\n---\n\n### Description\n\nMy edit.\n");
+	await new Promise((r) => setTimeout(r, 5));
+	assert.equal(statuses[0], "dirty", statuses.join(" | "));
+	const timers = (engine as unknown as { timers: Map<string, ReturnType<typeof setTimeout>> }).timers;
+	for (const t of timers.values()) clearTimeout(t);
 });
