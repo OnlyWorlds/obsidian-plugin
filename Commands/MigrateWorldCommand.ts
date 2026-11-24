@@ -289,7 +289,7 @@ export class MigrateWorldCommand {
 		const extra: string[] = [];
 		for (const [k, v] of Object.entries(frontmatter)) {
 			if (k === 'id' || k === 'name' || hasOwn(schema, k) || isExtensionKey(k) || v == null || v === '') continue;
-			values[`x_${k}`] = Array.isArray(v) ? v.join(', ') : String(v);
+			values[`x_${k}`] = typeof v === 'string' ? v : Array.isArray(v) ? v.join(', ') : typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
 			extra.push(`x_${k}`);
 		}
 		const body = buildElementBody(values, category, extra);
