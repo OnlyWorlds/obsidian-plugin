@@ -421,3 +421,33 @@ test("★ Upload world sends neither of two notes that hold one id when one is a
 	assert.ok(failures.some((f) => /"Fenced" not sent: the code fence/.test(f)), failures.join(" | "));
 	assert.equal(up.bulkTypes[C], "character", JSON.stringify(up.bulkTypes));
 });
+
+// --- 12 The id counted is the id each command emits; a note that cannot be read is named ------------
+
+const ANN = `---\nid: ${A}\nname: Ann\n---\n\n### Description\n\nThe real Ann.\n`;
+const ANN_OLD = (label: string) => ["## Base", FIELD("Name", "Ann (old)"), FIELD(label, A), ""].join("\n");
+const ANN_NOTES = (label: string) => ({ "Character/Ann.md": ANN, "Character/Archive/Ann old.md": ANN_OLD(label) });
+const inElements = (notes: Record<string, string>) => Object.fromEntries(Object.entries(notes).map(([k, v]) => [`${E}/${k}`, v]));
+
+test("★ Copy world counts an old span note by the id it copies: an Id line its own parser reads, under a label the old grammar spells otherwise, is a duplicate; one it does not copy is none", async () => {
+	for (const label of ["iD", "**Id**"]) {
+		const r = await copyWithCache(inElements(ANN_NOTES(label)), {});
+		assert.deepEqual(holds(r.data, A), [], `${label}: ` + JSON.stringify(r.data));
+		assert.ok(r.notices.some((n) => /"Ann" not copied: another note holds the same id/.test(n)), `${label}: ` + r.notices.join(" | "));
+		assert.ok(r.notices.some((n) => /"Ann \(old\)" not copied: another note holds the same id/.test(n)), `${label}: ` + r.notices.join(" | "));
+	}
+	const reverse = await copyWithCache(inElements(ANN_NOTES("Id ")), {});
+	assert.deepEqual(holds(reverse.data, A), ["Character"], "Id with a trailing space: " + JSON.stringify(reverse.data) + " " + reverse.notices.join(" | "));
+	assert.ok(!reverse.notices.some((n) => /same id/.test(n)), reverse.notices.join(" | "));
+});
+
+test("★ Upload world counts an old span note by the id it sends: an Id line its own parser reads, under a label the old grammar spells otherwise, is a duplicate; one it does not send is none", async () => {
+	for (const label of ["iD", "**Id**"]) {
+		const { up, failures } = await uploadFailures(ANN_NOTES(label));
+		assert.ok(!sentIds(up).includes(A), `${label}: Upload sent a note whose id another note holds: ` + JSON.stringify(up.bulkSent));
+		assert.equal(failures.filter((f) => /not sent: another note holds the same id/.test(f)).length, 2, `${label}: ` + failures.join(" | "));
+	}
+	const { up, failures } = await uploadFailures(ANN_NOTES("Id "));
+	assert.equal(up.bulkTypes[A], "character", "Id with a trailing space: " + JSON.stringify(up.bulkTypes) + " " + failures.join(" | "));
+	assert.ok(!failures.some((f) => /same id/.test(f)), failures.join(" | "));
+});

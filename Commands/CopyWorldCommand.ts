@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { duplicateIds, ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -178,8 +178,13 @@ export class CopyWorldCommand {
         // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1), as Upload world
         // refuses them: a copy kept in an archive folder must not stand for the element in the pasted world, and
         // neither is the element's to choose. Counted over every listed note before any other refusal, so a note
-        // refused for something else never makes its twin look unique.
-        const twins = duplicateIds(elementNotes.filter(n => !hidden(n.content)).map(n => n.id));
+        // refused for something else never makes its twin look unique. Each note counts by the id Copy emits for it:
+        // a front-matter note's, as readElement reads it from the same bytes; an old span note's, as Copy's own span
+        // parser reads it, so every old span note is parsed once here and the pass below uses that result.
+        const counted = elementNotes.filter(n => !hidden(n.content));
+        const oldParsed = new Map<TFile, Record<string, any>>();
+        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, worldName));
+        const twins = duplicateIds(counted.map(n => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
         const twinRefusal = (category: string, name: unknown, id: string) =>
             `${category} "${String(name ?? id)}" not copied: another note holds the same id. Keep one of them, then try again.`;
 
@@ -221,11 +226,15 @@ export class CopyWorldCommand {
                         if (!parsed) return {};
                         parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
-                        parsedElement = await this.parseTemplate(fileContent, worldName);
+                        // Parsed once, before the count: the id counted is the id copied.
+                        const old = oldParsed.get(file);
+                        if (!old) return {};
+                        parsedElement = old;
                         // Span markup with no Id line is a note showing the old format, never an element under a made-up id.
                         if (!parsedElement.id) return {};
-                        if (listedId && twins.has(listedId)) {
-                            refused.push(twinRefusal(category, parsedElement.name, listedId));
+                        const oldId = emittedIdKey(parsedElement.id);
+                        if (oldId && twins.has(oldId)) {
+                            refused.push(twinRefusal(category, parsedElement.name, oldId));
                             return {};
                         }
                     }

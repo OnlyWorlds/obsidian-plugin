@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { duplicateIds, ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -461,9 +461,13 @@ export class ExportWorldCommand {
         // archive folder must not overwrite the element, and neither is the element's to choose. Counted over every
         // listed note before any other refusal, so a note refused for something else never makes its twin look
         // unique. A known-of note and a hidden element's stub are never sent, so they hold no id among the sent notes.
-        const twins = duplicateIds((await this.listedNotes(worldFolder))
-            .filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content))
-            .map((n) => n.id));
+        // Each note counts by the id Upload sends for it: a front-matter note's, as readElement reads it from the same
+        // bytes; an old span note's, as Upload's own span parser reads it, so every old span note is parsed once here
+        // and the pass below uses that result.
+        const counted = (await this.listedNotes(worldFolder)).filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content));
+        const oldParsed = new Map<TFile, Record<string, unknown>>();
+        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, worldFolder));
+        const twins = duplicateIds(counted.map((n) => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
         const twinRefusal = (category: string, name: unknown, id: string) =>
             `${category} "${String(name ?? id)}" not sent: another note holds the same id. Keep one of them, then try again.`;
 
@@ -530,10 +534,12 @@ export class ExportWorldCommand {
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
-                    if (!oldSpanNote) return {};
-                    const old = await this.parseTemplate(fileContent, worldFolder);
-                    if (old.id && listedId && twins.has(listedId)) {
-                        this.refusedNotes.push(twinRefusal(category, old.name, listedId));
+                    // Parsed once, before the count: the id counted is the id sent.
+                    const old = oldSpanNote ? oldParsed.get(file) : undefined;
+                    if (!old) return {};
+                    const oldId = emittedIdKey(old.id);
+                    if (oldId && twins.has(oldId)) {
+                        this.refusedNotes.push(twinRefusal(category, old.name, oldId));
                         return {};
                     }
                     return old;

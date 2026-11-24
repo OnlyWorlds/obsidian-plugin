@@ -899,9 +899,10 @@ export async function worldElementNotes(app: App, worldName: string): Promise<Ar
  * `readElement` reads it from the same bytes. An old span note has no front
  * matter, so it is listed only where its place gives the type. Returns each
  * note with its type (the folder spelling), the content read, for every
- * read after (no second read of a note in the run), and its id as
- * `readElement` reads it from those bytes: the front matter's string id, or
- * an old span note's Id line (null when it has none).
+ * read after (no second read of a note in the run), and its front matter's
+ * string id as `readElement` reads it from those bytes (null for a note with
+ * none, an old span note included: each command counts an old span note by the
+ * id its own parser emits).
  */
 export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string; content: string; id: string | null }>> {
 	const out: Array<{ file: TFile; category: string; content: string; id: string | null }> = [];
@@ -911,10 +912,23 @@ export async function worldElementNotesFromBytes(app: App, worldName: string): P
 		const fm = parseRawFrontmatter(content) ?? undefined;
 		const found = elementNoteType(file.path, fm);
 		if (!found) continue;
-		const id = typeof fm?.id === "string" ? fm.id : oldSpanNoteId(content);
-		out.push({ file, category: found.category, content, id });
+		out.push({ file, category: found.category, content, id: typeof fm?.id === "string" ? fm.id : null });
 	}
 	return out;
+}
+
+/**
+ * The key a duplicate count gives an id a command emits: the id as text, or
+ * null when it has none. An old span parser can emit a link's id list, which
+ * counts as its text joined by commas, as the count over the emitted elements
+ * always did (String of a list).
+ */
+export function emittedIdKey(id: unknown): string | null {
+	if (!id) return null;
+	if (typeof id === "string") return id;
+	if (typeof id === "number") return String(id);
+	if (Array.isArray(id)) return id.map((v) => emittedIdKey(v) ?? "").join(",");
+	return null;
 }
 
 /**
