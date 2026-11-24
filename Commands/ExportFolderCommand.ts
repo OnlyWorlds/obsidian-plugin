@@ -204,7 +204,7 @@ export class ExportFolderCommand {
 	 * An `ow_` key reads with no PIN (and a member key's wrong PIN would be
 	 * refused); a classic 10-digit key on a world with a PIN is refused a read
 	 * without it, so it sends the PIN the plugin already holds for saves,
-	 * never prompting for one (Kael, 2026-10-22). Null, and nothing said, when the world has
+	 * never prompting for one. Null, and nothing said, when the world has
 	 * no key (a folder opened with none, a local world), when /me does not
 	 * answer, or when it answers for another world: absent, never guessed.
 	 * A guest's Character is named from this world's notes, else by one read
@@ -275,8 +275,7 @@ export class ExportFolderCommand {
 		const failed: { path: string; reason: string }[] = [];
 		const byPath = new Map<string, ElementRef>();
 		// This world's notes by file name (lower case), for a link Obsidian
-		// resolves to no element note of this world (the fix round, item 2;
-		// Kael's fixes read, low 6).
+		// resolves to no element note of this world (the fix round, item 2).
 		const byName = new Map<string, ElementRef[]>();
 		// Element notes of this world refused for an open fence: a link that
 		// lands on one is left as written, never sent to a same-name note.

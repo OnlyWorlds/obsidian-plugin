@@ -142,7 +142,7 @@ export class CreateElementModal extends Modal {
                 // An Enter with no name typed yet is not a submission: the Enter
                 // that completed the category lands here when focus moves, and
                 // raised "Please enter an element name" on an untouched box
-                // (Seethe, 3.5.1). The CREATE button keeps that notice.
+                // (3.5.1). The CREATE button keeps that notice.
                 if (!nameInput.value.trim()) return;
                 const selectedCategory = this.validateCategory(categoryInput.value, categories, dataListEl);
                 if (selectedCategory) {

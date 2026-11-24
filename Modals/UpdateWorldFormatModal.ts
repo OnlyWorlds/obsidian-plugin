@@ -13,7 +13,7 @@ export interface NotePlan {
 	missingProps: string[];
 	/** body already contains a heading matching a field name — needs human eyes */
 	needsReview: boolean;
-	/** why it is skipped, when a code fence typed open swallows a heading (Kael's fixes read, should-fix 1) */
+	/** why it is skipped, when a code fence typed open swallows a heading */
 	refused?: string;
 }
 

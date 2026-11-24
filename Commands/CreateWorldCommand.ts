@@ -200,8 +200,7 @@ export class CreateWorldCommand {
      * Signed in: POST /api/v2/account/worlds through the SDK's
      * createAccountWorld, the PIN only if keel says the
      * account has none yet, the world's write key named for the vault as
-     * Download World names its keys (`obsidian: <vault>`, Seethe's walk,
-     * 2026-10-17), so the keys page holds one named key per vault. keel shows that
+     * Download World names its keys (`obsidian: <vault>`), so the keys page holds one named key per vault. keel shows that
      * key once; it goes into World.md (the caller) and is shown nowhere else.
      * Should the answer carry no full key, the vault mints its own named key
      * (mintVaultKey) and `afterLanding`, called once that key is in World.md,
@@ -215,7 +214,7 @@ export class CreateWorldCommand {
         // The typed PIN is the one Take online uploads with. keel takes it at
         // create only from an account with no PIN yet, so a wrong PIN would
         // otherwise surface after the world exists, as an upload refused into
-        // an empty world. Check it first where the vault can (Kael's review).
+        // an empty world. Check it first where the vault can.
         if (worldData.pin && (await this.typedPinIsWrong(account.token, String(worldData.pin)))) {
             new ApiResponseModal(
                 this.app,
@@ -287,7 +286,7 @@ export class CreateWorldCommand {
 
     async createLocalWorldFiles(worldName: string, worldData: any) {
         // Create base and subdirectories for the world. The folder is the
-        // name's one safe path segment (Kael's review 3.7); World.md keeps the name.
+        // name's one safe path segment; World.md keeps the name.
         const worldBasePath = `OnlyWorlds/Worlds/${safeWorldFolderName(worldName)}`;
         await this.createFolderIfNeeded(worldBasePath);
         const elementsPath = `${worldBasePath}/Elements`;

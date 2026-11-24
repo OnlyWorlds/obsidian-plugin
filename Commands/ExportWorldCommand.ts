@@ -69,8 +69,8 @@ export class ExportWorldCommand {
     async execute() {
         const activeWorldName = await this.worldService.getWorldName(); // Fetch the active world name
 
-        // A read-key world can never upload: say so before any PIN is asked
-        // (Kael's review 3.1). A world picked in the modal is checked again in
+        // A read-key world can never upload: say so before any PIN is asked.
+        // A world picked in the modal is checked again in
         // the upload itself.
         if (activeWorldName && (await resolveWorldKey(this.app, activeWorldName, this.plugin?.settings.apiKey)).readOnly) {
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
@@ -79,7 +79,7 @@ export class ExportWorldCommand {
 
         // The picker offers only worlds this vault can write to, and a vault
         // whose every world is read-only is refused here, before any PIN or
-        // dialog (Kael's cold read, 2026-10-17). Same split as Rename World.
+        // dialog. Same split as Rename World.
         const { writable, readOnly } = await splitWorldsByWrite(this.app, this.plugin?.settings.apiKey);
         if (writable.length === 0 && readOnly.length > 0) {
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
@@ -202,8 +202,7 @@ export class ExportWorldCommand {
             }
             let hiddenSkipped = this.stubIds.size;
             // Kept by a role (or no-reason) reset: keel answers the id 404, and
-            // the note is never created again until the feed names it (Kael's
-            // read, 2026-10-20).
+            // the note is never created again until the feed names it.
             const leftViewIds = new Set<string>();
             for (const list of Object.values(this.plugin?.settings.leftView ?? {})) {
                 for (const id of list) if (!latestOp.has(id) && !hiddenIds.has(id)) leftViewIds.add(id);
@@ -267,7 +266,7 @@ export class ExportWorldCommand {
 
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
-            // without the user's word (Kael's second read, N4).
+            // without the user's word.
             const leftOut = await this.askAboutDeleted(client, latestOp, serverIds, toCreate, guarded, new Set([...hiddenIds, ...leftViewIds]));
             for (const id of leftOut.ids) {
                 const at = toCreate.findIndex(i => String(i.element.id) === id);
@@ -275,7 +274,7 @@ export class ExportWorldCommand {
             }
             // And out of every note's links, new and existing alike: keel
             // refuses a payload linking an element it does not have, all its
-            // other fields with it (Kael's third read, 1). That is every id
+            // other fields with it. That is every id
             // deleted on onlyworlds.com and not being created again, whether a
             // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
@@ -593,7 +592,7 @@ export class ExportWorldCommand {
      * walk (a full walk from the epoch, so it is current) and kept. When any is
      * about to be created, one dialog asks "create them again?": Create again
      * keeps them in the batch (`recreate`), Leave out returns them (`ids`,
-     * named in `names`). Kael's second read, N4.
+     * named in `names`).
      */
     private async askAboutDeleted(
         client: V2Client,
@@ -622,7 +621,7 @@ export class ExportWorldCommand {
         for (const id of hiddenIds) deleted.delete(id);
         if (worldId && this.plugin) {
             // Kept: only ids with a note in this vault or linked from one, the
-            // ones the list guards (Kael's third read, 4; the fix round, item 8).
+            // ones the list guards (the fix round, item 8).
             this.plugin.settings.deletedOnServer = {
                 ...(this.plugin.settings.deletedOnServer ?? {}),
                 [worldId]: [...deleted].filter(id => guardedIds.has(id)),

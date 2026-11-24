@@ -118,7 +118,7 @@ export class DownloadWorldCommand {
                     // An install from before the list (a stored cursor, no
                     // knownOnServer entry for this world) walks the feed from
                     // the start once, for the list alone: nothing else of that
-                    // walk is applied (Kael's read, 2026-10-20). A failed read
+                    // walk is applied. A failed read
                     // leaves it for the next Download.
                     let storedKnown: string[] = this.plugin?.settings.knownOnServer?.[worldId] ?? [];
                     if (stored?.cursor && this.plugin && this.plugin.settings.knownOnServer?.[worldId] === undefined) {
@@ -199,7 +199,7 @@ export class DownloadWorldCommand {
                     // before any note is written. A folder whose notes cannot
                     // move whole is left as it is and named in the notice.
                     // Said first, when there is a folder to rename: Obsidian's
-                    // Update links prompt may hold the download (Seethe's walk).
+                    // Update links prompt may hold the download.
                     const plainFolders = plainFoldersNotice(await renameCountedCategoryFolders(this.app, uniqueWorldName, {
                         onStart: () => new Notice(RENAME_START_NOTICE, 15000),
                     }));
@@ -244,11 +244,11 @@ export class DownloadWorldCommand {
 
                     // The ids the feed reported deleted, old and new: a save never
                     // recreates them as link targets; a later upsert of an id
-                    // clears it (Kael's read, blocker 1c). Only ids that still
+                    // clears it. Only ids that still
                     // have a note here, or that a note here links to by id, are
                     // kept: the list guards kept notes and their links, and a
-                    // full walk sees every delete the world ever had (Kael's
-                    // third read, 4; the fix round, item 8). An empty list needs
+                    // full walk sees every delete the world ever had (the fix
+                    // round, item 8). An empty list needs
                     // no read of every note (round C, 8).
                     // A hidden row is not a delete: its id goes on the hidden
                     // list instead, below.
@@ -266,9 +266,9 @@ export class DownloadWorldCommand {
                     // The notice counts only deletes that left a note of their
                     // own in this vault: a fresh vault's first download walks the
                     // world's whole history and meets deletes that never had a
-                    // note here (Seethe, 3.5.1: "7 elements deleted" on an empty
+                    // note here (3.5.1 said "7 elements deleted" on an empty
                     // vault); a raw-id link to a deleted element is not a kept
-                    // note (Kael's read, 2026-10-19).
+                    // note.
                     const keptCount = keptDeleteCount(latest.values(), own);
 
                     // Hidden by the world's owner: a hidden row,
@@ -304,7 +304,7 @@ export class DownloadWorldCommand {
                             [worldId]: [...hidden.known],
                         };
                         // A role (or no-reason) reset's kept notes: never sent
-                        // again until the feed names them (Kael's read, 2026-10-20).
+                        // again until the feed names them.
                         this.plugin.settings.leftView = {
                             ...(this.plugin.settings.leftView ?? {}),
                             [worldId]: [...hidden.leftView].filter(id => local.has(id)),
@@ -329,7 +329,7 @@ export class DownloadWorldCommand {
                     // The world's Bases file (a table and cards per type),
                     // behind its setting; never fails the download. After the
                     // download's own notices, so its once-per-vault notice reads
-                    // as the footnote it is (Seethe, 3.5.1).
+                    // as the footnote it is (3.5.1).
                     if (this.plugin?.settings.writeBasesFile !== false) {
                         await writeWorldBasesFileQuietly(this.app, uniqueWorldName, this.plugin ?? undefined);
                     }
@@ -382,7 +382,7 @@ export class DownloadWorldCommand {
         if (held) {
             // A read key held by a role that can write (read for want of a PIN,
             // earlier): the advice was "set a PIN, then download again to
-            // write", so this download upgrades it (Kael's review 3.2).
+            // write", so this download upgrades it.
             if (isReadKey(held.key) && canWrite(world)) {
                 const upgraded = await this.upgradeToWriteKey(token, world, held);
                 return this.downloadWithKey(upgraded ?? held.key, '');
@@ -401,7 +401,7 @@ export class DownloadWorldCommand {
         const landed = await this.downloadWithKey(minted.key, '');
         if (!landed) {
             // Nothing landed, so no World.md holds the new key: revoke it rather
-            // than leave a live key no vault keeps (Kael's review).
+            // than leave a live key no vault keeps.
             try {
                 await revokeAccountKey(token, world.id, { id: minted.id, last4: minted.key.slice(-4), scope: minted.scope });
             } catch {
@@ -452,8 +452,8 @@ export class DownloadWorldCommand {
      * The key and folder of `world` if this vault already holds it: any key in
      * a World.md (prefixed, legacy 10-digit, one the account does not list, a
      * player link's) whose PIN-less GET /world answers with `world`'s id.
-     * Identity is the world id, never the key's shape or its last four (Kael's
-     * review 3.4: a legacy or unlisted key missed the last-four pre-filter and
+     * Identity is the world id, never the key's shape or its last four (a
+     * legacy or unlisted key missed the last-four pre-filter and
      * the world came down again as "Name (1)"). A legacy key on a private world
      * needs its PIN even to read, so it cannot be recognised here; nothing is
      * asked for it.
@@ -700,7 +700,7 @@ export class DownloadWorldCommand {
                 landed.push(String((element as { id?: unknown }).id));
                 // A stub written in full again (an unhide, or back in view)
                 // keeps the person's writing it held, above the first field, byte
-                // for byte (Kael's read, 2026-10-20); so does a known-of note,
+                // for byte; so does a known-of note,
                 // written again or whole.
                 let keepAbove = '';
                 if (existingElementPath) {

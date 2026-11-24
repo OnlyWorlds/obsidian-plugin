@@ -23,8 +23,8 @@ export class RenameWorldCommand {
         const modal = new WorldRenameModal(this.app, async (oldWorldName: string, newWorldName: string) => {
             try {
                 // Ensures each step completes before starting the next one
-                // The folder is the new name's one safe path segment (Kael's
-                // review 3.7); World.md and the server get the name as typed.
+                // The folder is the new name's one safe path segment;
+                // World.md and the server get the name as typed.
                 const newFolder = safeWorldFolderName(newWorldName);
                 await this.renameWorldFile(oldWorldName, newWorldName);
                 await this.renameWorldFolder(oldWorldName, newFolder);
@@ -41,7 +41,7 @@ export class RenameWorldCommand {
         // A read key (ow_r_) can never rename the world on onlyworlds.com:
         // such worlds are not offered, and a vault whose every world is
         // read-only is refused before the dialog opens, with nothing renamed
-        // and nothing sent (Seethe's walk of rc-next, 2026-10-17).
+        // and nothing sent.
         const { writable, readOnly } = await splitWorldsByWrite(this.app, this.plugin?.settings.apiKey);
         if (writable.length === 0 && readOnly.length > 0) {
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
@@ -138,7 +138,7 @@ export class RenameWorldCommand {
                 await this.plugin.saveSettings();
             }
             // The renames auto-sync left for Save Element are kept by world
-            // folder: they move with it (Kael's fixes read, low 5).
+            // folder: they move with it.
             const pending = this.plugin?.settings.pendingRenames ?? {};
             if (this.plugin && oldWorldName !== newWorldName && pending[oldWorldName]) {
                 const { [oldWorldName]: moved, ...rest } = pending;

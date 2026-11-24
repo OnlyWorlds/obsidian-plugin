@@ -160,8 +160,8 @@ export class CopyWorldCommand {
         }
     
         // Notes left out because a code fence typed open swallows a heading:
-        // copied, the swallowed field would come back empty from Paste World
-        // (Kael's fixes read, should-fix 1). Named once the walk is done.
+        // copied, the swallowed field would come back empty from Paste World.
+        // Named once the walk is done.
         const refused: string[] = [];
 
         // The world's element notes wherever they sit in its folder, each of the

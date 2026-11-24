@@ -80,7 +80,7 @@ export function retryAfterMs(headers: Record<string, string> | undefined): numbe
 /**
  * One request to keel's v2 surface over Obsidian's requestUrl. Errors are
  * keel's envelope, as V2ApiError. A 429 or 503 that carries Retry-After is
- * retried once after that wait, capped at 10 s (Kael's review).
+ * retried once after that wait, capped at 10 s.
  */
 export async function owRequest<T>(
 	method: string,
@@ -229,7 +229,7 @@ export async function signIn(store: AccountStore, token: string): Promise<string
 }
 
 /**
- * Where the token lives, said under it in settings (Kael's review 3.3).
+ * Where the token lives, said under it in settings.
  * Obsidian's SecretStorage (app.secretStorage) arrived in 1.11.4 and this
  * plugin's minAppVersion is 1.4.0, so the token stays in plugin data, and the
  * user is told so, and sign-out revokes it.
@@ -320,7 +320,7 @@ export function canWrite(world: AccountWorld): boolean {
 /**
  * Mint a WRITE key for this vault, or null when keel refuses it for want of an
  * account PIN (409 pin_required). Never falls back to a read key: the caller
- * already holds one (Kael's review 3.2).
+ * already holds one.
  */
 export async function mintWriteKey(token: string, world: AccountWorld, vaultName: string): Promise<MintedKey | null> {
 	const path = `/account/worlds/${encodeURIComponent(world.id)}/keys`;

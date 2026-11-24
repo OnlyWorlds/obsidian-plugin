@@ -22,7 +22,8 @@ export interface OnlyWorldsPluginSettings {
 	showStatusBar: boolean;
 	/**
 	 * After Save Element changed an element's name, rename its note to that name
-	 * (Seethe's finding 4, 2026-10-17). On by default.
+	 * (before this, the server took the new name and the file kept the old
+	 * one). On by default.
 	 */
 	renameNoteOnNameChange: boolean;
 
@@ -36,7 +37,7 @@ export interface OnlyWorldsPluginSettings {
 	/**
 	 * Per world id: element ids the change feed reported deleted on the server,
 	 * kept by Download (whose notes stay, on purpose). A save never recreates
-	 * them as link targets (Kael's cold read, blocker 1c).
+	 * them as link targets.
 	 */
 	deletedOnServer: Record<string, string[]>;
 
@@ -59,7 +60,7 @@ export interface OnlyWorldsPluginSettings {
 	 * Per world id: element ids a role (or no-reason) reset's walk no longer
 	 * named. Their notes are kept, the person's now: keel answers the id 404, and
 	 * a save or an upload never creates it again. An upsert of the id later
-	 * takes it off (Kael's read, 2026-10-20).
+	 * takes it off.
 	 */
 	leftView: Record<string, string[]>;
 	/**
