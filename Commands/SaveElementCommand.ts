@@ -4,7 +4,6 @@ import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
-import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
@@ -289,22 +288,6 @@ export class SaveElementCommand {
         this.plugin = plugin;
     }
 
-    // Helper method to convert strings to snake_case
-    toSnakeCase(input: string): string {
-        // Handle known specific cases first
-        if (input === "API Key") return "api_key";
-        if (input === "Id") return "id"; // Although ID is removed from payload later
-
-        // General conversion: Add space before uppercase, lowercase, replace space with underscore
-        return input
-            // Add a space before uppercase letters (but not if it's the start of the string)
-            .replace(/([A-Z])/g, ' $1')
-            .trim() // Remove potential leading/trailing spaces
-            .toLowerCase() // Convert to lowercase
-            .replace(/[\s\-]+/g, '_') // Replace spaces and hyphens with underscores
-            .replace(/_+/g, '_'); // Collapse multiple underscores (e.g., from acronyms)
-    }
-
     /**
      * Save ONE note to the server. The caller names the note: the Save command
      * passes the active file, auto-sync passes the file whose timer fired.
@@ -346,7 +329,7 @@ export class SaveElementCommand {
         }
         const { worldName, category } = pathInfo;
 
-        // 2. Try v2 (frontmatter) first; fall back to v1 (span-tag) if no frontmatter id.
+        // 2. Read the note with the one reader: front matter, or an old span note by its one grammar.
         let elementData: ElementData | null = null;
         const v2 = await readElement(this.app, activeFile);
         if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
@@ -413,13 +396,13 @@ export class SaveElementCommand {
                 new Notice(ambiguousLinksMessage(v2.ambiguousLinks), 12000);
             }
         } else {
-            const fileContent = await this.app.vault.read(activeFile);
-            elementData = await this.parseElementContent(fileContent, activeFile.path);
-        }
-
-        if (!elementData) {
-             console.error("Parsing error in:", activeFile.path);
-             return this.fail("Could not parse element data from the note.");
+            // readElement is the one reader: it reads an old span note too, by
+            // the one grammar (isOldSpanNote), so its id passed the checks above.
+            // Any other note is the person's own and nothing is sent: auto-sync
+            // says nothing, the Save command says it is no element note.
+            const reason = "The current file is not a valid OnlyWorlds element note.";
+            if (!manual) return { ok: false, reason, local: true };
+            return this.fail(reason);
         }
 
         const elementUuid = elementData.id;
@@ -1162,203 +1145,6 @@ export class SaveElementCommand {
         const file = this.app.vault.getAbstractFileByPath(filePath);
         const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
         return elementNoteType(filePath, fm);
-    }
-
-    // Refined parser based on ExportWorldCommand's logic
-    async parseElementContent(content: string, currentFilePath: string): Promise<ElementData | null> {
-     //   console.log("Starting element parsing (v2)...");
-        const data: ElementData = {};
-        const lines = content.split('\n');
-
-        // Regex to capture key, value, and tooltip:
-        const linePattern = /- <span class="[^"]+" data-tooltip="([^"]+)">([^<]+)<\/span>:\s*(.*)/;
-        const idPatternSimple = /Id<\/span>:\s*([a-f0-9\-]{36})/; // Separate pattern just for ID
-
-        let foundId: string | null = null; // Track ID separately
-
-        for (const line of lines) {
-            // First, specifically check for the ID line
-            const idMatchSimple = line.match(idPatternSimple);
-            if (idMatchSimple && idMatchSimple[1]) {
-                foundId = idMatchSimple[1].trim();
-             //   console.log(`  -> Found ID via simple pattern: ${foundId}`);
-                continue; // Don't process the ID line with the general pattern
-            }
-
-            // Process general key-value lines
-            const match = line.match(linePattern);
-            if (match) {
-                const tooltip = match[1].trim();
-                const key = match[2].trim();
-                // Decode entities from notes written before noEscape: a name/link
-                // stored as "The Kid&#x27;s Family" must become raw text so the
-                // wikilink file lookup matches and the API stores the real name.
-                const rawValue = decodeHtmlEntities(match[3].trim());
-                let snakeKey = this.toSnakeCase(key);
-
-                // Skip empty values, API expects null.
-                // TTRPG stats need uppercase keys even when null.
-                if (!rawValue || rawValue.toLowerCase() === 'none') {
-                    const rawKeyLetters = key.replace(/[^a-zA-Z]/g, '').toUpperCase();
-                    const ttrpgStats = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
-                    const finalKey = ttrpgStats.includes(rawKeyLetters) ? rawKeyLetters : snakeKey;
-                    data[finalKey] = null;
-                    continue;
-                }
-
-              //  console.log(`  -> Field [${key}] (Tooltip: ${tooltip}): Raw value = "${rawValue}"`);
-
-                // --- Handle Links based on Tooltip ---
-                if (tooltip.toLowerCase().startsWith('single ') || tooltip.toLowerCase().startsWith('multi ')) {
-                    // Get the IDs first
-                    const ids = await this.extractLinkedIds(rawValue, tooltip, currentFilePath);
-                    
-                    // Determine the final key and assign value based on single/multi
-                    if (tooltip.toLowerCase().startsWith('single ')) {
-                        const finalKey = `${snakeKey}_id`; // Append _id for single links
-                        data[finalKey] = ids.length > 0 ? ids[0] : null;
-                     //   console.log(`     Recognized as Single Link field. Key: ${finalKey}, Assigned ID = ${data[finalKey]}`);
-                    } else { // Must be multi
-                        const finalKey = `${snakeKey}_ids`; // Append _ids for multi links
-                        data[finalKey] = ids; // Assign array
-                   //     console.log(`     Recognized as Multi Link field. Key: ${finalKey}, Assigned IDs = [${ids.join(', ')}]`);
-                    }
-                }
-                // --- Handle Numbers ---
-                else if (tooltip.toLowerCase() === 'number') {
-                    const num = parseInt(rawValue, 10);
-                    // TTRPG stats — API expects uppercase STR/DEX/CON/INT/WIS/CHA.
-                    // The raw field name in the span could be "Str", "STR", "str", or "s_t_r"
-                    // (the last from snake_casing all-caps input). Normalize from the raw key.
-                    const rawKeyLetters = key.replace(/[^a-zA-Z]/g, '').toUpperCase();
-                    const ttrpgStats = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
-                    const isTtrpgStat = ttrpgStats.includes(rawKeyLetters);
-                    const finalKey = isTtrpgStat ? rawKeyLetters : snakeKey;
-                    if (!isNaN(num) && /^\d+$/.test(rawValue)) {
-                        data[finalKey] = num;
-                    } else {
-                        console.warn(`     Could not parse number for key "${key}": ${rawValue}. Assigning null.`);
-                        data[finalKey] = null;
-                    }
-                }
-                // --- Handle Text (Default) ---
-                else {
-                    data[snakeKey] = rawValue;
-                 //   console.log(`     Recognized as Text: Assigned value = "${rawValue}"`);
-                }
-            }
-        }
-
-        // Add the separately found ID to the data object
-        if (foundId) {
-            data.id = foundId;
-        } else {
-             // Fallback: Try to find ID again if not found via simple pattern (less likely now)
-             const idFallbackMatch = content.match(/Id<\/span>:\s*([a-f0-9\-]{36})/);
-             if (idFallbackMatch && idFallbackMatch[1]) {
-                 data.id = idFallbackMatch[1].trim();
-              //   console.log(`  -> Found ID via fallback pattern: ${data.id}`);
-             }
-        }
-
-        // Ensure name is present (simple extraction)
-        if (!data.name) {
-            const nameMatch = content.match(/Name<\/span>:\s*(.+)/);
-            if (nameMatch && nameMatch[1]) {
-                data.name = decodeHtmlEntities(nameMatch[1].trim().split('<')[0].trim());
-            //    console.log(`  -> Found Name: ${data.name}`);
-            }
-        }
-
-       // console.log("Finished element parsing (v2).");
-        if (!data.id) {
-            console.error("  -> CRITICAL: Element ID could not be found after parsing.");
-        }
-        return data.id ? data : null; // Return only if ID was found
-    }
-
-    // Refined ID extraction based on ExportWorldCommand logic
-    async extractLinkedIds(linkedText: string, tooltip: string, currentFilePath: string): Promise<string[]> {
-  //      console.log(`    Extracting IDs (v2) for Links: "${linkedText}"`);
-        const ids: string[] = [];
-        const linkPattern = /\[\[(.*?)\]\]/g; // Find [[Note Name]]
-        let match;
-
-        const pathInfo = await this.extractPathInfo(currentFilePath);
-        if (!pathInfo) {
-            console.error("      Cannot extract IDs: World context not found.");
-            return ids;
-        }
-        const { worldName } = pathInfo;
-
-        // Determine the linked category from the tooltip (e.g., "Multi Link Traits" -> "Traits")
-        const tooltipParts = tooltip.split(' ');
-        const linkedCategory = tooltipParts.length > 1 ? tooltipParts[tooltipParts.length - 1] : null;
-
-        if (!linkedCategory) {
-            console.warn(`      Cannot extract IDs: Linked category not determined from tooltip: "${tooltip}"`);
-            return ids;
-        }
-       // console.log(`      Determined linked category: ${linkedCategory}`);
-
-        while ((match = linkPattern.exec(linkedText)) !== null) {
-            const noteName = match[1];
-
-            // A uuid-shaped link IS the id (download writes [[<id>]] when it
-            // can't resolve a name) — pass through, identity preserved.
-            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(noteName)) {
-                ids.push(noteName);
-                continue;
-            }
-
-            // The type's folders (plain, or an older counted one, or both).
-            const categoryFolders = (await new WorldService(this.app).findCategoryFolders(worldName, linkedCategory)).map((f) => f.path);
-            if (categoryFolders.length === 0) {
-                console.warn(`      Cannot find category folder for: ${linkedCategory}`);
-                continue;
-            }
-            
-            // Wikilink text is the filename form; sanitize for the path lookup.
-            const candidates = categoryFolders.map((folder) => normalizePath(`${folder}/${sanitizeFileName(noteName)}.md`));
-            const linkedFilePath = candidates.find((p) => this.app.vault.getAbstractFileByPath(p) instanceof TFile) ?? candidates[0];
-        //    console.log(`      Looking for linked file at: ${linkedFilePath}`);
-
-            try {
-                const linkedFile = this.app.vault.getAbstractFileByPath(linkedFilePath);
-                if (linkedFile instanceof TFile) {
-              //      console.log(`        Found linked file.`);
-                    const fileContent = await this.app.vault.read(linkedFile);
-                    // Use the simpler ID extraction function (like ExportWorldCommand's parseElement)
-                    const linkedElementData = this.parseElementIdAndName(fileContent); // NEW helper call
-                    if (linkedElementData && linkedElementData.id !== "Unknown Id") {
-                        ids.push(linkedElementData.id);
-                  //      console.log(`        Successfully extracted ID: ${linkedElementData.id}`);
-                    } else {
-                        console.warn(`        Could not extract valid ID from linked file: ${linkedFilePath}`);
-                    }
-                } else {
-                    console.warn(`        Linked file not found or is not a file: ${linkedFilePath}`);
-                }
-            } catch (error) {
-                console.error(`        Error reading or parsing linked file ${linkedFilePath}:`, error);
-            }
-        }
-   //     console.log(`    Finished extracting IDs (v2). Found: [${ids.join(', ')}]`);
-        return ids;
-    }
-
-    // Helper to parse just ID and Name from content (like ExportWorldCommand)
-    private parseElementIdAndName(content: string): { id: string, name: string } {
-     //   console.log("        Parsing linked element ID/Name...");
-        // Match ID: Use the regex from ExportWorldCommand
-         const idMatch = content.match(/<span class="text-field" data-tooltip="Text">Id<\/span>:\s*([^\r\n<]+)/); 
-         // Match Name: Use the regex from ExportWorldCommand
-         const nameMatch = content.match(/<span class="text-field" data-tooltip="Text">Name<\/span>:\s*([^\r\n<]+)/);
-
-         const id = idMatch && idMatch[1] ? idMatch[1].trim() : "Unknown Id";
-         const name = nameMatch && nameMatch[1] ? nameMatch[1].trim() : "Unnamed Element"; 
-    //     console.log(`        Found ID: ${id}, Name: ${name}`);
-         return { id, name };
     }
 
     // Parser for World.md

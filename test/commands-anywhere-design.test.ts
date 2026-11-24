@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import type { App, TFile } from "obsidian";
 import { makeApp, __modals, __notices, type MockVault } from "./support/obsidian-mock";
 import { harnessUpload } from "./support/upload-harness";
+import { harnessSave } from "./support/save-harness";
 import { W, E } from "./support/four-notes";
 import { MigrateWorldCommand } from "../Commands/MigrateWorldCommand";
 import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
@@ -201,4 +202,57 @@ test("★ Update world format refuses a note with text above its first section a
 	await update(app);
 	assertUnchanged(vault, notes);
 	assert.ok(__notices.some((n) => /Pell not updated/.test(n)), __notices.join(" | "));
+});
+
+// --- 8 Save reads a note only through the one reader: no fallback of its own ------------------
+
+const B = "019e0000-0000-7000-8000-0000000000b2";
+const RESEARCH = [
+	"Private research.",
+	"",
+	"```markdown",
+	"## Base",
+	FIELD("Id", A),
+	FIELD("Name", "Example"),
+	FIELD("Description", "EXAMPLE ONLY"),
+	"```",
+	"",
+	"My conclusion.",
+	"",
+].join("\n");
+const BOB = `---\nname: Bob\nid: ${A}\n---\n\n### Description\n\nBob's real chapter.\n`;
+const OLD = (id: string, name: string, description: string) => ["## Base", FIELD("Id", id), FIELD("Name", name), FIELD("Description", description), ""].join("\n");
+
+test("★ Save sends nothing for a note of the person's own that quotes old span markup, by auto-sync or by hand", async () => {
+	const notes = { "Character/Research.md": RESEARCH, "Character/Bob.md": BOB };
+	const server = { [A]: { name: "Bob", description: "Bob's real chapter." } };
+	const auto = await harnessSave({ notes, save: "Character/Research.md", server, manual: false });
+	assert.deepEqual(auto.calls, [], "auto-sync called the server for a note of the person's own: " + auto.calls.join(" | "));
+	assert.deepEqual(auto.sent, []);
+	assert.deepEqual(auto.notices, [], "auto-sync spoke about a note of the person's own: " + auto.notices.join(" | "));
+	assert.equal(auto.vault.contentAt(`${E}/Character/Bob.md`), BOB);
+	assert.equal(auto.vault.contentAt(`${E}/Character/Research.md`), RESEARCH);
+	const byHand = await harnessSave({ notes, save: "Character/Research.md", server, manual: true });
+	assert.deepEqual(byHand.calls, [], byHand.calls.join(" | "));
+	assert.ok(byHand.notices.some((n) => /not a valid OnlyWorlds element note/.test(n)), byHand.notices.join(" | "));
+});
+
+test("Save still saves a genuine old span note, and refuses one whose id another note holds before any call", async () => {
+	const saved = await harnessSave({
+		notes: { "Character/Old.md": OLD(B, "Old", "New text.") },
+		save: "Character/Old.md",
+		server: { [B]: { name: "Old", description: "Server text." } },
+		manual: false,
+	});
+	assert.deepEqual(saved.calls, [`get character ${B}`, `update character ${B}`], saved.calls.join(" | ") + " :: " + saved.notices.join(" | "));
+	assert.equal(saved.sent[0]?.description, "New text.", JSON.stringify(saved.sent));
+	const twin = await harnessSave({
+		notes: { "Character/Old.md": OLD(A, "Old", "New text."), "Character/Bob.md": BOB },
+		save: "Character/Old.md",
+		server: { [A]: { name: "Bob", description: "Bob's real chapter." } },
+		manual: false,
+	});
+	assert.deepEqual(twin.calls, [], twin.calls.join(" | "));
+	assert.ok(twin.notices.some((n) => /holds the same id/.test(n)), twin.notices.join(" | "));
+	assert.equal(twin.vault.contentAt(`${E}/Character/Bob.md`), BOB);
 });
