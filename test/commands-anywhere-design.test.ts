@@ -122,3 +122,29 @@ test("★ Copy world writes World Data File.md only when it is absent or carries
 	await copy.copyWorldData("W");
 	assert.doesNotMatch(vault.contentAt(`${W}/World Data File.md`) ?? "", /"old"/);
 });
+
+// --- 4 Update never chooses between two prose copies --------------------------------------------
+
+async function update(app: App): Promise<void> {
+	__notices.length = 0;
+	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<unknown>; apply(p: unknown): Promise<void> };
+	await cmd.apply(await cmd.buildPlan("W"));
+}
+
+test("★ Update world format refuses a text property beside a section of the same field, an empty section too", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${W}/Drafts/Kai.md`]: `---\nid: ${A}\ntype: character\nname: Kai\nphysicality: "The only copy of my portrait"\n---\n\n### Description\n\nA guard.\n\n### Physicality\n\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Kai not updated/.test(n)), __notices.join(" | "));
+});
+
+test("★ Update world format refuses a text property when the body holds prose outside every section", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${W}/Drafts/Zel.md`]: `---\nid: ${A}\ntype: character\nname: Zel\ndescription: Summary\n---\n\nMy only preamble chapter.\n\n### Description\n\nSummary\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Zel not updated/.test(n)), __notices.join(" | "));
+});

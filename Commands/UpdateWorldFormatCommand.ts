@@ -189,15 +189,15 @@ export class UpdateWorldFormatCommand {
 			}
 			const bodyField = bodyFieldForCategory(category);
 
-			// A text field written in two places (a property and its body section,
-			// or a description property and a body with no sections) would keep
-			// only one of them: the note is not touched, and is named.
-			const legacyText = [parsed.preamble, ...parsed.unknown.map((u) => u.text)].filter(Boolean).join('\n\n');
+			// Update never chooses between two places a field's text could come from:
+			// a text property beside a section of the same field (empty or not), or a
+			// description property beside text outside every section (which is the
+			// description of a note with no sections). The note is not touched, and
+			// is named.
 			const twice = bodyTextFields(category).filter((key) => {
 				const held = fm[key];
 				if (typeof held !== 'string' || !held.trim()) return false;
-				const inBody = parsed.fields[key] !== undefined ? String(parsed.fields[key]) : key === bodyField ? legacyText : '';
-				return inBody.trim() !== '' && inBody.trim() !== held.trim();
+				return hasOwn(parsed.fields, key) || (key === bodyField && parsed.preamble.trim() !== '');
 			});
 			if (twice.length > 0) {
 				skipped++;
