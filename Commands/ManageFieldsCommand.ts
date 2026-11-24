@@ -143,9 +143,14 @@ export class ManageFieldsCommand {
 		if (refusedToRebuild(file, category, content, body, parsed)) return;
 
 		// Re-check content here, not just in the UI: a field holding text is kept
-		// regardless of what the modal returned (stale-modal safety).
+		// regardless of what the modal returned (stale-modal safety). What the note
+		// holds NOW decides, from this one read: a section written after the
+		// dialog opened (by another writer, a sync) is kept though the dialog's
+		// choices said it was empty. The choices still keep the properties.
 		const keep = new Set(selected);
 		for (const c of choices) if (c.hasContent) keep.add(c.key);
+		for (const key of bodyTextFields(category)) if ((parsed.fields[key] || '').trim()) keep.add(key);
+		for (const u of parsed.unknown) if (u.text.trim()) keep.add(`x_${headingToFieldKey(u.heading)}`);
 
 		const values: Record<string, unknown> = { ...parsed.fields };
 		const customKeys: string[] = [];
@@ -176,9 +181,10 @@ export class ManageFieldsCommand {
 		// renders as plain text). Two writers racing on one file also meant a
 		// toggle-on could be overwritten by the other half's stale copy — which
 		// is why re-ticking a field appeared to do nothing. One writer fixes both.
+		// The same read the body was built from: a second read here would put
+		// its frontmatter beside a body an edit in between had already changed.
 		const schema = getCategorySchema(category);
-		const current = await this.app.vault.read(file);
-		const existing = parseFrontmatterObject(current);
+		const existing = parseFrontmatterObject(content);
 		const fmOut: Record<string, unknown> = {};
 		for (const [key, value] of Object.entries(existing)) {
 			if (!schema || BASE_KEYS.has(key)) {
@@ -203,7 +209,7 @@ export class ManageFieldsCommand {
 		// The body ends as writeElement ends it (one newline after the last
 		// section), so the last value reads back exactly.
 		const finalContent = joinNote(serializeFrontmatter(fmOut), withDependsOn(`${newBody}\n`, section));
-		if (finalContent !== current) {
+		if (finalContent !== content) {
 			this.markSelfWrite?.(file.path);
 			await this.app.vault.modify(file, finalContent);
 		}
