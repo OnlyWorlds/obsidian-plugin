@@ -17,21 +17,29 @@ import { isUnderElements, mayBeElementNote, typeOfPlace } from "../vault/categor
  *
  * Infinite-loop guard: when our own code writes back to a file (e.g., to record
  * server-returned timestamps), we set a self-write flag for that path. The
- * matching modify event is then skipped.
+ * matching modify event is then skipped. A flag lives SELF_WRITE_TTL_MS: a
+ * write that failed sends no event, and its flag must not swallow the
+ * person's next edit of the note.
  */
 export class AutoSyncEngine {
+	/** How long a self-write mark waits for its modify event; an older mark is no write of ours. */
+	static readonly SELF_WRITE_TTL_MS = 30_000;
 	private app: App;
 	private plugin: OnlyWorldsPlugin;
 	private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-	private selfWritePaths: Set<string> = new Set();
+	/** Path -> when it was marked (now()); one mark swallows one modify event. */
+	private selfWritePaths: Map<string, number> = new Map();
+	private now: () => number;
 	/** Saves running at once: a replace-all over many notes fired one timer each, all at the same moment, every save carrying the PIN. */
 	static readonly MAX_PARALLEL_SAVES = 3;
 	private activeSaves = 0;
 	private waitingSaves: ((skip: boolean) => void)[] = [];
 
-	constructor(app: App, plugin: OnlyWorldsPlugin) {
+	/** `now` is the clock the self-write marks are aged by (a test's fake clock; Date.now otherwise). */
+	constructor(app: App, plugin: OnlyWorldsPlugin, now: () => number = Date.now) {
 		this.app = app;
 		this.plugin = plugin;
+		this.now = now;
 	}
 
 	/**
@@ -51,9 +59,12 @@ export class AutoSyncEngine {
 			this.app.vault.on("modify", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!mayBeElementNote(file.path)) return;
-				if (this.selfWritePaths.has(file.path)) {
+				const marked = this.selfWritePaths.get(file.path);
+				if (marked !== undefined) {
 					this.selfWritePaths.delete(file.path);
-					return;
+					// A mark too old for its write (the write failed, no event came) is
+					// spent here, and this event is the person's.
+					if (this.now() - marked <= AutoSyncEngine.SELF_WRITE_TTL_MS) return;
 				}
 				if (!this.plugin.settings.autoSync) return;
 				// Whether the note is an element's is read from the note (its place, its id and `type`), so a person's own note says nothing.
@@ -163,9 +174,10 @@ export class AutoSyncEngine {
 
 	/**
 	 * Call this before writing to a vault file from plugin code, so the resulting
-	 * 'modify' event doesn't trigger another sync.
+	 * 'modify' event doesn't trigger another sync. The mark holds for
+	 * SELF_WRITE_TTL_MS; marking a marked path again renews it, still one event.
 	 */
 	markSelfWrite(path: string): void {
-		this.selfWritePaths.add(path);
+		this.selfWritePaths.set(path, this.now());
 	}
 }
