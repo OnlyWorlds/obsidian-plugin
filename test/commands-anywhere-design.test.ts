@@ -467,22 +467,39 @@ test("★ Upload world counts an old span note by the id it sends: an Id line it
 	assert.ok(!failures.some((f) => /same id/.test(f)), failures.join(" | "));
 });
 
-test("★ Copy world names a note it could not read and copies the rest of the world", async () => {
-	const r = await withUnreadable("Character/Broken.md", () =>
-		copyWithCache({ [`${E}/Character/Clean.md`]: CLEAN(C, "Clean"), [`${E}/Character/Broken.md`]: CLEAN(D, "Broken") }, {}),
-	);
-	assert.deepEqual(holds(r.data, C), ["Character"], "Copy: " + JSON.stringify(r.data));
-	assert.deepEqual(holds(r.data, D), []);
-	assert.ok(r.notices.some((n) => /Broken/.test(n) && /could not be read/.test(n)), r.notices.join(" | "));
+/** Copy world run whole (World Data File.md and the clipboard), with every read of a note ending in `end` throwing. */
+async function copyRunUnreadable(notes: Record<string, string>, end: string) {
+	const clipboard: string[] = [];
+	Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (t: string) => void clipboard.push(t) } }, configurable: true, writable: true });
+	const { app, vault } = makeApp();
+	await seedAll(vault, notes);
+	__notices.length = 0;
+	await withUnreadable(end, () => new CopyWorldCommand(app, {} as never, new WorldService(app)).copyWorldData("W"));
+	return { clipboard, vault, notices: [...__notices] };
+}
+
+test("★ Copy world stops when a note cannot be read: nothing copied, World Data File.md and the clipboard untouched, the note named by its path", async () => {
+	const r = await copyRunUnreadable({ [`${E}/Character/Clean.md`]: CLEAN(C, "Clean"), [`${E}/Character/Broken.md`]: CLEAN(D, "Broken") }, "Character/Broken.md");
+	assert.deepEqual(r.clipboard, [], "copied to the clipboard: " + r.clipboard.join(""));
+	assert.equal(r.vault.contentAt(`${W}/World Data File.md`), undefined, "World Data File.md was written");
+	assert.ok(r.notices.some((n) => n.includes(`${E}/Character/Broken.md`) && /could not be read/.test(n) && /nothing was copied/.test(n)), r.notices.join(" | "));
+	// The second look's vault: a note nobody could read may hold its twin's id, so the readable twin is not copied either.
+	const s1 = await copyRunUnreadable({ [`${E}/Character/Ann.md`]: ANN, [`${E}/Character/Archive/Ann.md`]: CLEAN(A, "Ann") }, "Character/Archive/Ann.md");
+	assert.deepEqual(s1.clipboard, [], "copied to the clipboard: " + s1.clipboard.join(""));
+	assert.ok(s1.notices.some((n) => n.includes(`${E}/Character/Archive/Ann.md`) && /nothing was copied/.test(n)), s1.notices.join(" | "));
 });
 
-test("★ Upload world names a note it could not read and sends the rest of the world", async () => {
-	const { up, failures } = await withUnreadable("Character/Broken.md", () =>
-		uploadFailures({ "Character/Clean.md": CLEAN(C, "Clean"), "Character/Broken.md": CLEAN(D, "Broken") }),
-	);
-	assert.equal(up.bulkTypes[C], "character", JSON.stringify(up.bulkTypes) + " " + failures.join(" | "));
-	assert.ok(!sentIds(up).includes(D));
-	assert.ok(failures.some((f) => /Broken/.test(f) && /could not be read/.test(f)), failures.join(" | "));
+test("★ Upload world stops when a note cannot be read: no request leaves, nothing counted as failed, the note named by its path", async () => {
+	for (const [notes, end] of [
+		[{ "Character/Clean.md": CLEAN(C, "Clean"), "Character/Broken.md": CLEAN(D, "Broken") }, "Character/Broken.md"],
+		[{ "Character/Ann.md": ANN, "Character/Archive/Ann.md": CLEAN(A, "Ann") }, "Character/Archive/Ann.md"],
+	] as const) {
+		const { up, failures } = await withUnreadable(end, () => uploadFailures(notes));
+		assert.deepEqual(up.calls, [], `${end}: requests left: ` + up.calls.join(" | "));
+		assert.deepEqual(failures, [], `${end}: ` + failures.join(" | "));
+		assert.ok(up.notices.some((n) => n.includes(`${E}/${end}`) && /could not be read/.test(n) && /nothing was sent/.test(n)), `${end}: ` + up.notices.join(" | "));
+		assert.ok(!up.notices.some((n) => /failed|Upload complete/.test(n)), `${end}: ` + up.notices.join(" | "));
+	}
 });
 
 test("Upload world keeps no note's text on the command once its collection is done", async () => {

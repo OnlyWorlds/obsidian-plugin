@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, unreadableNoteMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -70,6 +70,8 @@ export class CopyWorldCommand {
         if (worldFile instanceof TFile) {
             try {
                 const worldData = await this.collectWorldData(worldFolderPath); // Assuming this collects data correctly
+                // The collection stopped and said why (a note that could not be read): nothing is written or copied.
+                if (worldData === null) return;
                 const worldDataJSON = JSON.stringify(worldData, null, 4);
     
                 // The World Data File is written only when it is absent, or when its
@@ -167,8 +169,12 @@ export class CopyWorldCommand {
         // Each note is read once, and everything below is decided from those
         // bytes: never the metadata cache, never a second read.
         const { notes: elementNotes, unreadable } = await worldElementNotesFromBytes(this.app, worldName);
-        // A note that could not be read is left out of this copy, and named.
-        for (const f of unreadable) refused.push(unreadableNoteMessage(f.basename));
+        // A note that could not be read stops the copy: its id is unknown, so no
+        // duplicate count over the rest can be shown whole. Nothing is copied.
+        if (unreadable.length > 0) {
+            new Notice(unreadableStopMessage(unreadable, 'nothing was copied'), 15000);
+            return null;
+        }
 
         // Hidden by the world's owner: a stub, or an id on a hidden list, is
         // never copied as an element, and so holds no id among the copied notes.

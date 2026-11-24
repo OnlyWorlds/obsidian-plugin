@@ -903,8 +903,8 @@ export async function worldElementNotes(app: App, worldName: string): Promise<Ar
  * string id as `readElement` reads it from those bytes (null for a note with
  * none, an old span note included: each command counts an old span note by the
  * id its own parser emits). A candidate whose read fails (a file deleted
- * mid-run, a sync placeholder) is left out and returned in `unreadable`, for
- * the command to name (unreadableNoteMessage); the others are read as ever.
+ * mid-run, a sync placeholder) is returned in `unreadable`: Copy and Upload
+ * then stop and name it (unreadableStopMessage), copying and sending nothing.
  */
 export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<{
 	notes: Array<{ file: TFile; category: string; content: string; id: string | null }>;
@@ -929,9 +929,17 @@ export async function worldElementNotesFromBytes(app: App, worldName: string): P
 	return { notes, unreadable };
 }
 
-/** What Copy and Upload say of a note in the world's folder they could not read. */
-export function unreadableNoteMessage(name: string): string {
-	return `"${name}" could not be read, so it was left out.`;
+/**
+ * What Copy and Upload say when a note in the world's folder could not be
+ * read: the run stops, since a note nobody read may hold another note's id.
+ * Named by its path in the vault (two notes may share a name); more than one:
+ * the first, and how many more. `nothing` is what did not happen ("nothing
+ * was copied").
+ */
+export function unreadableStopMessage(unreadable: TFile[], nothing: string): string {
+	const more = unreadable.length - 1;
+	const others = more > 0 ? ` and ${more} more note${more === 1 ? "" : "s"}` : "";
+	return `${unreadable[0].path}${others} could not be read, so ${nothing}. Try again.`;
 }
 
 /**

@@ -46,10 +46,13 @@ export async function harnessUpload(o: UploadOpts) {
 	const bulkSent: Record<string, unknown>[] = [];
 	const bulkOpts: unknown[] = [];
 	const patches: Record<string, Record<string, unknown>> = {};
-	proto.getWorld = async () => ({ id: UPLOAD_WID, name: "W" });
-	proto.changesWalk = async () => ({ changes: o.changes, cursor: "c9", head: 9 });
+	/** Every request the stubbed client was asked for, in order. */
+	const calls: string[] = [];
+	proto.getWorld = async () => (calls.push("getWorld"), { id: UPLOAD_WID, name: "W" });
+	proto.changesWalk = async () => (calls.push("changesWalk"), { changes: o.changes, cursor: "c9", head: 9 });
 	const bulkTypes: Record<string, string> = {};
 	proto.bulkCreate = async (items: { type?: string; element: Record<string, unknown> }[], opts?: unknown) => {
+		calls.push("bulkCreate");
 		bulkOpts.push(opts);
 		bulkSent.push(...items.map((i) => i.element));
 		for (const i of items) bulkTypes[String(i.element.id)] = String(i.type);
@@ -64,13 +67,14 @@ export async function harnessUpload(o: UploadOpts) {
 	if (o.seqs) await vault.adapter.write("OnlyWorlds/Worlds/W/.ow-seq.json", JSON.stringify(o.seqs));
 	const ifMatch: Record<string, number | null | undefined> = {};
 	proto.update = async (_t: string, id: string, b: Record<string, unknown>, opts?: { ifMatch?: number | null }) => {
+		calls.push(`update ${id}`);
 		ifMatch[id] = opts?.ifMatch;
 		if (o.stale?.includes(id)) throw new V2ApiError(412, "precondition_failed", "The element has changed since change_seq 4 (now 5).", null);
 		patches[id] = b;
 		const seq = o.answerSeq?.(id);
 		return seq === undefined ? {} : { id, change_seq: seq };
 	};
-	proto.patchWorld = async () => ({});
+	proto.patchWorld = async () => (calls.push("patchWorld"), {});
 	const plugin = {
 		settings: { apiKey: "", deletedOnServer: { [UPLOAD_WID]: o.deleted ?? [] } as Record<string, string[]>, hiddenOnServer: { [UPLOAD_WID]: o.hidden ?? [] } as Record<string, string[]>, leftView: { [UPLOAD_WID]: o.leftView ?? [] } as Record<string, string[]>, lastKnown: { [UPLOAD_WID]: o.lastKnown ?? [] } as Record<string, string[]>, syncCursors: {} },
 		saveSettings: async () => {},
@@ -82,7 +86,9 @@ export async function harnessUpload(o: UploadOpts) {
 	let done = false;
 	try {
 		const data = await cmd.collectWorldData("W");
-		const run = (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown): Promise<void> })
+		// As the export callback does: a collection that stopped (nothing collected) sends nothing.
+		if (!data || Object.keys(data).length === 0) done = true;
+		const run = done ? Promise.resolve() : (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown): Promise<void> })
 			.uploadViaV2(1234, "W", data)
 			.finally(() => (done = true));
 		while (!done) {
@@ -97,5 +103,5 @@ export async function harnessUpload(o: UploadOpts) {
 		for (const [k, v] of Object.entries(saved)) proto[k] = v;
 	}
 	const seqFile = vault.dotfiles.get("OnlyWorlds/Worlds/W/.ow-seq.json");
-	return { bulkSent, bulkTypes, bulkOpts, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
+	return { calls, bulkSent, bulkTypes, bulkOpts, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
 }

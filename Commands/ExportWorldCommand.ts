@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, unreadableNoteMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -465,8 +465,12 @@ export class ExportWorldCommand {
         // bytes; an old span note's, as Upload's own span parser reads it, so every old span note is parsed once here
         // and the pass below uses that result.
         const listed = await this.listedNotes(worldFolder);
-        // A note that could not be read is left out of this upload, and named in its summary.
-        for (const f of listed.unreadable) this.refusedNotes.push(unreadableNoteMessage(f.basename));
+        // A note that could not be read stops the upload before any request: its id is unknown, so no duplicate
+        // count over the rest can be shown whole. Named by its path; the caller sends nothing for an empty result.
+        if (listed.unreadable.length > 0) {
+            new Notice(unreadableStopMessage(listed.unreadable, 'nothing was sent'), 15000);
+            return {};
+        }
         const counted = listed.notes.filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content));
         const oldParsed = new Map<TFile, Record<string, unknown>>();
         for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, worldFolder));
