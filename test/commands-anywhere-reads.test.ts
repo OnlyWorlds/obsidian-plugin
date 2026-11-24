@@ -16,7 +16,7 @@ import { W, E } from "./support/four-notes";
 import { MigrateWorldCommand } from "../Commands/MigrateWorldCommand";
 import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
 import { ImportFolderCommand } from "../Commands/ImportFolderCommand";
-import { CopyWorldCommand } from "../Commands/CopyWorldCommand";
+import { CopyWorldCommand, COPY_OUTPUT_MARKER } from "../Commands/CopyWorldCommand";
 import { WorldService } from "../Scripts/WorldService";
 import { serializeFrontmatter } from "../vault/element-transform";
 
@@ -244,14 +244,14 @@ test("★ Copy world never writes its output over an element note, and names it"
 	__notices.length = 0;
 	await new CopyWorldCommand(app, {} as never, new WorldService(app)).copyWorldData("W");
 	assert.equal(vault.contentAt(`${W}/World Data File.md`), note, "an element note was overwritten");
-	assert.ok(__notices.some((n) => /World Data File/.test(n) && /element note/.test(n)), __notices.join(" | "));
+	assert.ok(__notices.some((n) => /World Data File/.test(n) && /not overwritten/.test(n)), __notices.join(" | "));
 });
 
 test("Copy world marks its output write as the plugin's own before it writes", async () => {
 	withClipboard();
 	const { app, vault } = makeApp();
 	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **Name:** W\n");
-	await vault.seed(`${W}/World Data File.md`, "{}");
+	await vault.seed(`${W}/World Data File.md`, `${COPY_OUTPUT_MARKER}\n{}`);
 	const order: string[] = [];
 	const v = app.vault as unknown as { modify(f: TFile, c: string): Promise<void> };
 	const modify = v.modify.bind(v);

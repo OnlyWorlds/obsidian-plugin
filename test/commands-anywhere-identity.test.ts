@@ -19,7 +19,7 @@ import { W, E } from "./support/four-notes";
 import { MigrateWorldCommand } from "../Commands/MigrateWorldCommand";
 import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
 import { ImportFolderCommand } from "../Commands/ImportFolderCommand";
-import { CopyWorldCommand } from "../Commands/CopyWorldCommand";
+import { CopyWorldCommand, COPY_OUTPUT_MARKER } from "../Commands/CopyWorldCommand";
 import { WorldService } from "../Scripts/WorldService";
 
 const A = "019c0000-0000-7000-8000-0000000000a1";
@@ -228,7 +228,7 @@ test("★ Copy world writes its output only over its own earlier output, never o
 	assert.equal(vault.contentAt(`${W}/World Data File.md`), essay, "a person's note was overwritten");
 	assert.ok(__notices.some((n) => /World Data File/.test(n) && /not overwritten/.test(n)), __notices.join(" | "));
 	// its own earlier output is written over, as always
-	await app.vault.modify(app.vault.getAbstractFileByPath(`${W}/World Data File.md`) as TFile, JSON.stringify({ World: { name: "old" }, Character: [] }, null, 4));
+	await app.vault.modify(app.vault.getAbstractFileByPath(`${W}/World Data File.md`) as TFile, `${COPY_OUTPUT_MARKER}\n${JSON.stringify({ World: { name: "old" }, Character: [] }, null, 4)}`);
 	await copy.copyWorldData("W");
 	assert.match(vault.contentAt(`${W}/World Data File.md`) ?? "", /"World": \{/);
 	assert.doesNotMatch(vault.contentAt(`${W}/World Data File.md`) ?? "", /"old"/);

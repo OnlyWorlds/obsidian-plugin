@@ -16,7 +16,7 @@ import { harnessUpload } from "./support/upload-harness";
 import { W, E } from "./support/four-notes";
 import { MigrateWorldCommand } from "../Commands/MigrateWorldCommand";
 import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
-import { CopyWorldCommand } from "../Commands/CopyWorldCommand";
+import { CopyWorldCommand, COPY_OUTPUT_MARKER } from "../Commands/CopyWorldCommand";
 import { WorldService } from "../Scripts/WorldService";
 
 const A = "019e0000-0000-7000-8000-0000000000a1";
@@ -95,4 +95,30 @@ test("★ Migrate writes every text field of an old note into its body, and one 
 	assert.match(text, /### Physicality\n\nCarries a \\` shaped staff\./, text);
 	assert.match(text, /### Psychology\n\nRestless\./, text);
 	assert.match(text, /### Description\n\nA man\./, text);
+});
+
+// --- 3 Copy writes over only a note it marked as its own ---------------------------------------
+
+function withClipboard(): void {
+	Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
+}
+
+test("★ Copy world writes World Data File.md only when it is absent or carries Copy's own marker on its first line", async () => {
+	withClipboard();
+	const { app, vault } = makeApp();
+	const chapter = '{"World":{"chapter":"The only copy of my chapter"}}';
+	await seedAll(vault, { [`${W}/World Data File.md`]: chapter });
+	const copy = new CopyWorldCommand(app, {} as never, new WorldService(app));
+	__notices.length = 0;
+	await copy.copyWorldData("W");
+	assert.equal(vault.contentAt(`${W}/World Data File.md`), chapter, "a note Copy did not mark was overwritten");
+	assert.ok(__notices.some((n) => /World Data File/.test(n) && /not overwritten/.test(n)), __notices.join(" | "));
+	// absent: written, its first line the marker; then that note is Copy's to write again
+	await app.vault.delete(app.vault.getAbstractFileByPath(`${W}/World Data File.md`)!);
+	await copy.copyWorldData("W");
+	const first = vault.contentAt(`${W}/World Data File.md`) ?? "";
+	assert.equal(first.split("\n")[0], COPY_OUTPUT_MARKER, first.slice(0, 200));
+	await app.vault.modify(app.vault.getAbstractFileByPath(`${W}/World Data File.md`) as TFile, `${COPY_OUTPUT_MARKER}\n{"old": true}`);
+	await copy.copyWorldData("W");
+	assert.doesNotMatch(vault.contentAt(`${W}/World Data File.md`) ?? "", /"old"/);
 });

@@ -72,38 +72,34 @@ export class CopyWorldCommand {
                 const worldData = await this.collectWorldData(worldFolderPath); // Assuming this collects data correctly
                 const worldDataJSON = JSON.stringify(worldData, null, 4);
     
-                // Check if the World Data File exists, create new or modify existing.
-                // The write is marked as the plugin's own first, so auto-sync never
-                // reads the JSON as a note's prose; and a note there that is an
-                // element note (the Markdown profile: an id and a type, wherever it
-                // sits) is never written over.
-                // Only the command's own earlier output is written over: a note whose whole
-                // text is a JSON object of the world and its types. A person's note there
-                // (with or without properties) is never replaced; the notice names it.
+                // The World Data File is written only when it is absent, or when its
+                // first line is the mark Copy writes (COPY_OUTPUT_MARKER): Copy never
+                // writes over a note it cannot show it wrote. An older copy's output
+                // has no mark and is refused like any other note; the notice says to
+                // delete it once. The write is marked as the plugin's own first, so
+                // auto-sync never reads the JSON as a note's prose.
                 const worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
-                let kept: string | null = null;
+                const output = `${COPY_OUTPUT_MARKER}\n${worldDataJSON}`;
+                let kept = false;
                 if (worldDataFile instanceof TFile) {
                     const text = await this.app.vault.read(worldDataFile);
-                    const held = parseRawFrontmatter(text.replace(/^\s+/, ''));
-                    if (elementNoteType(worldDataPath, held)) {
-                        kept = 'is an element note';
-                    } else if (!isCopyOutput(text)) {
-                        kept = "is not this command's earlier output";
+                    if (text.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] !== COPY_OUTPUT_MARKER) {
+                        kept = true;
                     } else {
                         this.markSelfWrite?.(worldDataPath);
-                        await this.app.vault.modify(worldDataFile, worldDataJSON);
+                        await this.app.vault.modify(worldDataFile, output);
                     }
                 } else {
                     this.markSelfWrite?.(worldDataPath);
-                    await this.app.vault.create(worldDataPath, worldDataJSON);
+                    await this.app.vault.create(worldDataPath, output);
                 }
 
-                // Copy to clipboard
+                // Copy to clipboard: the world's JSON alone, never the mark.
                 navigator.clipboard.writeText(worldDataJSON);
 
                 // Modal confirmation removed
                 new Notice(kept
-                    ? `World ${worldFolder} copied to clipboard. World Data File.md ${kept}, so it was not overwritten: rename or move it to keep a copy in the vault.`
+                    ? `World ${worldFolder} copied to clipboard. World Data File.md was not overwritten: Copy world did not write it (its first line is not Copy world's mark). If it is an older copy's output, delete it once and copy again; otherwise rename or move it.`
                     : `World ${worldFolder} copied to clipboard.`, kept ? 15000 : undefined);
             } catch (error) {
                 console.error('Error during world data processing:', error);
@@ -660,23 +656,8 @@ export class CopyWorldCommand {
 }
 
 /**
- * True when a note's whole text has the shape Copy world writes to `World Data File.md`: one JSON
- * object whose `World` is a map of the world's fields and whose every other key is a type's name
- * holding a list of element maps (an empty object included, which Copy writes when the World file
- * cannot be read). Anything else there is a person's note, never written over.
+ * The first line of every World Data File.md Copy world writes: an Obsidian comment, hidden in
+ * reading view. Copy writes over that note only when its first line is this mark, so it never
+ * replaces a note it cannot show it wrote.
  */
-export function isCopyOutput(text: string): boolean {
-    let data: unknown;
-    try {
-        data = JSON.parse(text);
-    } catch {
-        return false;
-    }
-    const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-    if (!isMap(data)) return false;
-    const types = new Set(Object.keys(Category).filter((k) => isNaN(Number(k))));
-    // The shape Copy writes: `World` a map of the world's fields, each type a list of element maps.
-    return Object.entries(data).every(([k, v]) =>
-        k === 'World' ? isMap(v) : types.has(k) && Array.isArray(v) && v.every(isMap)
-    );
-}
+export const COPY_OUTPUT_MARKER = '%% Copy world output: Copy world writes this note again at every copy, and anything written in it is replaced. %%';
