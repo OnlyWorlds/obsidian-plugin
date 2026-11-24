@@ -185,6 +185,11 @@ export class ManageFieldsCommand {
 		// its frontmatter beside a body an edit in between had already changed.
 		const schema = getCategorySchema(category);
 		const existing = parseFrontmatterObject(content);
+		if (!existing) {
+			// Same refusal as Update world to latest format: nothing is written.
+			new Notice(`${file.basename} not changed: its properties are not valid YAML. Fix them, then try again. Nothing was changed.`, 15000);
+			return;
+		}
 		const fmOut: Record<string, unknown> = {};
 		for (const [key, value] of Object.entries(existing)) {
 			if (!schema || BASE_KEYS.has(key)) {
@@ -348,8 +353,12 @@ function refusedForKnownOf(content: string): boolean {
 	return true;
 }
 
-/** Parse the note's frontmatter block into an object (key order preserved). */
-function parseFrontmatterObject(content: string): Record<string, unknown> {
+/**
+ * Parse the note's frontmatter block into an object (key order preserved).
+ * null when the block is there and its YAML cannot be read: rebuilt from
+ * nothing it would lose every property, the note's id with them.
+ */
+function parseFrontmatterObject(content: string): Record<string, unknown> | null {
 	const { frontmatter } = splitNote(content);
 	if (!frontmatter) return {};
 	const lines = frontmatter.split(/\r?\n/);
@@ -358,6 +367,6 @@ function parseFrontmatterObject(content: string): Record<string, unknown> {
 		const parsed = parseYaml(inner);
 		return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
 	} catch {
-		return {};
+		return null;
 	}
 }

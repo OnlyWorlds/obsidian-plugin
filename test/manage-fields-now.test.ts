@@ -98,3 +98,11 @@ test("★ Manage fields builds the whole note from one read of it", async () => 
 	assert.equal(readsBeforeWrite, 1);
 	assert.match(vault.contentAt(PATH) ?? "", /### Physicality\n/);
 });
+
+test("★ Manage fields refuses a note whose properties are not valid YAML, and writes nothing", async () => {
+	const note = `---\nname: Bob\nid: ${A}\nx_private: [unfinished\n---\n\n### Description\n\nOnly prose.\n`;
+	const { text } = await apply(note, ["description"], staleChoices());
+	assert.equal(text, note, "the note is as it was");
+	assert.equal(__notices.length, 1);
+	assert.match(String(__notices[0]), /Bob not changed: its properties are not valid YAML\. Fix them, then try again\. Nothing was changed\./);
+});
