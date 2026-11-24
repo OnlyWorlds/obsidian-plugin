@@ -79,3 +79,23 @@ test("★ Migrate never takes a note whose front matter holds an id key of any v
 	assertUnchanged(vault, notes);
 	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
 });
+
+// --- 3 Import names a link target from the id on the disk ----------------------------------
+
+test("★ Import names a link target from the id a note holds on the disk, never from a stale cache", async () => {
+	const { app, vault, cache } = makeApp();
+	const oldTown = `${E}/Location/OldTown.md`;
+	await seedAll(vault, { [oldTown]: `---\nid: ${A}\nname: OldTown\n---\n\nThe town.\n` });
+	const c = cache as unknown as { getFileCache(f: { path: string }): unknown };
+	const get = c.getFileCache.bind(c);
+	c.getFileCache = (f: { path: string }) => (f.path === oldTown ? { frontmatter: { id: B, name: "OldTown" } } : get(f));
+	const dir = "import/w";
+	await vault.seed(`${dir}/world.json`, JSON.stringify({ id: "0199aaaa-0000-7000-8000-0000000000f0", name: "W" }));
+	await vault.seed(`${dir}/elements/location/b.json`, JSON.stringify({ type: "location", id: B, name: "Newtown" }));
+	await vault.seed(`${dir}/elements/character/c.json`, JSON.stringify({ type: "character", id: C, name: "Cara", location: B }));
+	__modals.length = 0;
+	await (new ImportFolderCommand(app) as unknown as { importFolder(dir: string): Promise<void> }).importFolder(dir);
+	const cara = vault.contentAt(`${E}/Character/Cara.md`) ?? "";
+	assert.doesNotMatch(cara, /\[\[OldTown\]\]/, "a link to B names the note that holds A: " + cara);
+	assert.equal(vault.contentAt(oldTown), `---\nid: ${A}\nname: OldTown\n---\n\nThe town.\n`);
+});

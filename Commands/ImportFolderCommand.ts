@@ -18,8 +18,8 @@ import {
 	type ElementRef,
 } from "../vault/folder-format";
 
-/** A note in the target world's folder that holds an id, and the id. */
-type HeldNote = { file: TFile; id: string };
+/** A note in the target world's folder that holds an id, the id, and whether it was read from the disk (else the metadata cache). */
+type HeldNote = { file: TFile; id: string; onDisk: boolean };
 
 /**
  * Import OnlyWorlds folder (S9 Phase C / Rail 2).
@@ -385,7 +385,7 @@ export class ImportFolderCommand {
 		// (of two notes with one id, the one a pull would write to).
 		const byId = new Map<string, HeldNote[]>();
 		for (const n of held) {
-			if (inFolder.has(n.id) && existingIds.has(n.id)) byId.set(n.id, [...(byId.get(n.id) ?? []), n]);
+			if (n.onDisk && inFolder.has(n.id) && existingIds.has(n.id)) byId.set(n.id, [...(byId.get(n.id) ?? []), n]);
 		}
 		const typeOf = new Map(parsed.map((el) => [String(el.payload.id), normalizeCategory(el.type)]));
 		for (const [id, notes] of byId) {
@@ -422,21 +422,26 @@ export class ImportFolderCommand {
 	 * when the metadata cache has none, an entry with no front matter included:
 	 * on a re-import before Obsidian has indexed the notes, a cache-only read
 	 * missed every id and wrote a second note for each (Kael's cold read, 3).
+	 *
+	 * Each note is read from disk too, and both ids are held when the cache is
+	 * stale and they differ, so neither is imported over the note. Only the
+	 * disk's id names a link target (`onDisk`): a stale cache must never make a
+	 * link to one element name the note that now holds another.
 	 */
 	private async worldElementIds(world: string): Promise<HeldNote[]> {
 		const out: HeldNote[] = [];
 		for (const file of this.app.vault.getMarkdownFiles()) {
 			if (!mayBeElementNote(file.path, world)) continue;
 			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-			let id = fm && typeof fm.id === "string" ? fm.id : undefined;
-			if (!id) {
-				try {
-					id = ownFrontmatterId(await this.app.vault.read(file)) ?? undefined;
-				} catch {
-					/* unreadable note: not an id this import can see */
-				}
+			const cached = fm && typeof fm.id === "string" ? fm.id : undefined;
+			let onDisk: string | undefined;
+			try {
+				onDisk = ownFrontmatterId(await this.app.vault.read(file)) ?? undefined;
+			} catch {
+				/* unreadable note: only the cache's id, if any, is seen */
 			}
-			if (id) out.push({ file, id });
+			if (onDisk) out.push({ file, id: onDisk, onDisk: true });
+			if (cached && cached !== onDisk) out.push({ file, id: cached, onDisk: false });
 		}
 		return out;
 	}
