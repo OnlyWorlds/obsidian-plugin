@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { ownFrontmatterId, readElement, sameElementType, typeReadTwiceMessage, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -189,6 +189,13 @@ export class CopyWorldCommand {
                     const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
                         const parsed = await readElement(this.app, file, { fromBytes: true });
+                        // The type the bytes give must be the type the note was listed
+                        // under (the metadata cache, a moment before): otherwise it is
+                        // left out and named, never copied under either type.
+                        if (parsed && !sameElementType(category, parsed.category)) {
+                            refused.push(typeReadTwiceMessage(parsed.name, category, parsed.category, 'not copied', 'Copy world to clipboard'));
+                            return {};
+                        }
                         if (parsed?.unclosedFence) {
                             refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
                             return {};

@@ -280,3 +280,29 @@ test("★ Update world format leaves an old span note byte for byte and names Mi
 	assert.equal(read?.name, "Old");
 	assert.equal(read?.fields.description, "Original.");
 });
+
+// --- 10 Copy and Upload take a note's type from the bytes they read ---------------------------------
+
+const CHAPTER = `---\nid: ${A}\nname: Chapter\ntype: narrative\n---\n\n### Story\n\nThe only copy of my chapter.\n`;
+const STALE_TYPE = { frontmatter: { id: A, name: "Chapter", type: "character" } };
+const holds = (data: Record<string, unknown>, id: string) =>
+	Object.entries(data).filter(([k, v]) => k !== "World" && Array.isArray(v) && (v as { id?: unknown }[]).some((e) => e.id === id)).map(([k]) => k);
+
+test("★ Copy world leaves out and names a note whose type the cache and its bytes read two ways; with the cache agreeing it is copied as its type", async () => {
+	const { app, vault, cache } = makeApp();
+	const path = `${W}/Drafts/Chapter.md`;
+	await seedAll(vault, { [path]: CHAPTER });
+	const c = cache as unknown as { getFileCache(f: { path: string }): unknown };
+	const get = c.getFileCache.bind(c);
+	c.getFileCache = (f: { path: string }) => (f.path === path ? STALE_TYPE : get(f));
+	__notices.length = 0;
+	const stale = await copyData(app);
+	assert.deepEqual(holds(stale, A), [], "Copy: " + JSON.stringify(stale));
+	assert.ok(__notices.some((n) => /Chapter/.test(n) && /not copied/.test(n) && /type/.test(n)), __notices.join(" | "));
+	assert.equal(vault.contentAt(path), CHAPTER);
+	c.getFileCache = get;
+	__notices.length = 0;
+	const agreed = await copyData(app);
+	assert.deepEqual(holds(agreed, A), ["Narrative"], "Copy: " + JSON.stringify(agreed));
+	assert.equal((agreed.Narrative[0] as { story?: unknown }).story, "The only copy of my chapter.");
+});
