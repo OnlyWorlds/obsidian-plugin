@@ -502,19 +502,38 @@ test("★ Upload world stops when a note cannot be read: no request leaves, noth
 	}
 });
 
-test("Upload world keeps no note's text on the command once its collection is done, or once it throws", async () => {
+test("Two Upload collections started together on one command each finish on their own reading of the notes", async () => {
 	const { app, vault } = makeApp();
-	await seedAll(vault, { [`${E}/Character/Clean.md`]: CLEAN(C, "Clean"), [`${E}/Character/Real.md`]: OLD(B, "Real", "A real old note.") });
+	const path = `${E}/Character/Clean.md`;
+	const clean = (text: string) => `---\nid: ${C}\nname: Clean\n---\n\n### Description\n\n${text}\n`;
+	await seedAll(vault, { [path]: clean("First reading."), [`${E}/Character/Real.md`]: OLD(B, "Real", "A real old note.") });
 	const { ExportWorldCommand } = await import("../Commands/ExportWorldCommand");
 	const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app), { settings: {} } as never);
-	const data = (await cmd.collectWorldData("W")) as Record<string, { id?: unknown }[]>;
-	assert.ok(data.Character?.some((e) => e.id === C), JSON.stringify(data));
-	assert.equal((cmd as unknown as { noteTypes: unknown }).noteTypes, null, "the listed notes' contents are still held after the collection");
-	(cmd as unknown as { parseTemplate(): Promise<never> }).parseTemplate = async () => {
-		throw new Error("a parse that throws");
+	// Run A is held inside its collection, after it read the notes (its first old-note parse), until run B is done.
+	const c = cmd as unknown as { parseTemplate(...args: unknown[]): Promise<Record<string, unknown>> };
+	const parse = c.parseTemplate.bind(cmd);
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	let held!: () => void;
+	const reached = new Promise<void>((r) => (held = r));
+	let first = true;
+	c.parseTemplate = async (...args: unknown[]) => {
+		if (first) {
+			first = false;
+			held();
+			await gate;
+		}
+		return parse(...args);
 	};
-	await assert.rejects(cmd.collectWorldData("W"), /a parse that throws/);
-	assert.equal((cmd as unknown as { noteTypes: unknown }).noteTypes, null, "the listed notes' contents are still held after a collection that threw");
+	const runA = cmd.collectWorldData("W");
+	await reached;
+	await app.vault.modify(app.vault.getAbstractFileByPath(path) as TFile, clean("Second reading."));
+	const b = (await cmd.collectWorldData("W")) as Record<string, { id?: unknown; description?: unknown }[]>;
+	release();
+	const a = (await runA) as Record<string, { id?: unknown; description?: unknown }[]>;
+	const text = (data: typeof a) => data.Character?.find((e) => e.id === C)?.description;
+	assert.equal(text(b), "Second reading.", JSON.stringify(b.Character));
+	assert.equal(text(a), "First reading.", "run A finished on another run's reading: " + JSON.stringify(a.Character));
 });
 
 test("★ Copy world stops when World.md cannot be read: the clipboard and World Data File.md are untouched; a normal copy writes both", async () => {
