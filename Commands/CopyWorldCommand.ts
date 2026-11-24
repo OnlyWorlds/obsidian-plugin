@@ -70,7 +70,7 @@ export class CopyWorldCommand {
         if (worldFile instanceof TFile) {
             try {
                 const worldData = await this.collectWorldData(worldFolderPath); // Assuming this collects data correctly
-                // The collection stopped and said why (a note that could not be read): nothing is written or copied.
+                // The collection stopped and said why (World.md or a note could not be read): nothing is written or copied.
                 if (worldData === null) return;
                 const worldDataJSON = JSON.stringify(worldData, null, 4);
     
@@ -155,7 +155,8 @@ export class CopyWorldCommand {
             console.error('Error reading World file:', error);
             const msg = error instanceof Error ? error.message : String(error);
             new Notice('Could not read the World file: ' + msg);
-            return {}; // Stop further processing if the World file cannot be read
+            // The copy stops: nothing is written to World Data File.md or the clipboard.
+            return null;
         }
     
         // Notes left out because a code fence typed open swallows a heading:

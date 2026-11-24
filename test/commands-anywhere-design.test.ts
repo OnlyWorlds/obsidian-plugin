@@ -516,3 +516,34 @@ test("Upload world keeps no note's text on the command once its collection is do
 	await assert.rejects(cmd.collectWorldData("W"), /a parse that throws/);
 	assert.equal((cmd as unknown as { noteTypes: unknown }).noteTypes, null, "the listed notes' contents are still held after a collection that threw");
 });
+
+test("★ Copy world stops when World.md cannot be read: the clipboard and World Data File.md are untouched; a normal copy writes both", async () => {
+	const run = async (seed: Record<string, string>, worldUnreadable: boolean) => {
+		const clipboard: string[] = [];
+		Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (t: string) => void clipboard.push(t) } }, configurable: true, writable: true });
+		const { app, vault } = makeApp();
+		await seedAll(vault, { [`${E}/Character/Clean.md`]: CLEAN(C, "Clean"), ...seed });
+		if (worldUnreadable) {
+			const read = vault.adapter.read;
+			vault.adapter.read = async (p: string) => {
+				if (p.endsWith("/World.md")) throw new Error("ENOENT: no such file");
+				return read(p);
+			};
+		}
+		__notices.length = 0;
+		await new CopyWorldCommand(app, {} as never, new WorldService(app)).copyWorldData("W");
+		return { clipboard, vault, notices: [...__notices] };
+	};
+	const absent = await run({}, true);
+	assert.deepEqual(absent.clipboard, [], "copied to the clipboard: " + absent.clipboard.join(""));
+	assert.equal(absent.vault.contentAt(`${W}/World Data File.md`), undefined, "World Data File.md was written");
+	assert.ok(absent.notices.some((n) => /Could not read the World file/.test(n)), absent.notices.join(" | "));
+	const marked = `${COPY_OUTPUT_MARKER}\n{"kept": true}`;
+	const kept = await run({ [`${W}/World Data File.md`]: marked }, true);
+	assert.deepEqual(kept.clipboard, [], "copied to the clipboard: " + kept.clipboard.join(""));
+	assert.equal(kept.vault.contentAt(`${W}/World Data File.md`), marked, "World Data File.md was rewritten");
+	const normal = await run({}, false);
+	assert.equal(normal.clipboard.length, 1, normal.notices.join(" | "));
+	assert.match(normal.clipboard[0], new RegExp(C));
+	assert.equal(normal.vault.contentAt(`${W}/World Data File.md`)?.split("\n")[0], COPY_OUTPUT_MARKER);
+});
