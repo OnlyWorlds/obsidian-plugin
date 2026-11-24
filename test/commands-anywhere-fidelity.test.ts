@@ -142,3 +142,14 @@ test("★ Update world format refuses a note whose text field is both a property
 	assertUnchanged(vault, notes);
 	assert.ok(__notices.some((n) => /Kai not updated/.test(n)), __notices.join(" | "));
 });
+
+// --- 6 indentation that mixes spaces and tabs ----------------------------------------------------
+
+test("★ Migrate reads a line indented by a space and a tab as code, never as an old note's field", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${E}/Character/Example.md`]: `---\ntags: [draft]\n---\n\nMy prose.\n\n${SPAN(A, "Example", "Example only.", " \t")}` };
+	await seedAll(vault, notes);
+	const r = await migrate(app);
+	assertUnchanged(vault, notes);
+	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
+});

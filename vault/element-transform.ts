@@ -2035,7 +2035,8 @@ function extractWikilinks(raw: string): string[] {
  * fields. Out go the front matter (a property may hold an example), every
  * fence at any indent (one nested in a list item too) with all it holds, and
  * everything after a fence that never closes (CommonMark reads it as code to
- * the end); every line indented four spaces or a tab (an indented code block,
+ * the end); every line indented four columns or more, tabs to the next stop of
+ * four, spaces and tabs mixed (an indented code block,
  * or code in a list item); and inline code, a backtick run to the next run of
  * the same length within a paragraph, across lines. An old note's span lines
  * stand at the start of their lines, so none of this takes one away.
@@ -2049,6 +2050,17 @@ export function outsideCode(content: string): string {
 		.split(/\n[ \t]*\n/)
 		.map((para) => para.replace(INLINE_CODE, ""))
 		.join("\n\n");
+}
+
+/** A line's indent in columns, a tab reaching the next multiple of four (Markdown's tab stop): four or more is code. */
+function indentColumns(line: string): number {
+	let col = 0;
+	for (const ch of line) {
+		if (ch === " ") col++;
+		else if (ch === "\t") col += 4 - (col % 4);
+		else break;
+	}
+	return col;
 }
 
 /** A run of backticks to the next run of the same length: inline code. */
@@ -2077,7 +2089,7 @@ function codeLines(content: string): { lines: string[]; code: boolean[] } {
 			code[i] = true;
 			return;
 		}
-		if (/^( {4}|\t)/.test(line) && line.trim() !== "") code[i] = true;
+		if (indentColumns(line) >= 4 && line.trim() !== "") code[i] = true;
 	});
 	// A line that starts inside inline code (a run of backticks opened on a line above it, in the same paragraph).
 	let start = 0;
