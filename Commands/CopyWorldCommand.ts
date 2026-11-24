@@ -5,8 +5,8 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { elementNoteType, frontmatterHasIdKey, ownFrontmatterId, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
-import { spanFieldText, spanNoteId } from '../vault/element-transform';
+import { elementNoteType, ownFrontmatterId, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
 import { isInCategoryFolder } from '../vault/category-folder';
@@ -185,12 +185,12 @@ export class CopyWorldCommand {
                     if (ownId && this.host && isHiddenId(this.host.settings, ownId)) return {};
                     // Phase B: frontmatter notes read via the shared reader; legacy
                     // span notes fall through to the span parser (mixed worlds copy
-                    // correctly either way). Front matter wins: a note with an id in
-                    // its front matter is read by it, whatever its prose quotes; the
-                    // span reader takes only a note with none whose Id line stands
-                    // outside every code context (spanNoteId), and reads only that text.
+                    // correctly either way). The span reader takes only a note in the
+                    // old layout and nothing else (isOldSpanNote): no front matter, and
+                    // every line a span field or group line; any other note is read by
+                    // its front matter, or is the person's own.
                     let parsedElement: Record<string, any>;
-                    const oldSpanNote = !frontmatterHasIdKey(fileContent) && spanNoteId(fileContent) !== null;
+                    const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
                         if (parsed?.unclosedFence) {
@@ -209,7 +209,7 @@ export class CopyWorldCommand {
                         if (!parsed) return {};
                         parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
-                        parsedElement = await this.parseTemplate(spanFieldText(fileContent), worldName);
+                        parsedElement = await this.parseTemplate(fileContent, worldName);
                         // Span markup with no Id line is a note showing the old format, never an element under a made-up id.
                         if (!parsedElement.id) return {};
                     }

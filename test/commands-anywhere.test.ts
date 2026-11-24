@@ -106,7 +106,8 @@ test("★ Migrate converts an old span note in its type folder under Elements/ i
 	assert.deepEqual(r.failed, [], JSON.stringify(r.failed));
 	assert.deepEqual(r.converted.sort(), [`${E}/Location/Coast/Lore town.md`, `${E}/Location/Gela.md`], JSON.stringify(r));
 	for (const [p, t] of Object.entries(outside)) assert.equal(vault.contentAt(p), t, `${p} was rewritten`);
-	assert.deepEqual(r.left.map((l) => l.path).sort(), Object.keys(outside).sort(), JSON.stringify(r.left));
+	// Selinus carries a front matter, so it is no old note at all (the old layout has none): the person's own, not named.
+	assert.deepEqual(r.left.map((l) => l.path).sort(), Object.keys(outside).filter((p) => !p.endsWith("Selinus.md")).sort(), JSON.stringify(r.left));
 	const el = await readElement(app, app.vault.getAbstractFileByPath(`${E}/Location/Coast/Lore town.md`) as TFile);
 	assert.equal(el?.id, LORE);
 	assert.equal(el?.category, "location");

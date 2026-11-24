@@ -1,8 +1,10 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from 'obsidian';
 import {
-	spanFieldText,
+	hasOldSpanIdLine,
+	isOldSpanNote,
+	oldSpanNoteId,
 	parseSpanNote,
-	spanNoteId,
+	serializeFrontmatter,
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
@@ -12,7 +14,7 @@ import {
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { isUnderElements, mayBeElementNote } from '../vault/category-folder';
-import { editFrontmatterLines, elementNoteType, frontmatterHasIdKey, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
+import { elementNoteType, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
 	converted: string[];
@@ -74,15 +76,15 @@ export class MigrateWorldCommand {
 	/**
 	 * What Migrate does with each note of the world's folder, read once.
 	 *
-	 * An old span note is converted only where the plugin wrote such notes: in
-	 * a type folder under `Elements/`, with no `id` in its front matter, and with
-	 * span markup and an `Id` line outside every code fence. A note that holds
-	 * an `id` in its front matter is never one (it may quote an old note's lines
-	 * in its prose), nor is a note that shows the old format in a fence. A span
-	 * note anywhere else in the world's folder is left as it is and reported,
-	 * so the person can move it into its type's folder. An element note already
-	 * in front matter is counted as skipped. A note that cannot be read stops
-	 * the run before anything is backed up or changed.
+	 * An old span note is a note in the plugin's old layout and nothing else
+	 * (isOldSpanNote: no front matter, every line a span field or group line).
+	 * It is converted only where the plugin wrote such notes, in a type folder
+	 * under `Elements/`; one anywhere else in the world's folder is left as it
+	 * is and reported, so the person can move it into its type's folder. A note
+	 * with no front matter that has an old `Id` line among other lines is the
+	 * person's own and is reported too, so no old-looking note is left without
+	 * a word. An element note in front matter is counted as skipped. A note
+	 * that cannot be read stops the run before anything is backed up or changed.
 	 */
 	private async survey(world: string): Promise<{
 		convert: Array<{ file: TFile; category: string }>;
@@ -102,14 +104,16 @@ export class MigrateWorldCommand {
 				out.unreadable.push(file.path);
 				continue;
 			}
-			const fm = parseRawFrontmatter(content.replace(/^\s+/, ''));
-			const fmId = ownFrontmatterId(content);
-			// An id key of any value (`false`, a list, nothing) is never an old note's: its id is in its text.
-			if (frontmatterHasIdKey(content)) {
-				if (fmId && elementNoteType(file.path, fm ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
+			const block = splitNote(content).frontmatter;
+			if (block) {
+				const fmId = ownFrontmatterId(content);
+				if (fmId && elementNoteType(file.path, parseRawFrontmatter(block) ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
 				continue;
 			}
-			if (!spanNoteId(content)) continue; // the person's own note
+			if (!oldSpanNoteId(content)) {
+				if (hasOldSpanIdLine(content)) out.left.push({ path: file.path, reason: 'old span lines among other lines: read as your own, not converted' });
+				continue; // the person's own note
+			}
 			out.linkSources.push(file);
 			const place = isUnderElements(file.path) ? elementNoteType(file.path, {}) : null;
 			if (place) out.convert.push({ file, category: normalizeCategory(place.category) });
@@ -125,7 +129,7 @@ export class MigrateWorldCommand {
 		for (const f of files) {
 			try {
 				const content = await this.app.vault.read(f);
-				const parsed = parseSpanNote(spanFieldText(content));
+				const parsed = parseSpanNote(content);
 				if (parsed.id) {
 					index.set(parsed.name ?? f.basename, parsed.id);
 					index.set(f.basename, parsed.id);
@@ -143,7 +147,7 @@ export class MigrateWorldCommand {
 		const map = new Map<string, string>();
 		for (const f of files) {
 			try {
-				const parsed = parseSpanNote(spanFieldText(await this.app.vault.read(f)));
+				const parsed = parseSpanNote(await this.app.vault.read(f));
 				const name = parsed.name ?? f.basename;
 				if (parsed.id && name) map.set(parsed.id, sanitizeFileName(name));
 			} catch {
@@ -195,8 +199,8 @@ export class MigrateWorldCommand {
 		for (const file of files) {
 			try {
 				const content = await this.app.vault.read(file);
-				if (frontmatterHasIdKey(content)) {
-					result.skipped.push(file.path); // given a front matter id since the survey
+				if (!isOldSpanNote(content)) {
+					result.skipped.push(file.path); // changed since the survey: no longer an old note
 					continue;
 				}
 				const category = categoryOf.get(file.path);
@@ -204,7 +208,7 @@ export class MigrateWorldCommand {
 					result.failed.push({ path: file.path, reason: 'not an element path' });
 					continue;
 				}
-				const parsed = parseSpanNote(spanFieldText(content));
+				const parsed = parseSpanNote(content);
 				if (!parsed.id) {
 					result.failed.push({ path: file.path, reason: 'no id found in span note' });
 					continue;
@@ -258,10 +262,8 @@ export class MigrateWorldCommand {
 	 * ONE write (THE WRITE RULE): the block is built here and joined to the
 	 * body, never processFrontMatter. `frontmatter` already excludes the body
 	 * field (span parse split it into bodyValue), and apiDataToFrontmatter
-	 * normalizes link ids and preserves extension keys. A key the note already
-	 * held in front matter that the migration does not write (a `type` that
-	 * makes a note outside the type folders an element, a person's own
-	 * property) is kept after the migrated ones.
+	 * normalizes link ids and preserves extension keys. An old note has no
+	 * front matter (isOldSpanNote), so the block is the migrated keys alone.
 	 */
 	private async writeFrontmatterNote(
 		file: TFile,
@@ -273,17 +275,7 @@ export class MigrateWorldCommand {
 		idToName: (id: string) => string | null
 	): Promise<void> {
 		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
-		// The note's own front matter lines follow the migrated keys as the person
-		// wrote them, or the note is not converted (the caller lists it as failed):
-		// never a block YAML cannot read, never a whole block rebuilt in another form.
-		const block = splitNote(content).frontmatter;
-		if (block && !parseRawFrontmatter(block)) {
-			throw new Error('its properties are not valid YAML. Fix them, then run Migrate again');
-		}
-		const fmText = editFrontmatterLines(block ? `${block}\n` : '', [], fm, {});
-		if (fmText === null) {
-			throw new Error('its properties cannot be kept as you wrote them (an alias, an indented block or another form Migrate does not edit line by line). Nothing was changed');
-		}
+		const fmText = serializeFrontmatter(fm);
 		// The guard is one-shot per path: marked before the one 'modify' so
 		// auto-sync never sees a migration write.
 		this.markSelfWrite(file.path);

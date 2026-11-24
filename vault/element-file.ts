@@ -19,11 +19,9 @@ import {
 	bodyFieldForCategory,
 	normalizeCategory,
 	getCategorySchema,
-	isSpanFormat,
-	outsideCode,
+	isOldSpanNote,
+	oldSpanNoteId,
 	parseSpanNote,
-	spanFieldText,
-	spanNoteId,
 	spanFieldsToFrontmatter,
 	parseRawFrontmatterScalars,
 	AMBIGUOUS_LINK,
@@ -376,11 +374,10 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		};
 	}
 
-	// Legacy span-format fallback (pre-migration notes): only span lines outside
-	// every code context are the note's own; an example shown as code is not.
-	// A note whose front matter has an id key of any value is not an old note.
-	if (!(fm && hasOwn(fm, "id")) && !frontmatterHasIdKey(content) && isSpanFormat(outsideCode(content))) {
-		const parsed = parseSpanNote(spanFieldText(content));
+	// Legacy span-format fallback (pre-migration notes): only a note in the old
+	// layout and nothing else (isOldSpanNote); any other note is the person's own.
+	if (isOldSpanNote(content)) {
+		const parsed = parseSpanNote(content);
 		if (!parsed.id) return null;
 		const resolver = buildVaultLinkResolver(app, pathInfo.worldName);
 		const { frontmatter, bodyValue } = spanFieldsToFrontmatter(parsed, category, resolver);
@@ -696,21 +693,6 @@ export function ownFrontmatterId(content: string): string | null {
 }
 
 /**
- * True when a note's front matter has an `id` key at all, whatever its value
- * (`false`, a list, nothing, a word): such a note is never an old span note,
- * whose id is in its text. Whether the id is an element's is a separate
- * question (`ownFrontmatterId`, `isElementId`). Read with the YAML reader;
- * a block that does not parse is read by its lines.
- */
-export function frontmatterHasIdKey(content: string): boolean {
-	const block = splitNote(content).frontmatter;
-	if (!block) return false;
-	const fm = parseRawFrontmatter(block);
-	if (fm) return hasOwn(fm, "id");
-	return /^["']?id["']?[ \t]*:/m.test(block);
-}
-
-/**
  * A note's front matter block with the person's own lines kept as they wrote
  * them: the keys in `drop` are removed, `first` is written before the kept
  * lines and `last` after them (a key in either replaces the line of that
@@ -841,8 +823,8 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	// is still this element's, and rewriting it in place is what heals it.
 	const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ""), ["id"]).id;
 	if (fmId) return fmId;
-	// An old span note's id, from span lines outside every code context: a quoted example never makes a note an element's.
-	const spanId = frontmatterHasIdKey(content) ? null : spanNoteId(content);
+	// An old span note's id, only from a note in the old layout: a quoted example never makes a note an element's.
+	const spanId = oldSpanNoteId(content);
 	if (spanId) return spanId;
 	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
 }

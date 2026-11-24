@@ -69,7 +69,8 @@ test("★ Migrate converts a span note only in a type folder under Elements/ wit
 	assert.ok(r, "no report: " + __notices.join(" | "));
 	assert.deepEqual(r.converted, [`${E}/Location/Gela.md`], JSON.stringify(r));
 	for (const [p, t] of Object.entries(keep)) assert.equal(vault.contentAt(p), t, `${p} was rewritten`);
-	assert.deepEqual((r.left ?? []).map((l) => l.path).sort(), [`${E}/Places/Draft.md`, `${W}/Research/Character/How old notes looked.md`].sort(), "the old notes left out are not reported: " + JSON.stringify(r.left));
+	// Named: an old note outside the type folders (Draft), and a note with old span lines among other lines (Fenced). The research note has a front matter: the person's own.
+	assert.deepEqual((r.left ?? []).map((l) => l.path).sort(), [`${E}/Places/Draft.md`, `${E}/Character/Fenced.md`].sort(), "the old notes left out are not reported: " + JSON.stringify(r.left));
 	assert.ok(r.skipped.includes(`${W}/Cast/Quoter.md`) && r.skipped.includes(`${E}/Character/Quoted.md`), JSON.stringify(r.skipped));
 	assert.deepEqual(backups(vault).map((p) => p.split("/").slice(1).join("/")), ["Elements/Location/Gela.md"], "the backup holds what was rewritten");
 });
@@ -124,17 +125,16 @@ test("★ Update world format keeps every property it does not change exactly as
 	assert.match(text, /### Physicality\n\nTall\./, text);
 });
 
-test("★ Migrate keeps an old note's own front matter line for line after the migrated keys, a property named __proto__ included", async () => {
+test("★ a note with span lines under a front matter of its own is no old note: Migrate leaves it byte for byte", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
 	const path = `${E}/Location/Selinus.md`;
 	const own = "created: 2024-01-01\nnote: |\n  mine\n  two\n__proto__: {kept: mine}";
-	await vault.seed(path, `---\n${own}\n---\n${SPAN(GELA, "Selinus", "A temple town.")}`);
+	const note = `---\n${own}\n---\n${SPAN(GELA, "Selinus", "A temple town.")}`;
+	await vault.seed(path, note);
 	const r = await migrate(app);
-	assert.deepEqual(r?.converted, [path], JSON.stringify(r));
-	const text = vault.contentAt(path) ?? "";
-	assert.match(text, new RegExp(`^---\\nname: Selinus\\nid: ${GELA}\\n`), text);
-	assert.ok(text.includes(`\n${own}\n---`), "the note's own lines were rewritten:\n" + text);
+	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
+	assert.equal(vault.contentAt(path), note);
 });
 
 test("the serializer writes a date as the plain date and a number YAML calls infinite or not a number as YAML does, in a map or a list too", () => {

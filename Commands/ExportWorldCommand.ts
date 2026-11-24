@@ -9,8 +9,8 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { frontmatterHasIdKey, ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
-import { spanFieldText, parseRawFrontmatterScalars, spanNoteId, splitNote } from '../vault/element-transform';
+import { ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
@@ -491,11 +491,11 @@ export class ExportWorldCommand {
                         }
                         return {};
                     }
-                    // Front matter wins: a note with an id in its front matter is read by
-                    // it, whatever its prose quotes; the span reader takes only a note with
-                    // none whose Id line stands outside every code context (spanNoteId),
-                    // and reads only that text, so a quoted Id line is never sent as an id.
-                    const oldSpanNote = !frontmatterHasIdKey(fileContent) && spanNoteId(fileContent) !== null;
+                    // The span reader takes only a note in the old layout and nothing else
+                    // (isOldSpanNote): no front matter, and every line a span field or group
+                    // line. Any other note is read by its front matter, or is the person's
+                    // own, so a quoted Id line is never sent as an id.
+                    const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
                         const parsed = await readElement(this.app, file);
                         // id rides OUTSIDE parsed.fields — without it the upload
@@ -516,7 +516,7 @@ export class ExportWorldCommand {
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
-                    return oldSpanNote ? await this.parseTemplate(spanFieldText(fileContent), worldFolder) : {};
+                    return oldSpanNote ? await this.parseTemplate(fileContent, worldFolder) : {};
                 }));
     
                 // Filter out empty entries

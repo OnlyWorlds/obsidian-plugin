@@ -1,0 +1,82 @@
+/**
+ * The rules that replace guessing (round 6): an old span note is a note of
+ * the plugin's old layout and nothing else; Copy writes over only a note it
+ * marked as its own; Update never chooses between two prose copies of a
+ * field; Copy and Upload read a note's identity from its own bytes; Update
+ * checks each note again when the confirmed run starts. Built on a cold read's
+ * reproductions; each runs through the real command and an in-memory vault.
+ */
+import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
+import "./support/bare-paths";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { App, TFile } from "obsidian";
+import { makeApp, __modals, __notices, type MockVault } from "./support/obsidian-mock";
+import { harnessUpload } from "./support/upload-harness";
+import { W, E } from "./support/four-notes";
+import { MigrateWorldCommand } from "../Commands/MigrateWorldCommand";
+import { UpdateWorldFormatCommand } from "../Commands/UpdateWorldFormatCommand";
+import { CopyWorldCommand } from "../Commands/CopyWorldCommand";
+import { WorldService } from "../Scripts/WorldService";
+
+const A = "019e0000-0000-7000-8000-0000000000a1";
+
+const FIELD = (label: string, value: string, cls = "text-field", tip = "Text") =>
+	`- <span class="${cls}" data-tooltip="${tip}">${label}</span>: ${value}`;
+
+type MigrationReport = { converted: string[]; failed: { path: string; reason: string }[]; left: { path: string; reason: string }[] };
+async function migrate(app: App): Promise<MigrationReport | null> {
+	__modals.length = 0;
+	__notices.length = 0;
+	await (new MigrateWorldCommand(app) as unknown as { migrateWorld(w: string): Promise<void> }).migrateWorld("W");
+	return (__modals.at(-1) as unknown as { result?: MigrationReport } | undefined)?.result ?? null;
+}
+async function seedAll(vault: MockVault, notes: Record<string, string>): Promise<void> {
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **Name:** W\n");
+	for (const [p, t] of Object.entries(notes)) await vault.seed(p, t);
+}
+function assertUnchanged(vault: MockVault, notes: Record<string, string>): void {
+	for (const [p, t] of Object.entries(notes)) assert.equal(vault.contentAt(p), t, `${p} was rewritten:\n${vault.contentAt(p)}`);
+}
+async function copyData(app: App): Promise<Record<string, Record<string, unknown>[]>> {
+	return (await new CopyWorldCommand(app, {} as never, new WorldService(app)).collectWorldData(W)) as Record<string, Record<string, unknown>[]>;
+}
+
+// --- 1 an old span note is the plugin's old layout and nothing else ---------------------------
+
+const WITH_EXAMPLE = [
+	"## Base",
+	FIELD("Id", A),
+	FIELD("Name", "Bob"),
+	FIELD("Description", "My actual chapter."),
+	"Example: `" + FIELD("Description", "EXAMPLE ONLY") + "`",
+	"",
+].join("\n");
+
+test("★ a note with old span lines and a line of anything else is the person's own: never copied, uploaded or migrated as an element", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${E}/Character/Bob.md`]: WITH_EXAMPLE };
+	await seedAll(vault, notes);
+	const data = await copyData(app);
+	assert.deepEqual(data.Character, [], "Copy: " + JSON.stringify(data.Character));
+	const up = await harnessUpload({ notes: { "Character/Bob.md": WITH_EXAMPLE }, changes: [] });
+	assert.deepEqual([...up.bulkSent, ...Object.values(up.patches)], [], "Upload: " + JSON.stringify(up));
+	const r = await migrate(app);
+	assertUnchanged(vault, notes);
+	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
+	const named = (r?.left ?? []).some((l) => l.path === `${E}/Character/Bob.md`) || __notices.some((n) => n.includes(`${E}/Character/Bob.md`));
+	assert.ok(named, "an old-looking note left without a word: " + JSON.stringify(r) + " " + __notices.join(" | "));
+});
+
+const ESCAPED = ["## Base", FIELD("Id", A), FIELD("Name", "Bob"), FIELD("Description", "Carved a literal \\` in stone."), FIELD("Physicality", "Carries a \\` shaped staff.", "string"), ""].join("\n");
+
+test("★ an old note's every field is read, a backtick in a value included", async () => {
+	const { app, vault } = makeApp();
+	await seedAll(vault, { [`${E}/Character/Bob.md`]: ESCAPED });
+	const data = await copyData(app);
+	assert.equal(data.Character[0]?.physicality, "Carries a \\` shaped staff.", "Copy: " + JSON.stringify(data.Character));
+	const up = await harnessUpload({ notes: { "Character/Bob.md": ESCAPED }, changes: [] });
+	assert.equal(up.bulkSent[0]?.physicality, "Carries a \\` shaped staff.", "Upload: " + JSON.stringify(up.bulkSent));
+	const r = await migrate(app);
+	assert.deepEqual(r?.converted, [`${E}/Character/Bob.md`], JSON.stringify(r));
+});

@@ -178,7 +178,7 @@ test("★ Update world format refuses a note whose front matter it cannot keep l
 	assert.ok(__notices.some((n) => /Zel not updated/.test(n)), __notices.join(" | "));
 });
 
-test("★ Migrate refuses an old note whose front matter cannot be read or kept, names it, and writes nothing", async () => {
+test("★ Migrate leaves a note with span lines under a front matter it cannot read or keep: no old note, nothing written", async () => {
 	const { app, vault } = makeApp();
 	const notes = {
 		[`${E}/Location/Selinus.md`]: `---\ntags: [a, b\nmood: calm\n---\n${SPAN(A, "Selinus", "A temple town.")}`,
@@ -188,7 +188,6 @@ test("★ Migrate refuses an old note whose front matter cannot be read or kept,
 	const r = await migrate(app);
 	assertUnchanged(vault, notes);
 	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
-	assert.deepEqual((r?.failed ?? []).map((f) => f.path).sort(), Object.keys(notes).sort(), JSON.stringify(r?.failed));
 });
 
 test("★ a comment above a property stays when the property before it moves to the body", async () => {

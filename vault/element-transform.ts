@@ -2029,116 +2029,46 @@ function extractWikilinks(raw: string): string[] {
 	return names;
 }
 
-/**
- * A note's text with everything Markdown shows as code taken out, for reading
- * old span markup: what code holds is an example, never the note's own
- * fields. Out go the front matter (a property may hold an example), every
- * fence at any indent (one nested in a list item too) with all it holds, and
- * everything after a fence that never closes (CommonMark reads it as code to
- * the end); every line indented four columns or more, tabs to the next stop of
- * four, spaces and tabs mixed (an indented code block,
- * or code in a list item); and inline code, a backtick run to the next run of
- * the same length within a paragraph, across lines. An old note's span lines
- * stand at the start of their lines, so none of this takes one away.
- */
-export function outsideCode(content: string): string {
-	const { lines, code } = codeLines(content);
-	const kept = lines.filter((_, i) => !code[i]).map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
-	// Inline code, paragraph by paragraph: a run of backticks to the next run of the same length.
-	return kept
-		.join("\n")
-		.split(/\n[ \t]*\n/)
-		.map((para) => para.replace(INLINE_CODE, ""))
-		.join("\n\n");
-}
-
-/** A line's indent in columns, a tab reaching the next multiple of four (Markdown's tab stop): four or more is code. */
-function indentColumns(line: string): number {
-	let col = 0;
-	for (const ch of line) {
-		if (ch === " ") col++;
-		else if (ch === "\t") col += 4 - (col % 4);
-		else break;
-	}
-	return col;
-}
-
-/** A run of backticks to the next run of the same length: inline code. */
-const INLINE_CODE = /(\x60+)(?!\x60)[\s\S]*?(?<!\x60)\1(?!\x60)/g;
+/** A field line of the plugin's old span layout: `- <span class="…" data-tooltip="…">Label</span>: value`. */
+const OLD_SPAN_FIELD = /^- <span class="[a-z-]+" data-tooltip="[^"]*">[^<]+<\/span>:/;
+/** A group line of the old layout: `## Base`, `## Constitution`, ... */
+const OLD_SPAN_GROUP = /^## \S/;
+/** An old layout's `Id` field line, at the start of a line. */
+const OLD_SPAN_ID_LINE = /^- <span class="[a-z-]+" data-tooltip="[^"]*">Id<\/span>:/m;
 
 /**
- * The body's lines and which of them Markdown shows as code: in a fence (at
- * any indent, or after one that never closes), indented, or starting inside
- * inline code that runs across lines (`outsideCode` says what each means).
+ * True when a note is in the plugin's old span layout and nothing else: no
+ * front matter at all, and every non-blank line a span field line or a
+ * `## Group` line, with at least one field line. That is exactly what the old
+ * writers wrote (the upstream templates, obsidian_handlebars and
+ * obsidian_templates, 2024-07 to 2025-07: group lines, blank lines and field
+ * lines; Create element filled the Name and Id lines in place; no title, no
+ * front matter). Any other line, prose, a fence, an example in inline code,
+ * makes the note the person's own: no reader guesses which of its span lines
+ * are the note's. (A value an old writer wrote with a line break runs onto a
+ * line of its own, so such a note is the person's own too; Migrate names it.)
  */
-function codeLines(content: string): { lines: string[]; code: boolean[] } {
-	const lines = splitNote(content).body.split("\n");
-	const code = lines.map(() => false);
-	let fence: OpenFence | null = null;
-	lines.forEach((raw, i) => {
+export function isOldSpanNote(content: string): boolean {
+	const text = content.replace(/^\uFEFF/, "");
+	if (splitNote(text).frontmatter) return false;
+	let fields = 0;
+	for (const raw of text.split("\n")) {
 		const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-		if (fence) {
-			code[i] = true;
-			const close = /^\s*(`{3,}|~{3,})[ \t]*$/.exec(line);
-			if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null;
-			return;
-		}
-		const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-		if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-			fence = { char: open[1][0], len: open[1].length };
-			code[i] = true;
-			return;
-		}
-		if (indentColumns(line) >= 4 && line.trim() !== "") code[i] = true;
-	});
-	// A line that starts inside inline code (a run of backticks opened on a line above it, in the same paragraph).
-	let start = 0;
-	while (start < lines.length) {
-		if (code[start] || lines[start].trim() === "") {
-			start++;
-			continue;
-		}
-		let end = start;
-		while (end < lines.length && !code[end] && lines[end].trim() !== "") end++;
-		const para = lines.slice(start, end);
-		const text = para.join("\n");
-		const offsets: number[] = [];
-		let at = 0;
-		for (const l of para) {
-			offsets.push(at);
-			at += l.length + 1;
-		}
-		for (const m of text.matchAll(INLINE_CODE)) {
-			const from = m.index ?? 0;
-			const to = from + m[0].length;
-			offsets.forEach((o, k) => {
-				if (o > from && o < to) code[start + k] = true;
-			});
-		}
-		start = end;
+		if (line.trim() === "") continue;
+		if (OLD_SPAN_FIELD.test(line)) fields++;
+		else if (!OLD_SPAN_GROUP.test(line)) return false;
 	}
-	return { lines, code };
+	return fields > 0;
 }
 
-/**
- * The text an old span note's fields are read from: its lines outside code
- * (`codeLines`), each as it stands. Code is left out only to tell which lines
- * are fields; a field's value keeps its own inline code (a Description
- * that says to speak the words Moon Sword in backticks is read whole).
- */
-export function spanFieldText(content: string): string {
-	const { lines, code } = codeLines(content);
-	return lines.filter((_, i) => !code[i]).join("\n");
+/** The id an old span note carries in its Id line (`isOldSpanNote`), or null for any other note. */
+export function oldSpanNoteId(content: string): string | null {
+	return isOldSpanNote(content) ? parseSpanNote(content).id : null;
 }
 
-/**
- * The id an old span note carries in its text: span markup outside every code
- * context (`outsideCode`), and an `Id` line among its own lines
- * (`spanFieldText`). Null for a note that only shows the old format as code,
- * or has no `Id` line.
- */
-export function spanNoteId(content: string): string | null {
-	return isSpanFormat(outsideCode(content)) ? parseSpanNote(spanFieldText(content)).id : null;
+/** True when a note has an old layout's `Id` line at the start of a line, whatever else it holds (for naming what Migrate leaves). */
+export function hasOldSpanIdLine(content: string): boolean {
+	return OLD_SPAN_ID_LINE.test(content);
 }
 
 /** Detect span format cheaply (used to decide read path / migration eligibility). */
