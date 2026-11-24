@@ -136,9 +136,9 @@ test("the upload sweep names the ambiguous generic link too", async () => {
 	});
 	try {
 		const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app));
-		const data = await cmd.collectWorldData("W");
+		const { data, run: uploadRun } = await cmd.collectRun("W");
 		__notices.length = 0;
-		await (cmd as unknown as { uploadViaV2(p: number, w: string, d: unknown): Promise<void> }).uploadViaV2(1234, "W", data);
+		await (cmd as unknown as { uploadViaV2(p: number, w: string, d: unknown, r: unknown): Promise<void> }).uploadViaV2(1234, "W", data, uploadRun);
 	} finally {
 		Object.assign(proto, saved);
 	}

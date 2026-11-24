@@ -48,10 +48,10 @@ async function sweep(bulkBody: unknown): Promise<{ notices: string[]; sent: unkn
 	};
 	proto.update = async () => ({});
 	const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app));
-	const data = await cmd.collectWorldData("W");
+	const { data, run: uploadRun } = await cmd.collectRun("W");
 	__notices.length = 0;
 	try {
-		await (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown): Promise<void> }).uploadViaV2(1234, "W", data);
+		await (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown, r: unknown): Promise<void> }).uploadViaV2(1234, "W", data, uploadRun);
 	} finally {
 		restore();
 	}

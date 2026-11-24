@@ -170,9 +170,10 @@ test("★ two notes holding one id are both refused by Upload and by the folder 
 	await seed(app, `${W}/Archive/Character/Ireena (old).md`, `---\nname: Ireena (old)\nid: ${ID}\n---\n\n### Description\n\nOld.\n`);
 	await seed(app, `${W}/Elements/Character/Kolyan.md`, `---\nname: Kolyan\nid: ${ID2}\n---\n\n### Description\n\nHere.\n`);
 	const up = new ExportWorldCommand(app, {} as never, new WorldService(app));
-	const data = (await up.collectWorldData("W")) as Record<string, { id?: string }[]>;
+	const { data: collected, run } = await up.collectRun("W");
+	const data = collected as Record<string, { id?: string }[]>;
 	assert.deepEqual((data.Character ?? []).map((e) => e.id), [ID2]);
-	assert.ok((up as unknown as { refusedNotes: string[] }).refusedNotes.some((n) => /another note holds the same id/.test(n)));
+	assert.ok(run.refusedNotes.some((n) => /another note holds the same id/.test(n)));
 	const before = new Set(vault.files.keys());
 	await (new ExportFolderCommand(app) as unknown as { exportWorld(w: string, d: { kind: "vault" }): Promise<void> }).exportWorld("W", { kind: "vault" });
 	const out = [...vault.files.keys()].filter((p) => !before.has(p) && /elements\/character\//.test(p));

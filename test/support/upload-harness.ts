@@ -85,11 +85,11 @@ export async function harnessUpload(o: UploadOpts) {
 	__modals.length = 0;
 	let done = false;
 	try {
-		const data = await cmd.collectWorldData("W");
+		const { data, run: uploadRun } = await cmd.collectRun("W");
 		// As the export callback does: a collection that stopped (nothing collected) sends nothing.
 		if (!data || Object.keys(data).length === 0) done = true;
-		const run = done ? Promise.resolve() : (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown): Promise<void> })
-			.uploadViaV2(1234, "W", data)
+		const run = done ? Promise.resolve() : (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown, r: unknown): Promise<void> })
+			.uploadViaV2(1234, "W", data, uploadRun)
 			.finally(() => (done = true));
 		while (!done) {
 			await new Promise((r) => setImmediate(r));
