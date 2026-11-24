@@ -281,49 +281,59 @@ test("★ Update world format leaves an old span note byte for byte and names Mi
 	assert.equal(read?.fields.description, "Original.");
 });
 
-// --- 10 Copy and Upload take a note's type from the bytes they read ---------------------------------
+// --- 10 Copy and Upload read each note once, from its bytes -----------------------------------------
 
+const C = "019e0000-0000-7000-8000-0000000000c3";
 const CHAPTER = `---\nid: ${A}\nname: Chapter\ntype: narrative\n---\n\n### Story\n\nThe only copy of my chapter.\n`;
+const OLD_TWIN = `---\nid: ${A}\nname: Old\ntype: narrative\n---\n\n### Story\n\nAn obsolete draft.\n`;
+const SPAN_CHAPTER = ["## Base", FIELD("Id", A), FIELD("Name", "Chapter"), FIELD("Story", "The only copy of my chapter."), ""].join("\n");
+const MISFILED = `---\nid: ${B}\nname: Misfiled\ntype: location\n---\n\n### Description\n\nIn the wrong drawer.\n`;
 const STALE_TYPE = { frontmatter: { id: A, name: "Chapter", type: "character" } };
+const NO_ID = { frontmatter: { name: "Chapter" } };
 const holds = (data: Record<string, unknown>, id: string) =>
 	Object.entries(data).filter(([k, v]) => k !== "World" && Array.isArray(v) && (v as { id?: unknown }[]).some((e) => e.id === id)).map(([k]) => k);
+const pick = (entries: Record<string, unknown>, path: string) => Object.entries(entries).find(([end]) => path.endsWith(end))?.[1];
 
-test("★ Copy world leaves out and names a note whose type the cache and its bytes read two ways; with the cache agreeing it is copied as its type", async () => {
+/** Copy's data, with the metadata cache answering `entries` (by the end of a note's path) in place of what the notes hold. */
+async function copyWithCache(notes: Record<string, string>, entries: Record<string, unknown>) {
 	const { app, vault, cache } = makeApp();
-	const path = `${W}/Drafts/Chapter.md`;
-	await seedAll(vault, { [path]: CHAPTER });
+	await seedAll(vault, notes);
 	const c = cache as unknown as { getFileCache(f: { path: string }): unknown };
 	const get = c.getFileCache.bind(c);
-	c.getFileCache = (f: { path: string }) => (f.path === path ? STALE_TYPE : get(f));
+	c.getFileCache = (f: { path: string }) => pick(entries, f.path) ?? get(f);
 	__notices.length = 0;
-	const stale = await copyData(app);
-	assert.deepEqual(holds(stale, A), [], "Copy: " + JSON.stringify(stale));
-	assert.ok(__notices.some((n) => /Chapter/.test(n) && /not copied/.test(n) && /type/.test(n)), __notices.join(" | "));
-	assert.equal(vault.contentAt(path), CHAPTER);
-	c.getFileCache = get;
-	__notices.length = 0;
-	const agreed = await copyData(app);
-	assert.deepEqual(holds(agreed, A), ["Narrative"], "Copy: " + JSON.stringify(agreed));
-	assert.equal((agreed.Narrative[0] as { story?: unknown }).story, "The only copy of my chapter.");
+	const data = await copyData(app);
+	return { data, vault, notices: [...__notices] };
+}
+
+
+test("★ Copy world takes a note's type from its bytes alone: a stale cache's type changes nothing, and a type property in a type folder is still the folder's", async () => {
+	const notes = { [`${W}/Drafts/Chapter.md`]: CHAPTER, [`${E}/Character/Misfiled.md`]: MISFILED };
+	const r = await copyWithCache(notes, { "Drafts/Chapter.md": STALE_TYPE });
+	assert.deepEqual(holds(r.data, A), ["Narrative"], "Copy: " + JSON.stringify(r.data));
+	assert.equal((r.data.Narrative[0] as { story?: unknown }).story, "The only copy of my chapter.");
+	assert.ok(!r.notices.some((n) => /Chapter/.test(n)), r.notices.join(" | "));
+	assert.deepEqual(holds(r.data, B), ["Character"], "Misfiled: " + JSON.stringify(r.data));
+	assertUnchanged(r.vault, notes);
 });
 
-test("★ Upload world sends nothing for a note whose type the cache and its bytes read two ways, and names it; with the cache agreeing it is sent as its type", async () => {
-	const notes = { "Drafts/Chapter.md": CHAPTER };
-	const proto = (await import("./support/obsidian-mock")).MockMetadataCache.prototype as unknown as { getFileCache(f: { path: string }): unknown };
-	const orig = proto.getFileCache;
-	proto.getFileCache = function (this: unknown, f: { path: string }) {
-		return f.path.endsWith("Drafts/Chapter.md") ? STALE_TYPE : orig.call(this, f);
-	};
-	let up: Awaited<ReturnType<typeof harnessUpload>>;
-	try {
-		up = await harnessUpload({ notes, changes: [] });
-	} finally {
-		proto.getFileCache = orig;
-	}
-	const ids = [...up.bulkSent.map((e) => String(e.id)), ...Object.keys(up.patches)];
-	assert.ok(!ids.includes(A), "Upload sent the note under a type its bytes do not give: " + JSON.stringify(up.bulkTypes));
-	assert.ok(up.notices.some((n) => /Chapter/.test(n) && /type/.test(n)), up.notices.join(" | "));
-	const agreed = await harnessUpload({ notes, changes: [] });
-	assert.equal(agreed.bulkTypes[A], "narrative", JSON.stringify(agreed.bulkTypes));
-	assert.equal(agreed.bulkSent.find((e) => e.id === A)?.story, "The only copy of my chapter.");
+test("★ Copy world copies a note whose bytes hold an id and a type though the cache shows no id", async () => {
+	const r = await copyWithCache({ [`${W}/Drafts/Chapter.md`]: CHAPTER }, { "Drafts/Chapter.md": NO_ID });
+	assert.deepEqual(holds(r.data, A), ["Narrative"], "Copy: " + JSON.stringify(r.data));
+});
+
+test("★ Copy world refuses both notes that hold one id, whatever the cache says of either", async () => {
+	const r = await copyWithCache({ [`${E}/Drafts/Chapter.md`]: CHAPTER, [`${E}/Archive/Old.md`]: OLD_TWIN }, { "Drafts/Chapter.md": STALE_TYPE });
+	assert.deepEqual(holds(r.data, A), [], "Copy: " + JSON.stringify(r.data));
+	assert.ok(r.notices.some((n) => /"Chapter" not copied: another note holds the same id/.test(n)), r.notices.join(" | "));
+	assert.ok(r.notices.some((n) => /"Old" not copied: another note holds the same id/.test(n)), r.notices.join(" | "));
+});
+
+test("★ Copy world copies no element from an old span note outside the type folders, whatever the cache says; one in its type folder is copied", async () => {
+	const r = await copyWithCache(
+		{ [`${W}/Drafts/Chapter.md`]: SPAN_CHAPTER, [`${E}/Character/Real.md`]: OLD(C, "Real", "A real old note.") },
+		{ "Drafts/Chapter.md": STALE_TYPE },
+	);
+	assert.deepEqual(holds(r.data, A), [], "Copy: " + JSON.stringify(r.data));
+	assert.deepEqual(holds(r.data, C), ["Character"], "Real: " + JSON.stringify(r.data));
 });

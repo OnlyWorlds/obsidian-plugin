@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { ownFrontmatterId, readElement, sameElementType, typeReadTwiceMessage, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -164,16 +164,17 @@ export class CopyWorldCommand {
         // The world's element notes wherever they sit in its folder, each of the
         // type its folder decides, else its `type` property (the Markdown
         // profile); every other note is the person's own and is not copied.
-        const elementNotes = await worldElementNotes(this.app, worldName);
+        // Each note is read once, and everything below is decided from those
+        // bytes: never the metadata cache, never a second read.
+        const elementNotes = await worldElementNotesFromBytes(this.app, worldName);
 
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                const files = elementNotes.filter(n => n.category === category).map(n => n.file);
+                const notes = elementNotes.filter(n => n.category === category);
 
-                const categoryData = await Promise.all(files.map(async (file) => {
-                    const fileContent = await fs.read(file.path);
+                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent }) => {
                     // Hidden by the world's owner: a stub, or
                     // an id on a hidden list, is never copied as an element.
                     if (isStubNote(fileContent)) return {};
@@ -188,14 +189,7 @@ export class CopyWorldCommand {
                     let parsedElement: Record<string, any>;
                     const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
-                        const parsed = await readElement(this.app, file, { fromBytes: true });
-                        // The type the bytes give must be the type the note was listed
-                        // under (the metadata cache, a moment before): otherwise it is
-                        // left out and named, never copied under either type.
-                        if (parsed && !sameElementType(category, parsed.category)) {
-                            refused.push(typeReadTwiceMessage(parsed.name, category, parsed.category, 'not copied', 'Copy world to clipboard'));
-                            return {};
-                        }
+                        const parsed = await readElement(this.app, file, { content: fileContent });
                         if (parsed?.unclosedFence) {
                             refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
                             return {};
