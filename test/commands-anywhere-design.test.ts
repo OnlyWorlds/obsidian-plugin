@@ -484,3 +484,13 @@ test("★ Upload world names a note it could not read and sends the rest of the 
 	assert.ok(!sentIds(up).includes(D));
 	assert.ok(failures.some((f) => /Broken/.test(f) && /could not be read/.test(f)), failures.join(" | "));
 });
+
+test("Upload world keeps no note's text on the command once its collection is done", async () => {
+	const { app, vault } = makeApp();
+	await seedAll(vault, { [`${E}/Character/Clean.md`]: CLEAN(C, "Clean") });
+	const { ExportWorldCommand } = await import("../Commands/ExportWorldCommand");
+	const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app), { settings: {} } as never);
+	const data = (await cmd.collectWorldData("W")) as Record<string, { id?: unknown }[]>;
+	assert.equal(data.Character?.[0]?.id, C, JSON.stringify(data));
+	assert.equal((cmd as unknown as { noteTypes: unknown }).noteTypes, null, "the listed notes' contents are still held after the collection");
+});

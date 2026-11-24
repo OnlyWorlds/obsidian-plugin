@@ -552,6 +552,9 @@ export class ExportWorldCommand {
                 worldData[category] = categoryData.filter(item => Object.keys(item).length > 0);
             }
         }
+        // Every reader of the listing (the count, the pass above, the link lookup by name) is done: the notes'
+        // text is not kept on the command until the next upload.
+        this.noteTypes = null;
 
         // Add debug logging at the end of the method, before returning the data
         try {
