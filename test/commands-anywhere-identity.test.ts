@@ -152,3 +152,17 @@ test("★ Upload world sends a note with its own id under that id, though its pr
 	const ids = [...r.bulkSent.map((e) => String(e.id)), ...Object.keys(r.patches)];
 	assert.deepEqual(ids, [BA], JSON.stringify({ bulk: r.bulkSent, patches: r.patches }));
 });
+
+// --- 4 Migrate's links reach every readable old note ------------------------------------
+
+test("★ Migrate resolves a link to an old note it leaves for the person, as before", async () => {
+	const { app, vault } = makeApp();
+	await seedAll(vault, {
+		[`${E}/Character/Ana.md`]: `## Base\n${ID_LINE(A)}\n- <span class="text-field" data-tooltip="Text">Name</span>: Ana\n- <span class="link-field" data-tooltip="Single Location">Location</span>: [[Home]]\n`,
+		[`${E}/Places/Home.md`]: SPAN(B, "Home", "Where Ana lives."),
+	});
+	const r = await migrate(app);
+	assert.deepEqual(r?.converted, [`${E}/Character/Ana.md`], JSON.stringify(r));
+	assert.deepEqual(r?.unresolvedLinks, [], JSON.stringify(r?.unresolvedLinks));
+	assert.match(vault.contentAt(`${E}/Character/Ana.md`) ?? "", /^location: .*Home/m, vault.contentAt(`${E}/Character/Ana.md`));
+});

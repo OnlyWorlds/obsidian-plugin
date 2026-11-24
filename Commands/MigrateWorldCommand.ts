@@ -91,8 +91,10 @@ export class MigrateWorldCommand {
 		skipped: string[];
 		left: { path: string; reason: string }[];
 		unreadable: string[];
+		/** Every readable old span note, converted or left: the link targets, as before the survey narrowed what is converted. */
+		linkSources: TFile[];
 	}> {
-		const out = { convert: [] as Array<{ file: TFile; category: string }>, skipped: [] as string[], left: [] as { path: string; reason: string }[], unreadable: [] as string[] };
+		const out = { convert: [] as Array<{ file: TFile; category: string }>, skipped: [] as string[], left: [] as { path: string; reason: string }[], unreadable: [] as string[], linkSources: [] as TFile[] };
 		for (const file of this.app.vault.getMarkdownFiles()) {
 			if (!mayBeElementNote(file.path, world)) continue;
 			let content: string;
@@ -109,6 +111,7 @@ export class MigrateWorldCommand {
 				continue;
 			}
 			if (!spanNoteId(content)) continue; // the person's own note
+			out.linkSources.push(file);
 			const place = isUnderElements(file.path) ? elementNoteType(file.path, {}) : null;
 			if (place) out.convert.push({ file, category: normalizeCategory(place.category) });
 			else out.left.push({ path: file.path, reason: 'an old note outside the type folders under Elements/: move it into its type\'s folder there, then run Migrate again' });
@@ -182,9 +185,9 @@ export class MigrateWorldCommand {
 		// for resolving span [[names]], and id->name so migrated link fields
 		// render as readable [[Name]] wikilinks instead of raw ids (audit polish
 		// 2026-07-17 — migration is the one write path that skipped this).
-		const spanIndex = await this.scrapeSpanIndex(files);
+		const spanIndex = await this.scrapeSpanIndex(found.linkSources);
 		const resolve = (name: string) => spanIndex.get(name) ?? null;
-		const idToName = await this.scrapeIdToName(files);
+		const idToName = await this.scrapeIdToName(found.linkSources);
 
 		const result: MigrationResult = {
 			converted: [], skipped: found.skipped, failed: [], unresolvedLinks: [], backupFolder, left: found.left,
