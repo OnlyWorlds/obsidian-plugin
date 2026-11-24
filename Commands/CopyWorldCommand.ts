@@ -5,11 +5,14 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownConflictMessage, ownFrontmatterId, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
 import { isInCategoryFolder } from '../vault/category-folder';
+
+/** One Copy's reading of a world's element notes (worldElementNotesFromBytes): each note's type, bytes and front-matter id. */
+type ListedNote = { file: TFile; category: string; content: string; id: string | null };
 
 export class CopyWorldCommand {
     app: App;
@@ -192,7 +195,7 @@ export class CopyWorldCommand {
         // parser reads it, so every old span note is parsed once here and the pass below uses that result.
         const counted = elementNotes.filter(n => !hidden(n.content));
         const oldParsed = new Map<TFile, Record<string, any>>();
-        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, worldName));
+        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, elementNotes));
         const twins = duplicateIds(counted.map(n => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
         const twinRefusal = (category: string, name: unknown, id: string) =>
             `${category} "${String(name ?? id)}" not copied: another note holds the same id. Keep one of them, then try again.`;
@@ -235,6 +238,11 @@ export class CopyWorldCommand {
                         // A note with no id is the person's own (the Markdown profile): never
                         // copied as an element under an id made up for it.
                         if (!parsed) return {};
+                        // Two values for one own property (mood beside x_properties.mood): neither is the copy's to choose.
+                        if (parsed.ownConflicts) {
+                            refused.push(ownConflictMessage(`${category} "${parsed.name}"`, parsed.ownConflicts, 'not copied'));
+                            return {};
+                        }
                         parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
                         // Parsed once, before the count: the id counted is the id copied.
@@ -332,44 +340,34 @@ export class CopyWorldCommand {
     
     
     
-    private async extractLinkedIds(linkedText: string, lineText: string, worldName?: string): Promise<string[]> {
+    private async extractLinkedIds(linkedText: string, lineText: string, listing: ListedNote[]): Promise<string[]> {
         const linkPattern = /\[\[(.*?)\]\]/g;
         const ids: string[] = [];
         let match;
-    
-        // Use provided world name or extract from active file path as fallback
-        const resolvedWorldName = worldName || (
-            () => {
-                const currentFile = this.app.workspace.getActiveFile();
-                return currentFile ? this.extractWorldName(currentFile.path) : "Unknown World";
-            }
-        )(); 
-    
+
         // Extract the element type from the surrounding line context
         const elementTypeMatch = /data-tooltip="(Single|Multi) ([^"]+)"/.exec(lineText);
         const elementType = elementTypeMatch ? elementTypeMatch[2] : null;
-    
+
         if (!elementType) {
             console.warn("Element type not found in the linked text. Attempting to extract IDs without type filtering.");
-            // Reset the regex for the fallback search
+            // The fallback: a link of no known type is looked up across every type's notes.
             const fallbackLinkPattern = /\[\[(.*?)\]\]/g;
             let fallbackMatch;
             while ((fallbackMatch = fallbackLinkPattern.exec(linkedText)) !== null) {
-                const noteName = fallbackMatch[1];
-                // Search for the file across all element categories
-                const foundId = await this.findElementIdByName(noteName, resolvedWorldName);
+                const foundId = this.findElementIdByName(fallbackMatch[1], null, listing);
                 if (foundId) {
                     ids.push(foundId);
                 }
             }
             return ids;
         }
-    
+
         while ((match = linkPattern.exec(linkedText)) !== null) {
-            const linkedName = match[1]; 
-    
+            const linkedName = match[1];
+
             // Search for the element by name content instead of constructing file path
-            const elementId = await this.findElementIdByNameInCategory(linkedName, elementType, resolvedWorldName);
+            const elementId = this.findElementIdByName(linkedName, elementType, listing);
             if (elementId) {
                 ids.push(elementId);
             } else {
@@ -378,29 +376,23 @@ export class CopyWorldCommand {
         }
         return ids;
     }
-    
-    private async findElementIdByNameInCategory(elementName: string, elementType: string, worldName: string): Promise<string | null> {
-        const elementsPath = normalizePath(`OnlyWorlds/Worlds/${worldName}/Elements`);
-        const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, elementType));
-        
-        for (const file of files) {
-            try {
-                const fileContent = await this.app.vault.read(file);
-                const { name, id } = this.parseElement(fileContent);
-                
-                // Match by name content rather than filename
-                if (name === elementName) {
-                    return id;
-                }
-            } catch (error) {
-                console.error(`Error reading file ${file.path}:`, error);
-            }
+
+    /**
+     * The id an old span note's link names, from the notes Copy read once (this run's listing): never a second
+     * read, which can throw or see another reading. `elementType` null looks across every type.
+     */
+    private findElementIdByName(elementName: string, elementType: string | null, listing: ListedNote[]): string | null {
+        const want = elementType?.toLowerCase();
+        for (const n of listing) {
+            if (want && n.category.toLowerCase() !== want) continue;
+            const { name, id } = this.parseElement(n.content);
+            // Match by name content rather than filename
+            if (name === elementName && id && id !== 'Unknown Id') return id;
         }
-        
         return null;
     }
-    
-    async parseTemplate(content: string, worldName?: string): Promise<Record<string, any>> {
+
+    async parseTemplate(content: string, listing: ListedNote[]): Promise<Record<string, any>> {
         let currentSection: string | null = null;
         const data: Record<string, any> = {};
     
@@ -429,7 +421,7 @@ export class CopyWorldCommand {
     
                 if (value.startsWith('[[')) {
                     // If value contains links, extract IDs as an array
-                    const ids = await this.extractLinkedIds(value, line, worldName);
+                    const ids = await this.extractLinkedIds(value, line, listing);
                     data[key] = fieldType === 'single_link' ? (ids.length > 0 ? ids[0] : '') : ids;
                 } else {
                     // Process based on detected field type
@@ -526,40 +518,6 @@ export class CopyWorldCommand {
             'time_current', 'time_range_min', 'time_range_max'
         ];
         return worldNumericFields.includes(key);
-    }
-    
-    // Helper method to find element ID by name across all categories
-    private async findElementIdByName(noteName: string, worldName: string): Promise<string | null> {
-        // console.log(`Searching for element: ${noteName} in world: ${worldName}`);
-        
-        // Search across all categories for a file with this name, in each
-        // type's folders (plain, or an older counted one)
-        for (const categoryKey in Category) {
-            const category = Category[categoryKey];
-            if (isNaN(Number(category))) {
-              for (const folder of await this.worldService.findCategoryFolders(worldName, String(category))) {
-                const possiblePath = normalizePath(`${folder.path}/${noteName}.md`);
-                const file = this.app.vault.getAbstractFileByPath(possiblePath);
-                
-                if (file && file instanceof TFile) {
-                    // console.log(`Found file at: ${possiblePath}`);
-                    try {
-                        const fileContent = await this.app.vault.read(file);
-                        const { id } = this.parseElement(fileContent);
-                        if (id && id !== "Unknown Id") {
-                            // console.log(`Extracted ID: ${id} for ${noteName}`);
-                            return id;
-                        }
-                    } catch (error) {
-                        console.warn(`Error reading file ${possiblePath}:`, error);
-                        continue;
-                    }
-                }
-              }
-            }
-        }
-        console.warn(`Could not find element with name: ${noteName} in any category`);
-        return null;
     }
     
     // Helper method to generate UUID
