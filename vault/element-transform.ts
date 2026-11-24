@@ -63,7 +63,7 @@ export function hasOwn(obj: object, key: string): boolean {
 }
 
 /** Set an own property of `obj` even for a name like `__proto__` or `constructor`, which a plain assignment treats as the prototype's. */
-function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
+export function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
 	Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
@@ -1977,6 +1977,23 @@ function extractWikilinks(raw: string): string[] {
 		if (n) names.push(n);
 	}
 	return names;
+}
+
+/** The text without the lines of its closed code fences (the fence lines included): what a fence holds is an example, never the note's own. */
+export function outsideFences(text: string): string {
+	const lines = text.split("\n");
+	const kinds = fenceKinds(lines);
+	return lines.filter((_, i) => kinds[i] === "outside" || kinds[i] === "unmatched").join("\n");
+}
+
+/**
+ * The id an old span note carries in its text: span markup and an `Id` line
+ * outside every code fence. Null for a note that only quotes the old format in
+ * a fence, or has no `Id` line.
+ */
+export function spanNoteId(content: string): string | null {
+	const text = outsideFences(content);
+	return isSpanFormat(text) ? parseSpanNote(text).id : null;
 }
 
 /** Detect span format cheaply (used to decide read path / migration eligibility). */

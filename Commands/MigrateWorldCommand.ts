@@ -1,7 +1,9 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from 'obsidian';
 import {
-	isSpanFormat,
+	outsideFences,
+	parseRawFrontmatterScalars,
 	parseSpanNote,
+	spanNoteId,
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
@@ -10,7 +12,7 @@ import {
 	serializeFrontmatter,
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
-import { mayBeElementNote } from '../vault/category-folder';
+import { isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { elementNoteType, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
@@ -21,6 +23,8 @@ interface MigrationResult {
 	 * id lists but preserved in the backup. Surfaced so the loss is never silent. */
 	unresolvedLinks: { path: string; names: string[] }[];
 	backupFolder: string;
+	/** Old span notes outside the type folders under Elements/: not converted, named so none is left without a word. */
+	left: { path: string; reason: string }[];
 }
 
 /**
@@ -69,28 +73,44 @@ export class MigrateWorldCommand {
 	}
 
 	/**
-	 * The world's element notes wherever they sit in its folder, each with its
-	 * type (the Markdown profile, sentences 1 and 2: the first type folder on its
-	 * path decides, else its `type` property). An old span note keeps its id in
-	 * its text, not in front matter, so that id stands in for the front matter's
-	 * when the note is classified: a span note moved out of `Elements/` into a
-	 * type-named folder, or given a `type` in Properties, is found. Any other
-	 * note is the person's own and is never touched, backed up or counted.
+	 * What Migrate does with each note of the world's folder, read once.
+	 *
+	 * An old span note is converted only where the plugin wrote such notes: in
+	 * a type folder under `Elements/`, with no `id` in its front matter, and with
+	 * span markup and an `Id` line outside every code fence. A note that holds
+	 * an `id` in its front matter is never one (it may quote an old note's lines
+	 * in its prose), nor is a note that shows the old format in a fence. A span
+	 * note anywhere else in the world's folder is left as it is and reported,
+	 * so the person can move it into its type's folder. An element note already
+	 * in front matter is counted as skipped. A note that cannot be read stops
+	 * the run before anything is backed up or changed.
 	 */
-	private async elementFilesFor(world: string): Promise<Array<{ file: TFile; category: string }>> {
-		const out: Array<{ file: TFile; category: string }> = [];
+	private async survey(world: string): Promise<{
+		convert: Array<{ file: TFile; category: string }>;
+		skipped: string[];
+		left: { path: string; reason: string }[];
+		unreadable: string[];
+	}> {
+		const out = { convert: [] as Array<{ file: TFile; category: string }>, skipped: [] as string[], left: [] as { path: string; reason: string }[], unreadable: [] as string[] };
 		for (const file of this.app.vault.getMarkdownFiles()) {
 			if (!mayBeElementNote(file.path, world)) continue;
 			let content: string;
 			try {
 				content = await this.app.vault.read(file);
 			} catch {
+				out.unreadable.push(file.path);
 				continue;
 			}
-			const fm = parseRawFrontmatter(content) ?? {};
-			const id = typeof fm.id === 'string' ? fm.id : isSpanFormat(content) ? parseSpanNote(content).id : null;
-			const found = elementNoteType(file.path, id ? { ...fm, id } : fm);
-			if (found) out.push({ file, category: normalizeCategory(found.category) });
+			const fm = parseRawFrontmatter(content.replace(/^\s+/, ''));
+			const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ''), ['id']).id;
+			if (fmId) {
+				if (elementNoteType(file.path, fm ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
+				continue;
+			}
+			if (!spanNoteId(content)) continue; // the person's own note
+			const place = isUnderElements(file.path) ? elementNoteType(file.path, {}) : null;
+			if (place) out.convert.push({ file, category: normalizeCategory(place.category) });
+			else out.left.push({ path: file.path, reason: 'an old note outside the type folders under Elements/: move it into its type\'s folder there, then run Migrate again' });
 		}
 		return out;
 	}
@@ -102,7 +122,7 @@ export class MigrateWorldCommand {
 		for (const f of files) {
 			try {
 				const content = await this.app.vault.read(f);
-				const parsed = parseSpanNote(content);
+				const parsed = parseSpanNote(outsideFences(content));
 				if (parsed.id) {
 					index.set(parsed.name ?? f.basename, parsed.id);
 					index.set(f.basename, parsed.id);
@@ -120,7 +140,7 @@ export class MigrateWorldCommand {
 		const map = new Map<string, string>();
 		for (const f of files) {
 			try {
-				const parsed = parseSpanNote(await this.app.vault.read(f));
+				const parsed = parseSpanNote(outsideFences(await this.app.vault.read(f)));
 				const name = parsed.name ?? f.basename;
 				if (parsed.id && name) map.set(parsed.id, sanitizeFileName(name));
 			} catch {
@@ -131,11 +151,18 @@ export class MigrateWorldCommand {
 	}
 
 	private async migrateWorld(world: string): Promise<void> {
-		const notes = await this.elementFilesFor(world);
-		const files = notes.map((n) => n.file);
-		const categoryOf = new Map(notes.map((n) => [n.file.path, n.category]));
+		const found = await this.survey(world);
+		if (found.unreadable.length > 0) {
+			new Notice(`Migration aborted: ${found.unreadable.join(', ')} could not be read. Nothing was backed up or changed.`, 15000);
+			return;
+		}
+		const files = found.convert.map((n) => n.file);
+		const categoryOf = new Map(found.convert.map((n) => [n.file.path, n.category]));
 		if (files.length === 0) {
-			new Notice(`No element notes found in ${world}.`);
+			const left = found.left.length
+				? ` ${found.left.length} old note${found.left.length === 1 ? ' is' : 's are'} outside the type folders under Elements/ and ${found.left.length === 1 ? 'was' : 'were'} left as ${found.left.length === 1 ? 'it is' : 'they are'}: ${found.left.map((l) => l.path).join(', ')}.`
+				: '';
+			new Notice(`No old notes to migrate in ${world}.${left}`, left ? 15000 : 5000);
 			return;
 		}
 
@@ -159,14 +186,14 @@ export class MigrateWorldCommand {
 		const idToName = await this.scrapeIdToName(files);
 
 		const result: MigrationResult = {
-			converted: [], skipped: [], failed: [], unresolvedLinks: [], backupFolder,
+			converted: [], skipped: found.skipped, failed: [], unresolvedLinks: [], backupFolder, left: found.left,
 		};
 
 		for (const file of files) {
 			try {
 				const content = await this.app.vault.read(file);
-				if (!isSpanFormat(content)) {
-					result.skipped.push(file.path); // already frontmatter — idempotent
+				if (parseRawFrontmatterScalars(content.replace(/^\s+/, ''), ['id']).id) {
+					result.skipped.push(file.path); // given a front matter id since the survey
 					continue;
 				}
 				const category = categoryOf.get(file.path);
@@ -174,7 +201,7 @@ export class MigrateWorldCommand {
 					result.failed.push({ path: file.path, reason: 'not an element path' });
 					continue;
 				}
-				const parsed = parseSpanNote(content);
+				const parsed = parseSpanNote(outsideFences(content));
 				if (!parsed.id) {
 					result.failed.push({ path: file.path, reason: 'no id found in span note' });
 					continue;
@@ -322,6 +349,14 @@ class MigrationReportModal extends Modal {
 			const list = contentEl.createEl('ul');
 			for (const f of this.result.failed) {
 				list.createEl('li', { text: `${f.path} — ${f.reason}` });
+			}
+		}
+
+		if (this.result.left.length > 0) {
+			contentEl.createEl('h3', { text: 'Old notes left as they are' });
+			const list = contentEl.createEl('ul');
+			for (const l of this.result.left) {
+				list.createEl('li', { text: `${l.path} — ${l.reason}` });
 			}
 		}
 
