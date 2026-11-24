@@ -7,6 +7,10 @@
  *      section.
  *   2. A heading that starts two sections kept only the last one's text:
  *      Update and Manage fields rebuilt the note from it, Save sent it.
+ *   3. Save took a note's identity from the metadata cache.
+ *   4. Paste world's writes were not marked as the plugin's own.
+ *   5. A bold ID line in a person's note made a pull or a paste reuse it.
+ *   6. Manage fields dropped the text above a note's first section.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import "./support/bare-paths";
@@ -267,4 +271,62 @@ test("★ Paste world leaves a note of the person's own with a bold ID line unwr
 	await new PasteWorldCommand(app, {} as never).generateElementNotes(E, { Character: [{ id: A, name: "Bob", description: "Pasted." }] }, false);
 	assert.equal(vault.contentAt(path), BOLD, "the person's note was written over");
 	assert.match(vault.contentAt(`${E}/Character/Bob (1).md`) ?? "", /Pasted\./, JSON.stringify([...vault.files.keys()]));
+});
+
+// --- 6 Manage fields and text above the first section -------------------------------------------
+
+/** Manage fields on the note at `path`: the command, then a dialog's apply (as one opened before an edit). */
+async function manageFields(app: App, path: string, tick: string[]) {
+	const file = app.vault.getAbstractFileByPath(path) as TFile;
+	(app as unknown as { workspace: { getActiveFile(): TFile } }).workspace.getActiveFile = () => file;
+	__notices.length = 0;
+	__modals.length = 0;
+	await new ManageFieldsCommand(app).execute();
+	const opened = __modals.length;
+	const fromCommand = [...__notices];
+	__notices.length = 0;
+	const cmd = new ManageFieldsCommand(app) as unknown as { applySelection(f: TFile, c: string, s: Set<string>, ch: unknown[]): Promise<void> };
+	await cmd.applySelection(file, "character", new Set(tick), []);
+	return { opened, fromCommand, fromApply: [...__notices] };
+}
+
+test("★ Manage fields leaves a note with text above its first section byte for byte and names it; a note without such text is managed as before", async () => {
+	const cases = [
+		// a 3.0/3.1 note: the whole body is its description, no section
+		[`---\nname: Bob\nid: ${A}\n---\n\nBob grew up by the sea.\n`, /Run Update world to latest format/],
+		// a paragraph above a Description section
+		[`---\nname: Bob\nid: ${A}\n---\n\nA paragraph above, the only copy.\n\n### Description\n\nA guard.\n`, /Move it into a section/],
+	] as const;
+	for (const [body, says] of cases) {
+		const { app, vault } = makeApp();
+		const path = `${E}/Character/Bob.md`;
+		await seedAll(vault, { [path]: body });
+		const r = await manageFields(app, path, ["description", "physicality"]);
+		assert.equal(vault.contentAt(path), body, `the note was rewritten:\n${vault.contentAt(path)}`);
+		assert.equal(r.opened, 0, "the dialog opened");
+		for (const notices of [r.fromCommand, r.fromApply]) {
+			assert.ok(notices.some((n) => n.startsWith("Bob not changed") && /text above its first section/.test(n) && says.test(n) && /Nothing was changed\./.test(n)), notices.join(" | "));
+		}
+	}
+	// The positive twin: no text above the first section (blank lines are none), managed as before.
+	const { app, vault } = makeApp();
+	const path = `${E}/Character/Bob.md`;
+	await seedAll(vault, { [path]: `---\nname: Bob\nid: ${A}\n---\n\n\n### Description\n\nA guard.\n` });
+	const r = await manageFields(app, path, ["description", "physicality"]);
+	assert.equal(r.opened, 1, "the dialog did not open: " + r.fromCommand.join(" | "));
+	assert.deepEqual([...r.fromCommand, ...r.fromApply], []);
+	const text = vault.contentAt(path) ?? "";
+	assert.equal(text, `---\nname: Bob\nid: ${A}\n---\n\n### Description\n\nA guard.\n\n### Physicality\n\n\n`);
+});
+
+test("Add custom field keeps the text above a note's first section", async () => {
+	const { app, vault } = makeApp();
+	const path = `${E}/Character/Bob.md`;
+	await seedAll(vault, { [path]: `---\nname: Bob\nid: ${A}\n---\n\nBob grew up by the sea.\n` });
+	const file = app.vault.getAbstractFileByPath(path) as TFile;
+	(app as unknown as { workspace: { getActiveFile(): TFile } }).workspace.getActiveFile = () => file;
+	__modals.length = 0;
+	await new ManageFieldsCommand(app).addCustomField();
+	await (__modals.at(-1) as unknown as { onSubmit(v: string): Promise<void> }).onSubmit("Looks");
+	assert.equal(vault.contentAt(path), `---\nname: Bob\nid: ${A}\n---\n\nBob grew up by the sea.\n\n### Looks\n\n`);
 });

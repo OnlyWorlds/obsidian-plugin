@@ -15,6 +15,7 @@ import {
 	serializeFrontmatter,
 	appendBodySection,
 	isDependsOnHeading,
+	hasOwn,
 	repeatedHeadingMessage,
 	withDependsOn,
 	withoutDependsOn,
@@ -69,7 +70,7 @@ export class ManageFieldsCommand {
 		// The spine list's generated section is no field to manage.
 		const { body } = ownBody(content);
 		const parsed = parseElementBody(body, category);
-		if (refusedForFence(file, category, content, body, parsed)) return;
+		if (refusedToRebuild(file, category, content, body, parsed)) return;
 
 		// Schema text fields (body sections), plus custom sections already present.
 		const choices: FieldChoice[] = bodyTextFields(category).map((key) => ({
@@ -138,8 +139,8 @@ export class ManageFieldsCommand {
 		// The fields are rebuilt; the generated section goes back last as it was.
 		const { body, section } = ownBody(content);
 		const parsed = parseElementBody(body, category);
-		// A dialog opened before the fence was typed open: still refused.
-		if (refusedForFence(file, category, content, body, parsed)) return;
+		// A dialog opened before the fence was typed open (or the text above, or the heading twice): still refused.
+		if (refusedToRebuild(file, category, content, body, parsed)) return;
 
 		// Re-check content here, not just in the UI: a field holding text is kept
 		// regardless of what the modal returned (stale-modal safety).
@@ -295,9 +296,10 @@ function ownBody(content: string): { body: string; section: string } {
  * above, add an empty section for it, and the next Save would clear that
  * field on onlyworlds.com (Kael's fixes read, should-fix 1). Says so as Save
  * does, naming the field and the heading; true when refused. A note with a
- * heading that starts two sections is refused the same way, naming it.
+ * heading that starts two sections, or with text above its first section, is
+ * refused the same way, naming it: the rebuild keeps sections only.
  */
-function refusedForFence(
+function refusedToRebuild(
 	file: TFile,
 	category: string,
 	content: string,
@@ -311,6 +313,18 @@ function refusedForFence(
 	// A heading that starts two sections: the rebuild would keep only the last one's text.
 	if (parsed.repeated) {
 		new Notice(repeatedHeadingMessage(file.basename, parsed.repeated, 'not changed'), 15000);
+		return true;
+	}
+	// Text above the first section (a 3.0/3.1 note's whole body, or a paragraph
+	// over its first heading): the rebuild would drop it. Never moved on the
+	// side: Update world to latest format moves it into the body field's
+	// section when the note has none; beside one, it is the person's to place.
+	if (parsed.preamble.trim() !== '') {
+		const bodyField = bodyTextFields(category)[0];
+		const next = hasOwn(parsed.fields, bodyField)
+			? 'Move it into a section, then try again.'
+			: `Run Update world to latest format to move it into a ${fieldToHeading(bodyField)} section, then try again.`;
+		new Notice(`${file.basename} not changed: it has text above its first section, which Manage fields would not keep. ${next} Nothing was changed.`, 15000);
 		return true;
 	}
 	return false;
