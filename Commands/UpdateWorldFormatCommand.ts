@@ -17,7 +17,7 @@ import {
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
-import { editFrontmatterLines, noteFence, ownFrontmatterId, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { editFrontmatterLines, elementNoteType, noteFence, ownFrontmatterId, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isElementId, isUnderElements } from '../vault/category-folder';
 import { isKnownOfNote } from '../sync/known-of';
 import { isStubNote } from '../sync/hidden-on-server';
@@ -64,22 +64,13 @@ export class UpdateWorldFormatCommand {
 		const notes: NotePlan[] = [];
 		let scanned = 0;
 
-		for (const { file, category: type } of elementNotes) {
-			const category = normalizeCategory(type);
+		for (const { file } of elementNotes) {
+			const content = await this.app.vault.read(file);
+			const category = elementTypeOf(file.path, content);
+			if (!category) continue;
 			const schema = getCategorySchema(category);
 			if (!schema) continue;
-
-			const content = await this.app.vault.read(file);
 			const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
-			// An element note's id is a lower-case UUID (the Markdown profile,
-			// sentence 1); a note with no id, or another plugin's or a person's
-			// own `id`, is the person's, even in a type folder: never given a
-			// scaffold. The one exception is an old span note where the plugin
-			// wrote them (a type folder under Elements/, no front matter id, its
-			// Id line outside every code fence), read as before.
-			const fmId = ownFrontmatterId(content);
-			const oldSpanNote = isUnderElements(file.path) && oldSpanNoteId(content) !== null;
-			if (!isElementId(fmId) && !oldSpanNote) continue;
 			scanned++;
 			// A known-of note leaves out what its reader does not know, and a
 			// hidden element's stub holds no field of it: no scaffold is added
@@ -162,6 +153,13 @@ export class UpdateWorldFormatCommand {
 			if (!schema) continue;
 
 			const content = await this.app.vault.read(file);
+			// Checked again from the note as it is now: a note whose id or type
+			// changed while the plan was open is left, and named.
+			if (elementTypeOf(file.path, content) !== category) {
+				skipped++;
+				refusals.push(`${file.basename} not updated: it is no longer an element note of its type (its id or type changed since the plan was made). Nothing was changed.`);
+				continue;
+			}
 			// A known-of note leaves out what its reader does not know, and a
 			// hidden element's stub holds no field of it: no scaffold is added
 			// to either (the folder spec §4.4).
@@ -293,6 +291,23 @@ export class UpdateWorldFormatCommand {
 			);
 		}
 	}
+}
+
+/**
+ * The type a note is an element of (lower case), read from its own bytes, or
+ * null when it is none: an element note's id is a lower-case UUID (the
+ * Markdown profile, sentence 1), so a note with no id, or another plugin's or
+ * a person's own `id`, is the person's even in a type folder, and is never
+ * given a scaffold. The one exception is an old span note where the plugin
+ * wrote them (a type folder under Elements/, the old layout and nothing else).
+ * The type is its folder's, else its `type` property. Asked when the plan is
+ * made, and again for each note when the confirmed run starts.
+ */
+function elementTypeOf(path: string, content: string): string | null {
+	const oldSpanNote = isUnderElements(path) && oldSpanNoteId(content) !== null;
+	if (!isElementId(ownFrontmatterId(content)) && !oldSpanNote) return null;
+	const found = elementNoteType(path, parseRawFrontmatter(content.replace(/^\s+/, '')) ?? undefined);
+	return found ? normalizeCategory(found.category) : null;
 }
 
 // Both delegate to splitNote/joinNote (element-transform), the single place that

@@ -174,3 +174,20 @@ test("★ Copy and Upload never take a note for an element by a stale metadata c
 		proto.getFileCache = orig;
 	}
 });
+
+// --- 6 Update checks each note again when the confirmed run starts -------------------------------
+
+test("★ Update world format leaves a note that stopped being an element after the plan was made", async () => {
+	const { app, vault } = makeApp();
+	const path = `${W}/Drafts/Kai.md`;
+	await seedAll(vault, { [path]: `---\nid: ${A}\ntype: character\nname: Kai\n---\n\nA guard.\n` });
+	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<{ notes: unknown[] }>; apply(p: unknown): Promise<void> };
+	const plan = await cmd.buildPlan("W");
+	assert.equal(plan.notes.length, 1);
+	const mine = `---\nid: false\ntype: character\nname: Kai\n---\n\nA guard.\n`;
+	await app.vault.modify(app.vault.getAbstractFileByPath(path) as TFile, mine);
+	__notices.length = 0;
+	await cmd.apply(plan);
+	assert.equal(vault.contentAt(path), mine, "a note that is no element any more was rewritten");
+	assert.ok(__notices.some((n) => /Kai not updated/.test(n)), __notices.join(" | "));
+});
