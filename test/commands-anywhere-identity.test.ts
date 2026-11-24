@@ -200,3 +200,14 @@ test("★ a comment above a property stays when the property before it moves to 
 	assert.match(text, /\n# what the book says\n# from the book, ch\. 3\nage: 5\n/, text);
 	assert.doesNotMatch(text.split("\n---")[0], /physicality/, text);
 });
+
+// --- 6 a text property that is no text --------------------------------------------------
+
+test("★ Update world format refuses a note whose text property holds a list, a map, a boolean or a date, and names it", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${E}/Character/Mine.md`]: `---\nname: Mine\nid: ${A}\nbackground: 2024-01-01\nphysicality: true\nmentality: [careful, kind]\nmotivations: {wish: home}\n---\n\nA legacy body.\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Mine not updated/.test(n)), __notices.join(" | "));
+});

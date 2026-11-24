@@ -225,6 +225,19 @@ export class UpdateWorldFormatCommand {
 					add[key] = def.type === 'multi_link' ? [] : def.type === 'integer' ? null : '';
 				}
 			}
+			// A text field moves into the body only as text: a list, a map, a yes or
+			// no, a number or a date the reader made would be lost on the way, so
+			// the note is not touched and is named.
+			const notText = drop.filter((k) => {
+				const v = fm[k];
+				return v !== null && v !== undefined && v !== '' && typeof v !== 'string';
+			});
+			if (notText.length > 0) {
+				skipped++;
+				const one = notText.length === 1;
+				refusals.push(`${file.basename} not updated: ${notText.join(', ')} ${one ? 'holds' : 'hold'} a value that is not text, which moving ${one ? 'it' : 'them'} into the body would lose. Write ${one ? 'it' : 'them'} as text, then try again. Nothing was changed.`);
+				continue;
+			}
 			// The person's lines are kept as written, or the note is not touched:
 			// never a whole block rebuilt in another form (see editFrontmatterLines).
 			const kept = editFrontmatterLines(fmBlock, drop, {}, add);
