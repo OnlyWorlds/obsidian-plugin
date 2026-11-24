@@ -280,7 +280,7 @@ export function buildFolderElementBody(
 	}
 	if (!order) return body;
 	// Key order as received (spec §5): the source file's keys in its order,
-	// then any key it did not have, in the plugin's order (Kael's review).
+	// then any key it did not have, in the plugin's order.
 	const ordered: Record<string, unknown> = {};
 	for (const k of order) if (k in body) ordered[k] = body[k];
 	for (const [k, v] of Object.entries(body)) if (!(k in ordered)) ordered[k] = v;
@@ -317,7 +317,7 @@ export function parseFolderElementBody(
  *   - a file directly in `elements/`, `elements/character_twin-01.json`: the
  *     filename's leading word when it is an element type, followed by `_`,
  *     `-` or the extension. Not the spec's layout, but one a hand-made folder
- *     uses (Seethe's mark 4 fixture, 2026-10-17).
+ *     uses (the mark 4 fixture).
  *   - anything else: null. The caller reports the file, never filing it under
  *     a folder named after the file (mark 4: `Character_twin-01.json/Twin.md`).
  */

@@ -7,7 +7,7 @@ import { categoryFolderType, isCountedCategoryFolder } from "./category-folder";
  *
  * Up to 3.8.1 the plugin named a type folder with its note count, `Location (2)`,
  * and renamed it at every new note; the Markdown profile's address is
- * `<Type>/<Name>.md`, no count (Skeld, 2026-10-22). Download calls this before
+ * `<Type>/<Name>.md`, no count (ruled 2026-10-22). Download calls this before
  * it writes a note, so the notes land in the plain folders:
  *   - a counted folder alone is renamed to its plain name;
  *   - beside a plain folder of the same type, its notes (and anything else in

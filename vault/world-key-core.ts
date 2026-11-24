@@ -25,7 +25,7 @@ export interface ResolvedWorldKey {
     /**
      * True when the key is a read key (`ow_r_`): it reads without a PIN and can
      * never write. Every write path refuses it BEFORE asking for a PIN, and
-     * auto-sync skips the world silently (Kael's review 3.1).
+     * auto-sync skips the world silently.
      */
     readOnly: boolean;
 }
@@ -63,7 +63,7 @@ export const READ_ONLY_WORLD_MESSAGE =
     'so nothing was sent to onlyworlds.com. Your edits stay in your notes. ' +
     'To write, download the world again with an account that can write.';
 
-/** The line a world picker that writes shows when it left read-only worlds out (Kael's cold read, 2026-10-17). */
+/** The line a world picker that writes shows when it left read-only worlds out. */
 export const READ_ONLY_WORLDS_NOT_LISTED =
     'Read-only worlds are not listed: their key can read but not write.';
 

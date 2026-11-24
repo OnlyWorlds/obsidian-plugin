@@ -97,7 +97,7 @@ export interface ExportedAs {
 }
 
 /**
- * GET /me's answer mapped as spec §4.2 spells it (Kael's table, 2026-10-19):
+ * GET /me's answer mapped as spec §4.2 spells it:
  * the owner (an owner-minted or classic key) → owner, role owner, no
  * character; a co-builder or contributor → member with its role, no
  * character; a guest of any kind (person, agent seat, player) → character,
@@ -333,8 +333,7 @@ export function buildWorldJson(opts: {
 	}
 	// An export is a new folder, so it speaks the current dialect (spec §5):
 	// the wire's `time_range_current` goes out as the schema's `time_current`,
-	// at the same position. When both were carried, `time_current` stands
-	// (Kael's review 3.6, the coordinator's ruling).
+	// at the same position. When both were carried, `time_current` stands.
 	if ("time_range_current" in out) {
 		if ("time_current" in out) {
 			delete out.time_range_current;

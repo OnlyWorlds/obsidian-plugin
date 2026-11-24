@@ -19,7 +19,7 @@
  *
  * A manifest the plugin cannot read leaves nothing out by guess and carries
  * nothing by guess either (§4.7 OW-8: the writer refuses, or the caller asks;
- * Amendment A, Kael, 2026-10-23): the export asks with one switch, off by
+ * Amendment A, 2026-10-23): the export asks with one switch, off by
  * default; off, no producer directory goes out and `RECORDS.json` still
  * travels byte-exact (the label travels, never the notes); on, everything
  * travels whole. With no manifest at all nothing can be private, so every

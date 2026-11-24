@@ -40,8 +40,7 @@ export const HIDDEN_STUB_LINE = "Hidden by the world's owner.";
 export const HIDDEN_NOT_SAVED = "Hidden by the world's owner: not saved.";
 /**
  * What a save of a note kept by a role (or no-reason) reset says: keel answers
- * its id 404, and the note is the person's now, never created again (Kael's
- * read, 2026-10-20).
+ * its id 404, and the note is the person's now, never created again.
  */
 export const LEFT_VIEW_NOT_SAVED = "No longer in your view: not saved.";
 
@@ -172,7 +171,7 @@ export function isStubNote(content: string): boolean {
  * The person's writing a stub kept: its body without the stub line (and the
  * blank line after it), every other byte as it is; "" for a note that is no
  * stub, or a stub that kept nothing. An unhide's Download carries it into the
- * rewritten note, above its first field section (Kael's read, 2026-10-20).
+ * rewritten note, above its first field section.
  */
 export function stubKeptText(content: string): string {
 	if (!isStubNote(content)) return "";
@@ -205,7 +204,7 @@ export interface HiddenPlan {
 	/**
 	 * The world's left-view list after this walk: ids a role (or no-reason)
 	 * reset's walk no longer named, whose notes stay the person's and are never
-	 * sent; an id the feed names again leaves it (Kael's read, 2026-10-20).
+	 * sent; an id the feed names again leaves it.
 	 */
 	leftView: Set<string>;
 }

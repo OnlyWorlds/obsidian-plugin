@@ -1,6 +1,6 @@
 /**
  * Which elements of a world were deleted on onlyworlds.com, as far as this
- * device can know (Kael's reads, blocker 1c and N3).
+ * device can know.
  *
  * A GET answers 404 for a deleted element exactly as for one never uploaded,
  * so a 404 alone must never be read as "create it". Download keeps the ids its
@@ -22,7 +22,7 @@ export interface DeletedListHost {
 		deletedOnServer?: Record<string, string[]>;
 		/** Per world id: element ids hidden from this reader by the world's owner (sync/hidden-on-server.ts). */
 		hiddenOnServer?: Record<string, string[]>;
-		/** Per world id: ids a role (or no-reason) reset's walk no longer named (Kael's read, 2026-10-20). */
+		/** Per world id: ids a role (or no-reason) reset's walk no longer named. */
 		leftView?: Record<string, string[]>;
 		syncCursors?: Record<string, { cursor?: string; head?: number } | undefined>;
 	};
@@ -45,7 +45,7 @@ export interface DeletedListClient {
 /**
  * Why this device cannot tell: it never downloaded the world here, the feed
  * read failed, or the server is behind the stored cursor (restored from a
- * backup since the last Download; Kael's third read, 4).
+ * backup since the last Download).
  */
 export type CannotTell = "failed" | "rewound" | "resync";
 
@@ -72,8 +72,7 @@ export interface DeletedView {
  * Per plugin (the host) and world id, for the session, in memory only, gone
  * with the plugin object: the cursor the last walk ended at, the stored
  * (Download's) cursor that walk saw, and (for a device with no stored cursor)
- * the deletes the session has seen (amended rule 2; Kael's delta read, 1;
- * the fix round, item 4).
+ * the deletes the session has seen (amended rule 2; the fix round, item 4).
  */
 const sessionState = new WeakMap<object, Map<string, { cursor?: string; stored?: string; head?: number; seen: Set<string>; seenHidden: Set<string> }>>();
 
@@ -104,8 +103,8 @@ function storedView(host: DeletedListHost, worldId: string): { ids: Set<string>;
 
 /**
  * Per plugin (the host) and world id: the feed read in flight, so saves that
- * reach a 404 together share one walk (round C, 7; Kael's delta read, low 4:
- * two first saves on a device with no cursor each walked the whole feed).
+ * reach a 404 together share one walk (round C, 7: two first saves on a
+ * device with no cursor each walked the whole feed).
  */
 const inFlight = new WeakMap<object, Map<string, Promise<DeletedView>>>();
 
@@ -145,15 +144,15 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 	// when this device has none (a kept note can sit here anyway: notes
 	// outlive data.json through a reinstall or a vault synced by git,
 	// Syncthing or iCloud). So a delete made on the web mid-session is caught
-	// at the next 404, and each read is one short page (Kael's delta read, 1).
+	// at the next 404, and each read is one short page.
 	let sessions = sessionState.get(host);
 	if (!sessions) sessionState.set(host, (sessions = new Map()));
 	const session = sessions.get(worldId);
 	// A stored cursor other than the one the session last saw means a
 	// Download ran since: the session starts from it, whether it is past the
 	// session's (round C, 9) or behind it, after a server restore (the fix
-	// round, item 4; Kael's c-read, low 4: the heads ordered the two and kept
-	// the session on its pre-restore cursor). Cursors are keel's own, so they
+	// round, item 4: the heads ordered the two and kept the session on its
+	// pre-restore cursor). Cursors are keel's own, so they
 	// are compared for equality only.
 	const downloadRan = !session?.cursor || session.stored !== cursor;
 	let since = downloadRan ? cursor ?? session?.cursor : session.cursor;
@@ -164,8 +163,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 			walk = await client.changesWalk(since);
 		} catch (error) {
 			// keel's 409 resync_required (a guest's cursor after a delete it could
-			// see) holds until a Download re-walks: say that, not "try again"
-			// (Kael's delta read, low 3).
+			// see) holds until a Download re-walks: say that, not "try again".
 			const e = error as { status?: unknown; code?: unknown } | null;
 			const resync = e?.status === 409 && e?.code === "resync_required";
 			return { worldId, ids, hidden, leftView, known: false, reason: resync ? "resync" : "failed" };
@@ -174,7 +172,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 		// was restored since, and the session's cursor points past what it
 		// holds. A restore to the last Download's exact point stores a
 		// byte-identical cursor (keel's is seq:id), so the stored cursor alone
-		// cannot tell (Kael's fixes read, low 3). Read once more from the
+		// cannot tell. Read once more from the
 		// stored cursor (or the start), the session's view dropped.
 		if (!rewound && since !== cursor && typeof session?.head === "number" && typeof walk.head === "number" && walk.head < session.head) {
 			rewound = true;
@@ -216,8 +214,7 @@ async function readFeed(host: DeletedListHost, client: DeletedListClient, worldI
 
 /**
  * The stored lists alone, no feed read: what auto-sync consults, so a save it
- * makes at every pause costs one `getWorld` and nothing more (Kael's third
- * read, 4). `ids` holds the deleted and the hidden ids, `hidden` the hidden
+ * makes at every pause costs one `getWorld` and nothing more. `ids` holds the deleted and the hidden ids, `hidden` the hidden
  * ones. Empty when the world's id cannot be read.
  */
 export async function storedDeleted(
@@ -235,7 +232,7 @@ export async function storedDeleted(
  * Take ids out of the list once they exist on the server again (created again
  * by the user's choice). With no world id (the world could not be read after
  * a 410's recreate), every world's list is swept: an element id belongs to one
- * world, so the id is taken off wherever it sits (Kael's delta read, 10-18).
+ * world, so the id is taken off wherever it sits.
  */
 export async function forgetDeleted(host: DeletedListHost, worldId: string, created: string[]): Promise<void> {
 	if (created.length === 0) return;
@@ -262,11 +259,10 @@ export async function forgetDeleted(host: DeletedListHost, worldId: string, crea
 
 /**
  * How many of a walk's deletes left a note of their own in this vault
- * (Seethe on 3.5.1: a fresh vault's first download walks the world's whole
+ * (in 3.5.1, a fresh vault's first download walks the world's whole
  * history and said "7 elements deleted on the server — their notes were kept"
  * with no note in the vault). Counted against the notes' OWN ids, never the ids
- * their Properties link to: a stale raw-id link is not a kept note (Kael's read,
- * 2026-10-19). `latest` is the walk folded to one change per id, later ops winning.
+ * their Properties link to: a stale raw-id link is not a kept note. `latest` is the walk folded to one change per id, later ops winning.
  */
 export function keptDeleteCount(latest: Iterable<FeedChange>, ownNoteIds: Set<string>): number {
 	let n = 0;

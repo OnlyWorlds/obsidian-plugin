@@ -18,14 +18,13 @@
  * the world: a rename the canvas did not see). A card re-pointed to a note
  * of another element, to a file with no element id, or to a file outside the
  * world (another world's copy of the note included) is hashed so it counts as
- * the user's (round C, 6; Kael's delta read, low 2). So a rename of a note or its folders
+ * the user's (round C, 6). So a rename of a note or its folders
  * (Rename World, a type folder's count, rename-on-save) changes no hash,
- * whether or not Obsidian rewrites the canvas's paths (Kael's seam read of
- * rc-350, low 2), while a card re-pointed to another note, moved, resized,
+ * whether or not Obsidian rewrites the canvas's paths, while a card re-pointed to another note, moved, resized,
  * added or removed, or a label changed, makes the canvas the user's. A key
  * the plugin never writes (a viewer's own) and the spec's default arrow ends
  * do not count. The command redraws its own unchanged canvas in place, and saves
- * a changed one as `(your copy)` first (Kael's read of round 2, should-fix 2).
+ * a changed one as `(your copy)` first.
  *
  * The drawing: the element at the centre; the elements it links to on the
  * right half of a ring, those linking to it on the left (one node per
