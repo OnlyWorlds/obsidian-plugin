@@ -305,7 +305,7 @@ function ownBody(content: string): { body: string; section: string } {
  * A note whose code fence is typed open and swallows a `###` heading is not
  * rebuilt: the rebuild would escape the swallowed heading into the field
  * above, add an empty section for it, and the next Save would clear that
- * field on onlyworlds.com (Kael's fixes read, should-fix 1). Says so as Save
+ * field on onlyworlds.com. Says so as Save
  * does, naming the field and the heading; true when refused. A note with a
  * heading that starts two sections, or with text above its first section, is
  * refused the same way, naming it: the rebuild keeps sections only.

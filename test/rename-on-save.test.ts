@@ -1,6 +1,6 @@
 /**
- * A save that changes an element's name renames its note to match (Seethe's
- * walk of rc-next, finding 4): the server took the new name and the
+ * A save that changes an element's name renames its note to match (a walk of
+ * rc-next, finding 4): the server took the new name and the
  * file kept the old one, so the two drifted further with every edit.
  *
  * The rename goes through Obsidian's fileManager.renameFile, so the user's
@@ -49,31 +49,31 @@ async function save(
 	return { result, renames: (app as unknown as { renames: string[] }).renames, notices: [...__notices] };
 }
 
-test("★ Seethe 4: a save whose name changed renames the note, through fileManager.renameFile, and says so", async () => {
+test("★ finding 4: a save whose name changed renames the note, through fileManager.renameFile, and says so", async () => {
 	const r = await save("Vallaki.md", "Vallaki Town");
 	assert.deepEqual(r.result, { ok: true, outcome: "updated" });
 	assert.deepEqual(r.renames, [`${DIR}/Vallaki.md -> ${DIR}/Vallaki Town.md`]);
 	assert.ok(r.notices.some((n) => /renamed to "Vallaki Town"/.test(n)), r.notices.join(" | "));
 });
 
-test("★ Seethe 4: a name another note holds gets the twin suffix Download uses", async () => {
+test("★ finding 4: a name another note holds gets the twin suffix Download uses", async () => {
 	const r = await save("Vallaki.md", "Krezk", { others: { "Krezk.md": note(OTHER, "Krezk") } });
 	assert.deepEqual(r.renames, [`${DIR}/Vallaki.md -> ${DIR}/Krezk (1).md`]);
 });
 
-test("★ auto-sync never renames: a name typed with pauses is saved, the file keeps its name (Kael's read, 7)", async () => {
+test("★ auto-sync never renames: a name typed with pauses is saved, the file keeps its name", async () => {
 	const r = await save("Vallaki.md", "Vallaki Town", { manual: false });
 	assert.deepEqual(r.result, { ok: true, outcome: "updated" });
 	assert.deepEqual(r.renames, []);
 });
 
-test("Seethe 4: the setting off leaves the note's name alone", async () => {
+test("finding 4: the setting off leaves the note's name alone", async () => {
 	const r = await save("Vallaki.md", "Vallaki Town", { setting: false });
 	assert.equal(r.result.ok, true);
 	assert.deepEqual(r.renames, []);
 });
 
-test("Seethe 4: no rename when the name did not change, when the file already carries it, or when the save failed", async () => {
+test("finding 4: no rename when the name did not change, when the file already carries it, or when the save failed", async () => {
 	assert.deepEqual((await save("Vallaki.md", "Vallaki")).renames, [], "name unchanged");
 	// The user renamed the file; Obsidian's listener set `name`: the save sends the name, the file is already right.
 	assert.deepEqual((await save("Vallaki Town.md", "Vallaki Town")).renames, [], "file already carries the name");
@@ -83,7 +83,7 @@ test("Seethe 4: no rename when the name did not change, when the file already ca
 	assert.deepEqual(failed.renames, [], "a refused save renames nothing");
 });
 
-test("Seethe 4: a name with characters a file name cannot hold renames to its safe form", async () => {
+test("finding 4: a name with characters a file name cannot hold renames to its safe form", async () => {
 	const r = await save("Vallaki.md", "Vallaki: Old Town");
 	assert.deepEqual(r.renames, [`${DIR}/Vallaki.md -> ${DIR}/Vallaki- Old Town.md`]);
 });

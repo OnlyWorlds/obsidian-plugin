@@ -79,11 +79,11 @@ interface CreateFirstPlan {
     /** This device cannot tell a never-uploaded note from a deleted one (the feed read failed, the server was restored, or keel asks for a re-read). */
     cannotTell?: boolean;
     cannotTellReason?: CannotTellReason;
-    /** The ids of `leftOut`: stripped from this save's link fields (Kael's second read, N5). */
+    /** The ids of `leftOut`: stripped from this save's link fields. */
     leftOutIds?: string[];
     /** A target that cannot be sent whole (an unclosed code fence): nothing is created or saved, and this says why. */
     refused?: string;
-    /** Targets created first whose own [[links]] no element id answers, each with those links (round C, 14: Kael's low 10). */
+    /** Targets created first whose own [[links]] no element id answers, each with those links (round C, 14). */
     targetLinks?: string[];
 }
 
@@ -113,7 +113,7 @@ const dependsOnShown = new Set<string>();
 /** Note paths whose hidden refusal auto-sync has shown this session. */
 const hiddenShown = new Set<string>();
 
-/** Note paths whose left-view refusal auto-sync has shown this session (Kael's read, 2026-10-20). */
+/** Note paths whose left-view refusal auto-sync has shown this session. */
 const leftViewShown = new Set<string>();
 
 /** Note paths whose known-of notice auto-sync has shown this session. */
@@ -126,16 +126,16 @@ const knownOfShown = new Set<string>();
  */
 const staleShown = new Set<string>();
 
-/** Element ids whose unguarded first save (no recorded change_seq) has been said this session (Seethe, 2026-10-22). */
+/** Element ids whose unguarded first save (no recorded change_seq) has been said this session. */
 const unguardedShown = new Set<string>();
 
-/** Per note path, the save running now: the next save of that note waits for it (Kael, 2026-10-22). */
+/** Per note path, the save running now: the next save of that note waits for it. */
 const saveChains = new Map<string, Promise<void>>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
 // next Save Element renames the note, even when nothing else changed and
-// after a restart (the fix round, item 6: N7; Kael's fixes read, low 5).
+// after a restart (the fix round, item 6: N7).
 
 /** What auto-sync adds to its saved notice when the note keeps its old name. */
 const KEEPS_OLD_NAME = ' The note keeps its old name; Save element renames it.';
@@ -146,7 +146,7 @@ function stopMessage(plan: CreateFirstPlan): string {
     return plan.overflow ? OVERFLOW_MESSAGE : CANCELLED_MESSAGE;
 }
 
-/** The most link targets one save creates first (Kael's read, should-fix 2). */
+/** The most link targets one save creates first. */
 const MAX_CREATE_FIRST = 50;
 
 /** Past the cap: nothing is created, Upload World sends the group. */
@@ -191,7 +191,7 @@ function createFirstNotes(replaced: string[], plan: CreateFirstPlan): string {
 /**
  * Auto-sync's addition to keel's refusal of a link to an element it does not
  * have (400 invalid_link, elements/resolve.py): the manual Save creates such
- * targets first, auto-sync never does (Kael's read, blocker).
+ * targets first, auto-sync never does.
  */
 function missingLinkHint(error: unknown, manual: boolean): string {
     if (manual || !(error instanceof V2ApiError) || error.code !== 'invalid_link') return '';
@@ -244,8 +244,8 @@ export function withoutLinks(type: string, fields: Record<string, unknown>, ids:
 /**
  * The walk's targets with every left-out id taken out of their own links, at
  * the last moment before the /bulk: an id is left out wherever the walk met
- * it, and a later sibling can add one after a target was found (Kael's third
- * read, 3: Barovia went with deleted Vallaki's id and sank Ireena's save).
+ * it, and a later sibling can add one after a target was found (once,
+ * Barovia went with deleted Vallaki's id and sank Ireena's save).
  */
 function strippedFirsts(plan: CreateFirstPlan): PendingCreate[] {
     return plan.firsts.map((f) => ({ ...f, payload: withoutLinks(f.type, f.payload, plan.leftOutIds) }));
@@ -266,7 +266,7 @@ function leftOutNotice(plan: CreateFirstPlan): void {
 /**
  * `{ hidden: true }` for an id the world's owner hid, `{ leftView: true }` for
  * one a role reset left out of view, else nothing: a deleted item keeps its
- * shape (Kael's read, 2026-10-20).
+ * shape.
  */
 function hiddenMark(hidden: Set<string> | undefined, id: string, leftView?: Set<string>): { hidden?: true; leftView?: true } {
     if (hidden?.has(id)) return { hidden: true };
@@ -298,7 +298,7 @@ export class SaveElementCommand {
      * (one id hit ten times, seven never).
      */
     async execute(activeFile: TFile | null, opts: { manual?: boolean } = {}): Promise<SaveResult> {
-        // One save of a note at a time (Kael, 2026-10-22): a second save of a
+        // One save of a note at a time: a second save of a
         // note whose PATCH is still in flight (the person's Save element over
         // auto-sync's, or the next pause's) waits for it, then reads the
         // change_seq it recorded. Otherwise both read the same number and the
@@ -316,7 +316,7 @@ export class SaveElementCommand {
 
     private async saveOne(activeFile: TFile | null, opts: { manual?: boolean }): Promise<SaveResult> {
         // The Save Element command passes manual; auto-sync never does. Only a
-        // manual save creates link targets first (row 8; Kael's read, blocker).
+        // manual save creates link targets first (row 8).
         const manual = opts.manual === true;
         if (!activeFile || !(activeFile instanceof TFile)) {
             return this.fail("No active file selected or it's not a valid file.");
@@ -434,7 +434,7 @@ export class SaveElementCommand {
             return this.fail(LOCAL_WORLD_SYNC_MESSAGE, 8000);
         }
         if (resolved.readOnly) {
-            // A read key can never write: refuse before any PIN (Kael's review 3.1).
+            // A read key can never write: refuse before any PIN.
             return this.fail(READ_ONLY_WORLD_MESSAGE, 8000);
         }
         const apiKey = resolved.apiKey ?? undefined;
@@ -480,11 +480,11 @@ export class SaveElementCommand {
                     // deleted list, with the feed read on from the session's
                     // cursor (or Download's, or the start), tells them apart:
                     // a deleted element is never recreated by auto-sync, and
-                    // only on the user's word by Save Element
-                    // (Kael's second read, N1). A 410 is keel saying this
+                    // only on the user's word by Save Element.
+                    // A 410 is keel saying this
                     // world deleted it: no feed read.
                     // A note a role reset kept: keel answers its id 404, and
-                    // it is never created again (Kael's read, 2026-10-20).
+                    // it is never created again.
                     if (!gone && isLeftViewId(this.plugin.settings, elementUuid)) return this.leftViewRefusal(activeFile, manual);
                     const view = gone ? null : await readDeletedOnServer(this.plugin, client);
                     // The feed says the world's owner hid it: never created
@@ -504,8 +504,8 @@ export class SaveElementCommand {
                         if (!again) return this.fail(CANCELLED_MESSAGE);
                         recreated = true;
                     } else if (!view.known) {
-                        // This device cannot tell "never uploaded" from "deleted"
-                        // (Kael's third read, 2). A failed feed read: auto-sync
+                        // This device cannot tell "never uploaded" from "deleted".
+                        // A failed feed read: auto-sync
                         // waits for its next tick. A restored server or keel's
                         // resync_required: auto-sync points to Download World.
                         // The manual Save asks, saying why. (A device with no
@@ -541,11 +541,11 @@ export class SaveElementCommand {
                     }
                     // Link targets that are notes in this vault but not on the
                     // server go first, or keel refuses the note (row 8).
-                    // Only the manual Save walks (Kael's read, blocker): auto-sync
+                    // Only the manual Save walks: auto-sync
                     // leaves keel's refusal and says how to get past it.
                     // Auto-sync walks nothing, but leaves out a link to an
                     // element the view this 404 read names deleted, a note
-                    // here or not (Kael's fixes read, low 4).
+                    // here or not.
                     const plan = manual
                         ? await this.unsyncedTargets(client, worldName, elementUuid, type, payload, undefined, view ?? undefined)
                         : this.leftOutOf(worldName, type, payload, () => true, view?.ids ?? new Set(), view?.hidden, view?.leftView);
@@ -554,7 +554,7 @@ export class SaveElementCommand {
                     }
                     const firsts = plan.firsts;
                     // A link to a deleted element is left out of what is sent;
-                    // the note keeps it (Kael's second read, N5).
+                    // the note keeps it.
                     const sendPayload = withoutLinks(type, payload, plan.leftOutIds);
                     leftOutNotice(plan);
                     new Notice(`Creating ${category} "${label}"...`);
@@ -627,8 +627,8 @@ export class SaveElementCommand {
             }
             const firsts = plan.firsts;
             // A link to a deleted element is left out of the PATCH, so keel
-            // does not refuse the note's other edits; the note keeps the link
-            // (Kael's second read, N5). What then equals the server's copy is
+            // does not refuse the note's other edits; the note keeps the link.
+            // What then equals the server's copy is
             // not sent at all.
             const toSend = plan.leftOutIds?.length
                 ? diffPayload(withoutLinks(type, changed, plan.leftOutIds), current ?? {})
@@ -652,8 +652,8 @@ export class SaveElementCommand {
             // The answer's change_seq guards the next save; an answer without
             // one clears the old number, which is no longer the element's.
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved));
-            // The note's seven server keys follow the answer (Seethe's walk of
-            // PR 11, 2026-10-23); the guard above reads its own record.
+            // The note's seven server keys follow the answer; the guard
+            // above reads its own record.
             await this.refreshServerFields(activeFile, saved);
             // Sent without the check (no number recorded yet): said once per element.
             if (knownSeq === null && !unguardedShown.has(elementUuid)) {
@@ -661,8 +661,8 @@ export class SaveElementCommand {
                 new Notice(unguardedSaveMessage(category, String(label)), 12000);
             }
             // Only the manual Save renames: auto-sync fires at every pause while
-            // a name is typed, and each rename can rewrite every linking note
-            // (Kael's read, 7). Auto-sync records the rename it did not make,
+            // a name is typed, and each rename can rewrite every linking note.
+            // Auto-sync records the rename it did not make,
             // and the next Save Element makes it (the fix round, item 6).
             let renameNote = '';
             if (manual && typeof changed.name === 'string') {
@@ -726,7 +726,7 @@ export class SaveElementCommand {
                     // A raw id with no note here: nothing to create, but one
                     // the feed reports deleted is left out and named, as
                     // Upload World does, or keel refuses the whole save (the
-                    // fix round, item 8; Kael's delta read, E-8a).
+                    // fix round, item 8).
                     view = view ?? (await readDeletedOnServer(this.plugin, client));
                     if (view.ids.has(id)) {
                         leftOut.push({ type: 'element', name: id, ...hiddenMark(view.hidden, id, view.leftView) });
@@ -751,7 +751,7 @@ export class SaveElementCommand {
                     if (!this.isNotFound(error)) continue;
                 }
                 // A 404 is "never pushed" or "deleted": an id the change feed
-                // reported deleted is never recreated (Kael's read, blocker 1c).
+                // reported deleted is never recreated.
                 // The first 404 reads the feed on from the session's cursor (or
                 // Download's, or the start), so a delete no Download has seen
                 // yet counts too (second read, N3; delta read, low 1).
@@ -778,10 +778,10 @@ export class SaveElementCommand {
                     continue;
                 }
                 // A cap, not a sweep: past it the whole group is Upload World's
-                // (Kael's read, should-fix 2; keel's /bulk takes at most 1000).
+                // (keel's /bulk takes at most 1000).
                 // Counted when found, before walking into it: a target joins
                 // `out` only on the way back out, so counting `out` let a chain
-                // run past the cap (Kael's second read, N2).
+                // run past the cap.
                 if (++found > MAX_CREATE_FIRST) {
                     overflow = true;
                     return;
@@ -826,8 +826,8 @@ export class SaveElementCommand {
 
     /**
      * After a save that changed the element's name, give its note that name
-     * (Seethe's finding 4, 2026-10-17: the server took the new name, the file
-     * kept the old one). Through fileManager.renameFile, so the user's own
+     * (before this, the server took the new name and the file kept the old
+     * one). Through fileManager.renameFile, so the user's own
      * "update internal links" setting applies. A name another note holds gets
      * the twin suffix Download uses (`Name (1)`, WorldService
      * .generateUniqueFileName). Nothing happens when the setting is off, or
@@ -897,8 +897,8 @@ export class SaveElementCommand {
 
     /**
      * Ask before a manual Save creates link targets on onlyworlds.com: the
-     * dialog lists each by type and name, Create or Cancel (Kael's read,
-     * blocker 1b). Resolves true only on Create.
+     * dialog lists each by type and name, Create or Cancel. Resolves true
+     * only on Create.
      */
     private confirmCreateFirst(label: string, plan: CreateFirstPlan): Promise<boolean> {
         return new Promise((resolve) => {
@@ -917,7 +917,7 @@ export class SaveElementCommand {
     /**
      * Auto-sync's plan: no targets to create, only the links this save adds
      * to elements the stored deleted list names (no feed read), left out of
-     * the PATCH and named by their notes (Kael's third read, 4).
+     * the PATCH and named by their notes.
      */
     private async storedLeftOut(
         client: { getWorld(): Promise<Record<string, unknown>> },
@@ -1056,7 +1056,7 @@ export class SaveElementCommand {
      * links against the batch and the world, to a fixpoint, and applies the
      * survivors in one transaction (elements/bulk.py), so items may link to
      * each other, in a cycle too: no item is created bare and patched after.
-     * Sent atomic (round C, 14: Kael's low 8): one refused item writes none,
+     * Sent atomic (round C, 14): one refused item writes none,
      * so a failed save leaves no half of its batch behind. `refused` is null
      * when every item landed, else the refused items with keel's reasons.
      * `replaced` names the items that answered 200: with create_only (sent

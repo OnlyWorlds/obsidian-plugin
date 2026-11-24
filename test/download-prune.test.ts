@@ -1,5 +1,5 @@
 /**
- * Round C, item 8 (Kael's delta read, low 6): every Download read every note
+ * Round C, item 8: every Download read every note
  * of the world from disk to prune the deleted list, even when the list was
  * empty. It now reads them only when there is something to prune.
  */

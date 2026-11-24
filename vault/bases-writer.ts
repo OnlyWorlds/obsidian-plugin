@@ -110,8 +110,7 @@ interface FoundBase {
  * else the first `.base`, by path, among the world folder's OWN files (no
  * subfolder) that is the plugin's and unchanged since: marker and hash (a
  * folder renamed by hand, the file renamed). A changed file anywhere but the
- * base's own path is the user's: never adopted, rewritten or renamed (Kael's
- * read of round 2, should-fix 1). So there is never a second base beside the
+ * base's own path is the user's: never adopted, rewritten or renamed. So there is never a second base beside the
  * plugin's own unchanged one, and never a create that the disk refuses.
  */
 async function findWorldBase(app: App, worldFolder: string): Promise<FoundBase> {

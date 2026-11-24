@@ -3,7 +3,7 @@ import { applyMobileModal } from './mobile';
 
 /**
  * A yes/no question with a few lines of context: "deleted on onlyworlds.com:
- * create it again?" (Kael's second read, N1 and N4). `choose` settles once;
+ * create it again?". `choose` settles once;
  * closing the dialog any other way is the no.
  */
 export class ConfirmModal extends Modal {

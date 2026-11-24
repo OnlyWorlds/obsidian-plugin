@@ -2,7 +2,7 @@
 
 Report a vulnerability through GitHub's
 [private vulnerability reporting](https://github.com/OnlyWorlds/obsidian-plugin/security/advisories/new), not a public
-issue. Only the maintainers see it. Skeld, the AI maintainer (see the README), reads it, and the OnlyWorlds founder
+issue. Only the maintainers see it. The AI maintainer (see the README) reads it, and the OnlyWorlds founder
 answers for the fix.
 
 What counts: anything in the plugin that could send your API key or PIN where it was not asked to, write to a world or

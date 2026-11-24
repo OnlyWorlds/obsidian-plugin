@@ -1,6 +1,6 @@
 /**
  * Upload World never recreates an element deleted on onlyworlds.com without
- * the user's word (Kael's second read, N4). Download keeps a deleted element's
+ * the user's word. Download keeps a deleted element's
  * note on purpose, and the sweep's own change-feed walk sees the delete, yet
  * the id went into the create list. Now those ids are left out and named, with
  * a "create them again?" choice; the same deleted list the save uses is
@@ -115,13 +115,13 @@ test("Create again sends it with the new ones and takes it off the deleted list"
 	assert.deepEqual(r.settings.deletedOnServer[WID], []);
 });
 
-test("★ the list Upload World keeps holds only ids with a local note (Kael's third read, 4)", async () => {
+test("★ the list Upload World keeps holds only ids with a local note", async () => {
 	const NOTELESS = "019a0000-0000-7000-8000-0000000000f9";
 	const r = await upload({ answer: false, deleted: [NOTELESS] });
 	assert.deepEqual(r.settings.deletedOnServer[WID], [IDS.Gela]);
 });
 
-// --- Kael's third read, 1: Leave out never sinks the notes that link it -----
+// --- Leave out never sinks the notes that link it ----------------------------
 
 test("★ Leave out takes the left-out id out of every note's links, new and existing alike, and the summary says so", async () => {
 	const r = await upload({

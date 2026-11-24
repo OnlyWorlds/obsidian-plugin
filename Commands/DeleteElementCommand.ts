@@ -74,8 +74,8 @@ export class DeleteElementCommand {
         const isLocalWorld = preResolved.source === 'local-world';
         if (preResolved.readOnly) {
             // A read key can never delete: refuse before the confirm dialog,
-            // so no one types a name for a delete that cannot happen
-            // (Seethe's walk of rc-next, 2026-10-17). Nothing is sent.
+            // so no one types a name for a delete that cannot happen.
+            // Nothing is sent.
             new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
             return;
         }
@@ -89,7 +89,7 @@ export class DeleteElementCommand {
                 return;
             }
             if (resolved.readOnly) {
-                // Before any PIN; the note stays (Kael's review 3.1).
+                // Before any PIN; the note stays.
                 new Notice(READ_ONLY_WORLD_MESSAGE, 8000);
                 return;
             }

@@ -29,7 +29,7 @@ export interface SchemaField {
 type CategorySchema = Record<string, SchemaField>;
 
 /**
- * Extension-field namespaces that MUST round-trip verbatim (R3 / Temper's law).
+ * Extension-field namespaces that MUST round-trip verbatim (R3, the round-trip law).
  * Any frontmatter key starting with one of these is foreign, READ-ONLY data —
  * the plugin never rewrites or drops it. Atlas self-healing depends on it.
  * Kept in sync with keel's EXTENSION_FIELD_NAMESPACES.
@@ -136,7 +136,7 @@ export function carriesServerFields(body: unknown): body is Record<string, unkno
 /**
  * `content` (a whole note) with its server keys replaced by `data`'s, by
  * serverFieldsFrom's rule, written by serializeFrontmatter as Download writes
- * them, last in the block (3.10, Seethe's walk of PR 11, 2026-10-23: a save
+ * them, last in the block (3.10: a save
  * left `change_seq` at the pulled number, and the folder export wrote that
  * stale number, or a hand-typed `created_at`, as the server's). Only those
  * lines change: every other line of the block, and the body, stay byte for
@@ -495,10 +495,9 @@ export function unescapeSectionValue(value: string): string {
  * True when `read` is exactly what the read makes of `server`'s value, and
  * differs from it: a line a note from before the escape holds as typed
  * (`\### x` on disk and on the server alike), which the reversible read now
- * takes one backslash off (the keeper's amendment to items 1 and 3, Kael's
- * second read). The read's own rule, fence-aware by construction: inside a
- * closed code block it removes nothing, so a backslash gone there is the
- * user's own edit and is sent (Kael's fixes read, should-fix 2).
+ * takes one backslash off (the amendment to items 1 and 3). The read's own
+ * rule, fence-aware by construction: inside a closed code block it removes
+ * nothing, so a backslash gone there is the user's own edit and is sent.
  */
 export function onlyEscapesRemoved(read: string, server: string): boolean {
 	return read !== server && unescapeSectionValue(server) === read;
@@ -523,7 +522,7 @@ export function keepServerEscapes(changed: Record<string, unknown>, server: Reco
 /**
  * The line ending of the body's last `###` section heading, the one
  * sectionValue reads that section's layout by; `\n` when there is none. A
- * CRLF inside a value says nothing about the layout (Kael's cold read, 4: a
+ * CRLF inside a value says nothing about the layout (a
  * CRLF anywhere in the body used to pick `\r\n` and corrupted the last value).
  */
 function lastSectionEol(body: string): string {
@@ -967,8 +966,7 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 
 	// A body with no field heading at all IS the body field's value (a hand-made
 	// or 3.0/3.1 note): its bytes are kept, but for the file's final line ending
-	// (Seethe's mark 2, 2026-10-17: the trim here was the strip she saw on the
-	// server). Prose before a first heading is the description too (round C,
+	// (a trim here once showed up as a strip on the server). Prose before a first heading is the description too (round C,
 	// 2): its bytes are kept, but for the one blank line (or line ending)
 	// before that heading, the layout's; a preamble of whitespace alone is
 	// layout, not a value. Either is a value read from the note, so its
@@ -1398,7 +1396,7 @@ function pluralSlip(a: string, b: string): boolean {
  *
  * The notice exists for a link that would silently miss, so the candidates
  * are only the type's link fields, and a slip keeps the key's first letter
- * (`factions` is no slip for a Creature's `actions`: Kael's c-read, low 6).
+ * (`factions` is no slip for a Creature's `actions`).
  * Exactly one candidate is named; several or none, nothing (the fix round,
  * item 5).
  */
@@ -1656,7 +1654,7 @@ export function frontmatterToPayloadFields(
 		// A value that is no link at all (another plugin's `location: [12.3,
 		// 45.6]`, a number, an object with no id) is LEFT OUT, never read as
 		// "no link": sent as null or [] it cleared the element's real link on
-		// the server (Boss's save-path walk, 2026-10-22). An empty value still
+		// the server. An empty value still
 		// clears, as before.
 		if ((field.type === "single_link" || field.type === "multi_link") && holdsNonLinkValue(value)) continue;
 		if (field.type === "single_link") {

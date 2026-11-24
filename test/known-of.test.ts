@@ -401,7 +401,7 @@ test("Update World Format leaves a known-of note alone: its missing fields are u
 	assert.deepEqual(plan.notes.map((n) => n.path), []);
 });
 
-// --- Kael's read of PR 8, each from his probe ------------------------
+// --- The read of PR 8, each from its probe ---------------------------
 
 test("★ 1: a save leaves out a link to a known-of target keel answers 410 for, or the feed reports deleted", async () => {
 	const notes = {
@@ -469,7 +469,7 @@ test("★ 4: a whole note kept after a role reset is never saved or uploaded aga
 test("★ N3: Manage Fields on a known-of note is refused: the file is byte-identical and the notice says why", async () => {
 	const { app, vault } = makeApp();
 	const path = "OnlyWorlds/Worlds/W/Elements/Character/Strahd.md";
-	// Kael's probe: the person's text with no trailing newline (`My text### Description` at 567f318).
+	// The probe: the person's text with no trailing newline (`My text### Description` at 567f318).
 	const content = KNOWN(STRAHD, "Strahd").replace(`${KNOWN_OF_LINE}\n\n### Description\n\nThe lord of Barovia, edited here.\n`, `${KNOWN_OF_LINE}\n\nMy text`);
 	const file = (await vault.seed(path, content)) as unknown as TFile;
 	(app as unknown as { workspace: { getActiveFile(): TFile | null } }).workspace.getActiveFile = () => file;
@@ -518,7 +518,7 @@ test("★ 9: Update World Format leaves a hidden element's stub alone (the hidde
 	assert.deepEqual((await cmd.buildPlan("W")).notes.map((n) => n.path), []);
 });
 
-// --- Seethe's walk of b32a7c0, step 6: the promise narrowed to what is true ----------
+// --- A walk of b32a7c0, step 6: the promise narrowed to what is true ----------
 
 test("★ the Save and Download notices promise exactly what survives: above the fields, or under a ### heading of your own", async () => {
 	// N2: what the person added is sent once the element is whole (the hidden mark's rule), and the notice says so.
@@ -543,7 +543,7 @@ test("★ a ### section of the person's own after the last field survives a stub
 	assert.equal(wholeNote.split("### My notes").length, 2, "the section was doubled");
 });
 
-// --- Kael's re-read of 567f318: N1 and N4 --------------------------------
+// --- The re-read of 567f318: N1 and N4 -----------------------------------
 
 test("★ N1: what the last stub wrote and the next stub leaves out goes; what the person added stays, through a stub and a whole write", async () => {
 	const s = await fresh();

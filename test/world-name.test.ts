@@ -1,6 +1,6 @@
 /**
  * A world's name becomes a folder under OnlyWorlds/Worlds/ only as one safe
- * path segment (Kael's review 3.7). The name comes from a server, a folder's
+ * path segment. The name comes from a server, a folder's
  * world.json, or a join link a stranger made: `../x` must never climb out.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock

@@ -80,7 +80,7 @@ export class ValidateWorldCommand {
         // sits (the Markdown profile, sentences 1 to 3): its place decides its
         // type, a type folder in either spelling (`Location`, or `Location (2)` in
         // a vault from 3.8.1 or earlier that no Download has renamed yet: an exact
-        // path once skipped every counted folder and validated nothing, Seethe,
+        // path once skipped every counted folder and validated nothing, in
         // 3.3.1); only a note outside every type folder is read by its `type`.
         // Any other note is the person's own and is not read.
         for (const file of this.app.vault.getMarkdownFiles()) {
@@ -128,7 +128,7 @@ export class ValidateWorldCommand {
         // two checks that hold in that format: an id, and a name that matches the
         // file. Number and link rules below read the legacy <span> format only.
         // Until 3.3.2 these notes were skipped and still counted, so "No issues"
-        // was said over a world nobody had checked (Seethe, 2026-10-15).
+        // was said over a world nobody had checked.
         if (content.startsWith('---')) {
             this.validateFrontmatterElement(category, fileName, content);
             return;
@@ -240,7 +240,7 @@ export class ValidateWorldCommand {
         };
         this.elementCount = 0;
         this.couldBeElements = [];
-        this.checkedCount = 0;  // one command object lives the whole session (main.ts); Seethe saw 2, 4, 6, 8
+        this.checkedCount = 0;  // one command object lives the whole session (main.ts); not reset, repeat runs counted 2, 4, 6, 8
         this.errorCount = 0;
     }
     

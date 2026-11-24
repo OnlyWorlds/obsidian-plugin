@@ -120,8 +120,8 @@ export class UpdateWorldFormatCommand {
 
 			// A code fence typed open that swallows a `###` heading: rebuilding
 			// would escape that heading into the field above and add it again
-			// empty, and the next Save would clear it on onlyworlds.com (Kael's
-			// fixes read, should-fix 1). Skipped and named, never rebuilt.
+			// empty, and the next Save would clear it on onlyworlds.com.
+			// Skipped and named, never rebuilt.
 			// A heading that starts two sections: the rebuild would keep only the
 			// last one's text. Skipped and named, never rebuilt.
 			const refusal = parsed.unclosedFence

@@ -4,7 +4,7 @@
  *
  * ★ Row 1 of the data-paths ranking: reading took
  * `##` as a field boundary too, so a `## Notes` line inside a description split
- * it into an `x_notes` field. Ruling (Skeld): `#`, `##`, `####` and deeper inside
+ * it into an `x_notes` field. The ruling: `#`, `##`, `####` and deeper inside
  * a field's text are prose and stay in that field. A `###` that names no known
  * field still becomes a custom field (`### Looks` -> `x_looks`, the README).
  */

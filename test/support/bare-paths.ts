@@ -1,7 +1,7 @@
 /**
  * Resolve the baseUrl-style bare imports (`enums`, `Modals/...`) that esbuild
  * resolves in the build but node's test runner does not, so a test can load
- * Copy World. Import it right after ./obsidian-shim. From Kael's seam probe
+ * Copy World. Import it right after ./obsidian-shim. From a seam probe
  * (rc-350, 2026-10-17).
  */
 // eslint-disable-next-line @typescript-eslint/no-require-imports

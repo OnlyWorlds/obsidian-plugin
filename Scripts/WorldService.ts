@@ -264,8 +264,7 @@ export class WorldService {
     }
 
     async generateUniqueWorldName(rawWorldName: string, worldApiKey?: string): Promise<string> {
-        // A server's or a link's name is never a path: one safe segment
-        // (Kael's review 3.7).
+        // A server's or a link's name is never a path: one safe segment.
         const worldName = safeWorldFolderName(rawWorldName);
         const fs = this.app.vault.adapter;
         const worldsBasePath = normalizePath('OnlyWorlds/Worlds');

@@ -1,5 +1,5 @@
 /**
- * Round C fix round, item 4 (Kael's c-read, low 4): after a server restore
+ * Round C fix round, item 4: after a server restore
  * and a Download in the middle of a session, the stored cursor is behind the
  * session's, so the head comparison kept the session on its old cursor and a
  * delete made after the restore never showed: auto-sync would have recreated
@@ -52,7 +52,7 @@ test("★ a restore then a Download mid-session: the next read starts from Downl
 	assert.ok(view.ids.has(VALLAKI), "the delete after the restore was missed");
 });
 
-test("★ a restore to the last Download's exact point (an identical stored cursor): the lower head reads as a rewind, and the read starts again from the stored cursor (Kael's fixes read, low 3)", async () => {
+test("★ a restore to the last Download's exact point (an identical stored cursor): the lower head reads as a rewind, and the read starts again from the stored cursor", async () => {
 	const host = {
 		settings: {
 			deletedOnServer: {} as Record<string, string[]>,

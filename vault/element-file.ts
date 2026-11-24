@@ -315,7 +315,7 @@ export async function readElement(
 		// parseElementBody keeps byte for byte too (round C, 2).
 		// The separator joinNote writes, and only it: the `---` line's ending,
 		// then one blank line. A body with no field heading is the description
-		// itself, so nothing more of it is cut (Seethe's mark 2).
+		// itself, so nothing more of it is cut.
 		// A known-of note's line is no part of any field.
 		const knownOf = isKnownOfNote(content);
 		const afterFm = stripFrontmatter(content).replace(/^\r?\n/, "").replace(/^\r?\n/, "");
@@ -499,8 +499,7 @@ export interface WriteElementOpts {
 	 * Text written above the first field section, as it is: the person's
 	 * writing a hidden element's stub kept, when Download writes that note in
 	 * full again, back where it came from, so a later save folds it into the
-	 * description as any loose prose (ruled after Kael's read,
-	 * 2026-10-20). Part of the one write.
+	 * description as any loose prose (ruled 2026-10-20). Part of the one write.
 	 */
 	keepAbove?: string;
 	/**

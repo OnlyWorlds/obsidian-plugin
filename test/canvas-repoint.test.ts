@@ -1,10 +1,10 @@
 /**
- * Round C, item 6 (Kael's delta read, low 2): the canvas hash fell back to a
+ * Round C, item 6: the canvas hash fell back to a
  * file node's own `el-<id>` whenever its path named no element, so a card
  * re-pointed to a note with no id, or to a file outside the world, read as
  * unchanged, and the redraw overwrote the user's change with no `(your copy)`.
  *
- * Kept from 3.5.0 (Kael's guard): a card whose path no longer resolves is
+ * Kept from 3.5.0 (the guard): a card whose path no longer resolves is
  * unchanged while its element still has a note in the world, a rename the
  * canvas did not see. It is the user's change when it points at another
  * element's note, at a note with no id, or at a file outside the world.

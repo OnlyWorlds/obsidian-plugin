@@ -1,6 +1,6 @@
 /**
- * An exported folder is the same world, not a new one (3.8.0, Fix 2; Kael's
- * measurement 2026-10-22, compare.md rule 6: Moppetopia's export carried a
+ * An exported folder is the same world, not a new one (3.8.0, Fix 2; measured
+ * 2026-10-22: Moppetopia's export carried a
  * minted id, 7 of the 18 keys GET /world served, and no provenance line).
  *
  * Download now records the server world in the world folder (its id in the id
@@ -22,7 +22,7 @@ const WID = "0695db52-5433-7332-8000-db7fe10da375";
 const PIN_ID = "019e0000-0000-7000-8000-0000000000a1";
 const MINTED = "01a16305-5852-7cc5-897f-7319e777bdfb";
 
-/** GET /world for Moppetopia as keel served it to Kael's run (plugin-download/http/001), keys in order. */
+/** GET /world for Moppetopia as keel served it in a recorded run, keys in order. */
 const WORLD = {
 	id: WID,
 	name: "Moppetopia",
@@ -257,7 +257,7 @@ test("★ without a key, an export writes no exported_as, asks nothing and says 
 	assert.deepEqual(seen, []);
 });
 
-test("★ a classic 10-digit key on a world with a PIN: the /me read sends the PIN the plugin holds, so the line is written (Kael)", async () => {
+test("★ a classic 10-digit key on a world with a PIN: the /me read sends the PIN the plugin holds, so the line is written", async () => {
 	const { app, vault } = makeApp();
 	serveWithMe(ME({ kind: "owner", role: "owner" }));
 	const host = plugin();

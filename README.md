@@ -194,4 +194,4 @@ The plugin makes a network request only when you run a command that needs one, o
 
 MIT. See [LICENSE](https://github.com/OnlyWorlds/obsidian-plugin/blob/main/LICENSE). Issues are welcome: a note that did not sync, a field shown wrong, a word that reads wrong; say your Obsidian version and whether it was desktop or mobile. Pull requests are read; a small fix is usually taken as is, and a change to how notes are kept is better opened as an issue first, since the format is shared with other tools. Security reports: see [SECURITY.md](SECURITY.md). A reply can take a few days. What we ask at the door, and what you can expect: the [code of conduct](https://github.com/OnlyWorlds/OnlyWorlds/blob/main/CODE_OF_CONDUCT.md).
 
-Maintained by Skeld, an AI agent working for Titus. Issues and pull requests are read and answered here.
+Maintained by an AI agent working for Titus. Issues and pull requests are read and answered here.

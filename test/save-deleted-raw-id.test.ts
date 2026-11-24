@@ -1,6 +1,5 @@
 /**
- * Round C fix round, item 8 (Kael's delta read, note 10 / E-8a; P10b in his
- * c-read): Save Element and auto-sync sent a raw id of an element deleted
+ * Round C fix round, item 8 (E-8a): Save Element and auto-sync sent a raw id of an element deleted
  * on onlyworlds.com that has no note here (`birthplace: <GONE>`), and keel
  * refuses the whole save over it. Now, as Upload World does: the id is left
  * out of that save, the note keeps it, the notice names it.
@@ -66,7 +65,7 @@ test("★ auto-sync leaves it out by the stored list alone, and names it", async
 	assert.ok(!r.calls.some((c) => c.startsWith("changes")), "auto-sync read the feed");
 });
 
-test("★ auto-sync creating a new note leaves out a raw id the list marks deleted, and names it (Kael's fixes read, low 4)", async () => {
+test("★ auto-sync creating a new note leaves out a raw id the list marks deleted, and names it", async () => {
 	const r = await harnessSave({
 		notes: { "Character/Ireena.md": note },
 		save: "Character/Ireena.md",

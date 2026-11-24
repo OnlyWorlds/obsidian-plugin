@@ -1,9 +1,9 @@
 /**
- * The bytes a save puts on the wire (Seethe's walk of round B, mark 2).
- * Her note's file was byte-unchanged after the save, and the server held
+ * The bytes a save puts on the wire (a walk of round B, mark 2).
+ * The walked note's file was byte-unchanged after the save, and the server held
  * the description with its leading and trailing double spaces stripped (CRLF and
  * tabs kept). keel does not trim: a PATCH of "  edge  \n\tsecond line  " comes
- * back byte-equal (Skeld's probe on production, 2026-10-17). So the strip is the
+ * back byte-equal (a probe on production, 2026-10-17). So the strip is the
  * plugin's, between the note and the request body. These tests read the REAL
  * request body the v2 client sends, through the mock's requestUrl.
  */
@@ -43,7 +43,7 @@ async function sentDescription(content: string): Promise<unknown> {
 	return (JSON.parse(post.body) as Record<string, unknown>).description;
 }
 
-test("★ mark 2: a note with no field headings sends its body as the description, edge spaces included (Seethe's CRLF fixture)", async () => {
+test("★ mark 2: a note with no field headings sends its body as the description, edge spaces included (the walk's CRLF fixture)", async () => {
 	const value = "  leading double space\r\n\tthen a tab\r\nnormal\r\n\r\nblank line above\r\nedge trailing  ";
 	assert.equal(await sentDescription(`${FM}\r\n${value}\r\n`), value);
 });

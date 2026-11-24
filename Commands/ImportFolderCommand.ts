@@ -123,7 +123,7 @@ export class ImportFolderCommand {
 		}
 
 		// 2. Target world folder — create if absent; abort on id mismatch (R5).
-		// The folder is one safe path segment of the name (Kael's review 3.7);
+		// The folder is one safe path segment of the name;
 		// the world keeps its real name in World.md and on export.
 		const targetWorld = safeWorldFolderName(worldName);
 		const worldFolderPath = normalizePath(`OnlyWorlds/Worlds/${targetWorld}`);
@@ -157,7 +157,7 @@ export class ImportFolderCommand {
 		const failed: { path: string; reason: string }[] = [];
 		// spec §4 (v0.3.8) "one id, one file": an id in both layouts is read from
 		// its elements/ copy, never the newer local_updated_at; the other copy is
-		// listed in the summary (Kael's review 3.5). Two copies in one layout:
+		// listed in the summary. Two copies in one layout:
 		// the first by path, so every run reads the same one.
 		const slotById = new Map<string, number>();
 		const duplicates: { id: string; read: string; ignored: string }[] = [];
@@ -170,7 +170,7 @@ export class ImportFolderCommand {
 			try {
 				const json = JSON.parse(await this.app.vault.read(file)) as Record<string, unknown>;
 				// Fallback type from the file's place: elements/<type>/file, or a
-				// flat elements/<type>_<slug>.json (Seethe's mark 4). A declared
+				// flat elements/<type>_<slug>.json. A declared
 				// `type` in the body wins (spec §4).
 				const rel = file.path.slice(dir.length + 1); // strip "<dir>/"
 				const { type, payload, carried } = parseFolderElementBody(json, typeFromFolderPath(rel) ?? "");
@@ -305,7 +305,7 @@ export class ImportFolderCommand {
 
 		// What each created element carried that its note has no home for (server
 		// and sync fields), and its file's key order (spec
-		// §5: an export writes keys as received; Kael's review), kept for the
+		// §5: an export writes keys as received), kept for the
 		// folder export. Skipped elements keep whatever an earlier import recorded.
 		if (carriedById.size > 0) {
 			const sidecar = await readFolderSidecar(this.app, targetWorld);
@@ -421,7 +421,7 @@ export class ImportFolderCommand {
 	 * never given a second note with its id. Each note's id is read from disk
 	 * when the metadata cache has none, an entry with no front matter included:
 	 * on a re-import before Obsidian has indexed the notes, a cache-only read
-	 * missed every id and wrote a second note for each (Kael's cold read, 3).
+	 * missed every id and wrote a second note for each.
 	 *
 	 * Each note is read from disk too, and both ids are held when the cache is
 	 * stale and they differ, so neither is imported over the note. Only the

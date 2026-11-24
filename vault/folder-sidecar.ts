@@ -11,7 +11,7 @@ import { App, normalizePath } from "obsidian";
  *     server's and Atlas's own fields (folder-format.ts splitCarriedFields;
  *     row 6). Never in the note: an upload must not send them.
  *   - `order`: per element id, its file's key order, so the export writes
- *     keys as received (spec §5; Kael's review).
+ *     keys as received (spec §5).
  *
  * Adapter I/O only, for the reasons world-id-marker.ts gives: Obsidian's vault
  * index skips dot-prefixed files, and an unindexed file fires no vault events.

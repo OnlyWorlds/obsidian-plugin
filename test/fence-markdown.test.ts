@@ -1,5 +1,5 @@
 /**
- * Round C fix round, item 1 (Kael's c-read, should-fix 1): the fence refusal
+ * Round C fix round, item 1: the fence refusal
  * fired where nothing was cut short, at every auto-sync pause, and on notes
  * the plugin wrote itself (a server text with an odd `~~~` scene break).
  *
@@ -136,7 +136,7 @@ test("★ every fence shape a value can hold round-trips byte for byte through a
 	}
 });
 
-// The keeper's amendment (Kael's second read): one rule for a closed fence both ways.
+// The amendment: one rule for a closed fence both ways.
 test("★ a `### ` line inside a closed fence is written and read back unchanged, by one rule both ways", async () => {
 	const value = "Before.\n```md\n### inside\n\\### typed inside\n```\nAfter.";
 	const body = buildElementBody({ description: value, background: "Next." }, "character");

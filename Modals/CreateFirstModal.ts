@@ -7,14 +7,14 @@ export interface CreateFirstItem {
     name: string;
     /** Left out because the world's owner hid it, not because it was deleted. */
     hidden?: boolean;
-    /** Left out because a role reset took it out of this reader's view (Kael's read, 2026-10-20). */
+    /** Left out because a role reset took it out of this reader's view. */
     leftView?: boolean;
 }
 
 /**
  * Before a manual Save Element creates a note's link targets on onlyworlds.com,
- * the user sees exactly what would be created, and chooses Create or Cancel
- * (Kael's cold read, blocker 1b). Targets the change feed
+ * the user sees exactly what would be created, and chooses Create or Cancel.
+ * Targets the change feed
  * reported deleted are listed as left out, never created.
  *
  * `choose` settles once: closing the dialog any other way is Cancel.
@@ -30,7 +30,7 @@ export class CreateFirstModal extends Modal {
         private onChoice: (create: boolean) => void,
         /** The plugin cannot tell a 404 from a delete here: the feed read failed, the server was restored, or keel asks for a re-read. */
         readonly cannotTell = false,
-        /** Why it cannot tell (Kael's third read, 9). */
+        /** Why it cannot tell. */
         readonly cannotTellReason: CannotTellReason = 'failed'
     ) {
         super(app);
@@ -73,7 +73,7 @@ export const FEED_FAILED_LINE =
     "The plugin could not read onlyworlds.com's change feed just now, so it cannot tell a note never uploaded " +
     'from one deleted on onlyworlds.com.';
 
-/** What the plugin says when the server is behind this device's last Download (Kael's third read, 4). */
+/** What the plugin says when the server is behind this device's last Download. */
 export const REWOUND_LINE =
     'onlyworlds.com was restored from a backup since this device last downloaded the world, so the plugin ' +
     'cannot tell a note never uploaded from one deleted there. Download world first.';

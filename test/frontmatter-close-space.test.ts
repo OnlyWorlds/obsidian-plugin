@@ -1,5 +1,5 @@
 /**
- * Round C fix round, item 7 (N8 from Kael's fixes read): a note whose
+ * Round C fix round, item 7 (N8): a note whose
  * closing `---` line carries a trailing space gave a description starting
  * with that space and a blank line (" \n\nAbout N."), sent as a change. Now
  * the frontmatter fence lines are matched with trailing whitespace allowed,

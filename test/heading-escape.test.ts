@@ -1,5 +1,5 @@
 /**
- * Round C, item 1 (Kael's cold read, 5): a line starting `### ` inside a text
+ * Round C, item 1: a line starting `### ` inside a text
  * value started a new field, and a code fence that never closed swallowed
  * every section after it.
  *

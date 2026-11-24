@@ -1,9 +1,9 @@
 /**
- * Seethe's chapter run on 3.5.1: a fresh vault's
+ * A run of 3.5.1: a fresh vault's
  * first download walked the world's whole history and said "7 elements deleted
  * on the server — their notes were kept" with no note in the vault. The notice
  * counts only deletes whose element has a note of its own here; an id a note
- * merely links to is not a kept note (Kael's read).
+ * merely links to is not a kept note.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";

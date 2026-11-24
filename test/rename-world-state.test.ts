@@ -31,7 +31,7 @@ test("★ Rename World clears the old name from the once-only Notice list and le
 	assert.deepEqual(paths, ["OnlyWorlds/Worlds/New/Elements/Character (4)/Ireena.md"]);
 });
 
-test("Rename World moves the renames auto-sync left for Save Element to the new folder name (Kael's fixes read, low 5)", async () => {
+test("Rename World moves the renames auto-sync left for Save Element to the new folder name", async () => {
 	const { app, vault } = makeApp();
 	(app as unknown as { realRenames: boolean }).realRenames = true;
 	await vault.seed("OnlyWorlds/Worlds/Old/World.md", "- **Name:** Old\n");

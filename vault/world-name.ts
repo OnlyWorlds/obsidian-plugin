@@ -1,5 +1,5 @@
 /**
- * A world's folder name — PURE logic, no Obsidian imports (Kael's review 3.7).
+ * A world's folder name — PURE logic, no Obsidian imports.
  *
  * A world's name reaches the disk as `OnlyWorlds/Worlds/<name>/`. It comes from
  * places the user does not write: a server's world (Download, a join link a
