@@ -1,8 +1,7 @@
 /**
  * The Bases file, round 2: what the plugin says and does when
  * it keeps a world's base, when a world is renamed, the first base it writes,
- * a name differing only in case. Kael's cold read of bases-188, should-fix 2
- * and 3, lows 4 to 6.
+ * a name differing only in case.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
@@ -213,7 +212,7 @@ test("Write Bases file after a rename writes the world's base fresh and leaves t
 	assert.equal(vault.contentAt("OnlyWorlds/Worlds/Endymion/Hyperion.base"), edited);
 });
 
-test("Kael's probe: a user's edited copy of the base under Elements is never the world's base, and never rewritten or renamed", async () => {
+test("a user's edited copy of the base under Elements is never the world's base, and never rewritten or renamed", async () => {
 	const { app, vault } = makeApp();
 	const plugin = makePlugin();
 	await download(app, plugin);

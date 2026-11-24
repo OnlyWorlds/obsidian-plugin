@@ -69,9 +69,9 @@ test("row 17: a link to an element the vault already has (skipped by the import)
 	assert.match(note, /^birthplace: "\[\[Old Vallaki\]\]"$/m);
 });
 
-// --- Seethe's walk, mark 4: the layout her fixture used ----------
+// --- Mark 4: the layout a real walk's fixture used ---------------
 //
-// Her fixture folder was cleaned up after the walk; its layout is read off what
+// The fixture folder was cleaned up after the walk; its layout is read off what
 // landed: `Elements/Character_twin-01.json/Twin.md`. That folder name is the
 // import taking `rel.split("/")[1]` as the type, which happens only for a file
 // directly in `elements/` whose body has no `type`: `elements/character_twin-01.json`.
@@ -116,7 +116,7 @@ test("mark 4: a flat file whose type cannot be known is reported failed, never f
 	assert.ok(report?.result.failed.some((f) => /type/i.test(f.reason)), "the file was not reported failed");
 });
 
-test("★ re-importing the same folder before Obsidian has indexed the notes writes no duplicate (Kael's read, 3)", async () => {
+test("★ re-importing the same folder before Obsidian has indexed the notes writes no duplicate", async () => {
 	const { app, vault, cache } = makeApp();
 	await importFolder(app, vault, FILES);
 	const before = [...vault.files.keys()].filter((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/")).sort();

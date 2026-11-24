@@ -1,6 +1,6 @@
 /**
- * An element deleted on onlyworlds.com is never recreated by a save (Kael's
- * cold read, blocker 1c). Download keeps a deleted
+ * An element deleted on onlyworlds.com is never recreated by a save.
+ * Download keeps a deleted
  * element's note on purpose ("Notes are never auto-deleted"), so a note can
  * still link to it, and a GET answers 404 for "deleted" exactly as for "not
  * pushed yet". Download now keeps the ids the change feed reported deleted,
@@ -49,7 +49,7 @@ test("★ Download keeps the ids the change feed reported deleted whose notes it
 	assert.deepEqual(plugin.settings.deletedOnServer?.[WID], [KREZK]);
 });
 
-test("★ the list holds only ids with a local note: a delete of an element this vault never had is not kept (Kael's third read, 4)", async () => {
+test("★ the list holds only ids with a local note: a delete of an element this vault never had is not kept", async () => {
 	const { app } = makeApp();
 	const plugin = { settings: { syncCursors: {} } as Settings, saveSettings: async () => {} };
 	// A full first Download sees every delete the world ever had.
@@ -220,7 +220,7 @@ test("★ the only target deleted: no dialog, nothing recreated, the notice name
 	);
 });
 
-// --- Kael's second read, N3: a delete no Download has seen yet ---------------
+// --- A delete no Download has seen yet ---------------------------------------
 
 const IREENA_TO_VALLAKI = {
 	"Character/Ireena.md": note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\nlocation: "[[Krezk]]"\n'),
@@ -248,7 +248,7 @@ test("★ no stored cursor: the feed is read once from the start, and a delete i
 	assert.deepEqual(r.settings.syncCursors, {}, "the full read was written as a cursor");
 });
 
-// --- Kael's second read, N5: a left-out link does not sink the save ---------
+// --- A left-out link does not sink the save ----------------------------------
 
 const GONE = "019e0000-0000-7000-8000-0000000000b9";
 const BRAVE = "019e0000-0000-7000-8000-0000000000b1";
@@ -283,7 +283,7 @@ test("★ a new note linking a deleted element is created without that link", as
 	assert.equal("birthplace" in r.sent.at(-1)!, false);
 });
 
-// --- Kael's third read, 3: the strip reaches the walk's own targets ---------
+// --- The strip reaches the walk's own targets --------------------------------
 
 const BAROVIA = "019e0000-0000-7000-8000-0000000000a3";
 const DEEP = {
@@ -312,7 +312,7 @@ test("the same with Ireena new too: one /bulk, both created, no Vallaki link", a
 	assert.deepEqual(r.bulks, [[BAROVIA, IREENA]]);
 });
 
-// --- Kael's third read, 4a: auto-sync and the stored list --------------------
+// --- Auto-sync and the stored list -------------------------------------------
 
 test("★ auto-sync leaves a link to an element in the stored deleted list out of its PATCH, no feed read, and the edit lands", async () => {
 	const content = note(IREENA, "Ireena", 'birthplace: "[[Vallaki]]"\n').replace("About Ireena.", "Edited.");
@@ -332,7 +332,7 @@ test("★ auto-sync leaves a link to an element in the stored deleted list out o
 	assert.ok(r.notices.some((n) => /Vallaki/.test(n) && /left out of this save/.test(n)), r.notices.join(" | "));
 });
 
-// --- Kael's second read, N1: the deleted element's OWN note -----------------
+// --- The deleted element's OWN note ------------------------------------------
 
 const VALLAKI_NOTE = { "Location/Vallaki.md": note(VALLAKI, "Vallaki") };
 
@@ -396,7 +396,7 @@ test("410, manual Save, Cancel creates nothing; Create again takes it off the st
 	assert.deepEqual(yes.settings.deletedOnServer[WID], []);
 });
 
-test("★ 410, Create again, and the world read fails: the id still leaves the stored deleted list (Kael's delta read, low)", async () => {
+test("★ 410, Create again, and the world read fails: the id still leaves the stored deleted list", async () => {
 	const r = await saveNote({ notes: VALLAKI_NOTE, save: "Location/Vallaki.md", gone: [VALLAKI], deleted: [VALLAKI], worldReadFails: true });
 	assert.deepEqual(r.result, { ok: true, outcome: "created" });
 	assert.ok(r.calls.includes("world"), "the world was never read");
@@ -442,7 +442,7 @@ test("a never-uploaded note, not in the list, still creates as before with no di
 	assert.equal(r.dialogs.length, 0);
 });
 
-// --- Kael's third read, 2: a device that cannot tell (four cells) ------------
+// --- A device that cannot tell (four cells) ----------------------------------
 
 const OWN = { notes: VALLAKI_NOTE, save: "Location/Vallaki.md" };
 
@@ -460,7 +460,7 @@ test("★ stored cursor, feed read fails, manual Save: asks with the failed-read
 	assert.ok(!r.calls.some((c) => c.startsWith("create")));
 });
 
-// Amended rule 2 (Kael's correction): a kept note can sit on a device with no
+// Amended rule 2: a kept note can sit on a device with no
 // cursor (a reinstall, a vault synced by git, Syncthing or iCloud), so the
 // first own-note 404 with no cursor reads the feed from the start, once.
 
@@ -550,7 +550,7 @@ test("a later re-create clears the session's delete, and a later delete after Cr
 	assert.ok((await readDeletedOnServer(host, feed.client)).ids.has(VALLAKI));
 });
 
-// --- Kael's delta read, low 3: keel's 409 resync_required --------------------
+// --- keel's 409 resync_required ----------------------------------------------
 
 test("★ a feed answering 409 resync_required: auto-sync refuses and says Download World to catch up, not 'tries again'", async () => {
 	const r = await saveNote({ ...OWN, cursor: "c5", feedResync: true, manual: false });
@@ -566,7 +566,7 @@ test("the manual Save asks with the catch-up line", async () => {
 	assert.ok(r.dialogs[0]?.lines?.some((l) => /Download world to catch up/.test(l)), JSON.stringify(r.dialogs[0]?.lines));
 });
 
-// --- Kael's third read, 4b: a stored cursor past the server's head ----------
+// --- A stored cursor past the server's head ----------------------------------
 
 test("★ a feed whose head is below the stored head (a server restore) cannot tell: auto-sync refuses and points to Download World", async () => {
 	const r = await saveNote({ ...OWN, cursor: "c5", feed: [], feedHead: 3, manual: false });

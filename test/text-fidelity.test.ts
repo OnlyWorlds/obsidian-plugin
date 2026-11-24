@@ -116,7 +116,7 @@ async function addLooks(app: App, file: TFile): Promise<void> {
 	await (__modals.at(-1) as unknown as { onSubmit(v: string): Promise<void> }).onSubmit("Looks");
 }
 
-test("★ Add Custom Field on a note whose values hold a CRLF keeps every value (Kael's read, 4)", async () => {
+test("★ Add Custom Field on a note whose values hold a CRLF keeps every value", async () => {
 	const { app } = makeApp();
 	const file = (await writeElement(app, "W", "character", ID, {
 		name: "Ireena", description: "a\r\nb", reputation: "Feared.\n\n",

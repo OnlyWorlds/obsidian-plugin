@@ -1,6 +1,5 @@
 /**
- * Round C fix round, the keeper's amendment to items 1 and 3 (Kael's second
- * read): the reversible backslash scheme cannot make a note from before it
+ * Round C fix round, the amendment to items 1 and 3: the reversible backslash scheme cannot make a note from before it
  * round-trip. 3.5.0 wrote no escape, so a typed `\### x` sits on disk and on
  * the server as `\### x`, and now reads as `### x`. Save reads the server
  * first: when the value read differs from the server's only by one removed
@@ -38,7 +37,7 @@ test("★ the same for a fence line, under auto-sync too, while another field's 
 	assert.equal(r.sent[0].background, "New.");
 });
 
-test("★ a backslash the user removed inside a closed code block is a real edit, and is sent (Kael's fixes read, should-fix 2)", async () => {
+test("★ a backslash the user removed inside a closed code block is a real edit, and is sent", async () => {
 	for (const [server, typed] of [
 		["```\n\\### x\n```", "```\n### x\n```"],
 		["~~~\n\\```\n~~~", "~~~\n```\n~~~"],

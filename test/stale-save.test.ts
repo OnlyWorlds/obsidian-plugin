@@ -1,6 +1,6 @@
 /**
  * A stale save is refused, never reverts another writer's change (3.8.1,
- * Boss's walk D1 claim 1 on keel staging: a note
+ * a walk on keel staging: a note
  * pulled with description "A", another writer's "B", a name-only edit in the
  * stale note sent {name, description: "A"} and the PATCH answered 200 with
  * "B" reverted; the same PATCH with If-Match the pulled change_seq answered
@@ -143,7 +143,7 @@ test("★ D1 claim 1: a save from a note pulled before another writer's change w
 	const { app, vault, keel, plugin } = await setup({ [ID]: 44 });
 	keel.put(ID, { name: "Hero", description: "A" }, 44);
 	keel.otherWriter(ID, { description: "B" }); // now 45
-	// The person edits only the name in the stale note (Boss's step 3).
+	// The person edits only the name in the stale note (the walk's step 3).
 	const content = note(ID, "Hero the Bold", "A");
 	const file = (await vault.seed(`${W}/Elements/Character/Hero.md`, content)) as unknown as TFile;
 	const { result, notices } = await save(app, plugin, file);
@@ -196,7 +196,7 @@ test("★ a note with no recorded change_seq (a vault from before 3.8.1) saves o
 	assert.equal(notices.filter((n) => n.includes(STALE)).length, 1);
 });
 
-test("★ the unguarded first save of a note with no recorded change_seq says so, once per element (Seethe's walk)", async () => {
+test("★ the unguarded first save of a note with no recorded change_seq says so, once per element", async () => {
 	const ID = "019e0000-0000-7000-8000-0000000005ab";
 	const UNGUARDED = "saved without checking for newer changes";
 	const { app, vault, keel, plugin } = await setup();
@@ -265,7 +265,7 @@ test("★ auto-sync goes through the same path: a stale note's notice shows once
 	assert.equal((await save(app, plugin, file, true)).notices.filter((n) => n.includes(STALE)).length, 1);
 });
 
-test("★ two saves of one note never race each other: the second waits for the first, reads its change_seq, and is not told its own write is stale (Kael)", async () => {
+test("★ two saves of one note never race each other: the second waits for the first, reads its change_seq, and is not told its own write is stale", async () => {
 	const ID = "019e0000-0000-7000-8000-0000000005aa";
 	const { app, vault, keel, plugin } = await setup({ [ID]: 44 });
 	keel.put(ID, { name: "Hero", description: "A" }, 44);

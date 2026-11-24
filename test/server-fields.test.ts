@@ -9,7 +9,7 @@
  *   into every note under their wire names, a null one left out (R3).
  * - A save never sends one of them; the edit still goes.
  * - The folder export writes them back, a null one as null.
- * Boss's D5 compare of 3.8.1
+ * A compare of 3.8.1
  * found them on 0 of 310 notes and `shape` on 0 of 10 Zones.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
@@ -230,7 +230,7 @@ test("folderServerFields: all seven for a whole note that carries any, only its 
 	assert.deepEqual(folderServerFields({ change_seq: 3, created_at: "t" }, true), { change_seq: 3, created_at: "t" });
 });
 
-// --- a save refreshes the seven from its answer (Seethe's walk of PR 11) ---
+// --- a save refreshes the seven from its answer ---
 
 const IRE_PATH = "OnlyWorlds/Worlds/W/Elements/Character/Ireena.md";
 /** The server's answer after the save: change_seq moved on, the owner changed it, no client named. */

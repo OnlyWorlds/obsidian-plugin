@@ -302,7 +302,7 @@ test("a file in the way of the plain name: the counted folder stays, said, never
 	assert.equal(vault.contentAt(`${E}/Location`), "a file someone named Location\n");
 });
 
-// --- Amendment A (Kael's cold read of ada0e81) -------------------------------
+// --- Amendment A (a cold read of ada0e81) ------------------------------------
 
 test("★ an emptied counted folder that still holds a hidden file on disk stays where it is (A1)", async () => {
 	const { app, vault, trashed } = vaultWithWorld();
@@ -363,7 +363,7 @@ test("a clash keeps its wording and is marked as one (A2)", async () => {
 	assert.match(plainFoldersNotice(r) ?? "", /^Not moved: Location \(2\), because Location already holds Castle\.md\. Nothing was deleted/);
 });
 
-// --- Amendment B (Seethe's real-vault walk, Kael's read) ----------------------
+// --- Amendment B (a real-vault walk) ------------------------------------------
 
 test("★ a counted folder kept for a hidden file is not counted as renamed, is said once, and a later pass skips it in silence (B2)", async () => {
 	const { app, vault, renames, trashed } = vaultWithWorld();

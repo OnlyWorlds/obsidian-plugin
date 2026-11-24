@@ -1,7 +1,7 @@
 /**
  * Round C, items 7 and 9: the session's read of the change feed.
  *
- * 7 (Kael's delta read, low 4): two first saves at once on a device with no
+ * 7: two first saves at once on a device with no
  * stored cursor each walked the whole feed; they now share one walk per world.
  *
  * 9: after a Download in the middle of a session, the session's own cursor is

@@ -1,7 +1,7 @@
 /**
  * Round C, item 5: Upload World still sent links TO elements deleted on
  * onlyworlds.com when no note here held them (a raw id a note kept), and keel
- * refused each such note whole (Kael's delta read, note 10: E-8b). Now every
+ * refused each such note whole (E-8b). Now every
  * id the deleted list names, and that is not being created again, is taken out
  * of every payload's links, and the summary names it, as Leave out does.
  */

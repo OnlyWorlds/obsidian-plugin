@@ -229,7 +229,7 @@ test("★ Upload World never sends a stub or a hidden id, and strips links to it
 	void HARNESS_WID;
 });
 
-// --- Kael's read of the branch, ruled -----------------------------
+// --- The read of the branch, ruled --------------------------------
 
 test("★ Download: an unhide carries the stub's kept writing above the first field section, byte for byte", async () => {
 	const { app, vault, plugin } = await setup();

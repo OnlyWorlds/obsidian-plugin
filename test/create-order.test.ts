@@ -224,7 +224,7 @@ test("row 8: a target keel refuses fails the save, names it, and sends nothing m
 	assert.ok(!h.calls.some((c) => c.startsWith("create ") || c.startsWith("update ")));
 });
 
-// --- Kael's read, blocker (a): the walk runs only from the manual Save --------
+// --- Blocker (a): the walk runs only from the manual Save ---------------------
 
 test("★ auto-sync never runs the create-first walk: keel's refusal stands, and the notice says Save Element creates them first", async () => {
 	const h = await harness({
@@ -252,7 +252,7 @@ test("auto-sync on an existing note given a link to a new note: refused, nothing
 	assert.match((result as { reason: string }).reason, /Save element creates it first if it is new, or leaves it out if it was deleted there/);
 });
 
-// --- Kael's read, blocker (b): a manual Save confirms what it creates first ---
+// --- Blocker (b): a manual Save confirms what it creates first ----------------
 
 const CHAIN = {
 	"Character/Ireena.md": note(ID.ireena, "Ireena", 'birthplace: "[[Vallaki]]"\n'),
@@ -299,7 +299,7 @@ test("no dialog when there is nothing to create first", async () => {
 	assert.ok(h.calls.includes(`create character ${ID.ireena}`));
 });
 
-// --- Kael's read, should-fix 2: the walk stops at 50 targets ------------------
+// --- The walk stops at 50 targets ---------------------------------------------
 
 /** Ireena linking to `n` new trait notes. */
 function manyTraits(n: number): Record<string, string> {
@@ -345,7 +345,7 @@ function chain(n: number): Record<string, string> {
 	return notes;
 }
 
-test("★ the cap holds on a chain: 60 notes in a line create nothing, no dialog, and the walk stops at the 51st (Kael's second read, N2)", async () => {
+test("★ the cap holds on a chain: 60 notes in a line create nothing, no dialog, and the walk stops at the 51st", async () => {
 	const h = await harness(chain(60));
 	const result = await h.save(h.files["Character/Ireena.md"]);
 	assert.equal(result.ok, false);

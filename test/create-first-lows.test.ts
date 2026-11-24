@@ -1,5 +1,5 @@
 /**
- * Round C, item 14: Kael's first read of round B, lows 8 to 10, on the manual
+ * Round C, item 14: three findings on round B (lows 8 to 10), on the manual
  * Save's create-first /bulk.
  *
  * 8: no `atomic` was sent, so when one target was refused the others were

@@ -151,7 +151,7 @@ test("the token check: GET /account with the token as a Bearer, the username bac
 	assert.equal(signedInLabel(me.username), "Signed in as tess");
 });
 
-test("owRequest honours Retry-After on a 429 or 503 once, capped at 10 s (Kael nit)", async () => {
+test("owRequest honours Retry-After on a 429 or 503 once, capped at 10 s", async () => {
 	const waits: number[] = [];
 	owTiming.sleep = async (ms: number) => {
 		waits.push(ms);
@@ -207,7 +207,7 @@ test("sign in keeps the token and the username; sign out clears both", async () 
 	assert.equal(plugin.settings.accountUsername, "");
 });
 
-test("sign out revokes the token on onlyworlds.com, found by its last four, with itself as the Bearer (Kael 3.3)", async () => {
+test("sign out revokes the token on onlyworlds.com, found by its last four, with itself as the Bearer", async () => {
 	keel({
 		answers: {
 			...accountAnswers(),
@@ -228,7 +228,7 @@ test("sign out revokes the token on onlyworlds.com, found by its last four, with
 	assert.equal(del[0].headers.Authorization, `Bearer ${TOKEN}`);
 });
 
-test("sign out whose revoke fails still forgets the token, and says to revoke it on onlyworlds.com (Kael 3.3)", async () => {
+test("sign out whose revoke fails still forgets the token, and says to revoke it on onlyworlds.com", async () => {
 	keel({ answers: { "GET /account/tokens": { status: 503, json: { error: { message: "down" } } } } });
 	const { app } = makeApp();
 	const plugin = fakePlugin(app, true);
@@ -311,7 +311,7 @@ test("a member whose account has no PIN yet (409 pin_required) gets a read key, 
 
 // --- 2c. Download World from the account --------------------------------------
 
-test("a key minted for a download that then fails is revoked, so no live key is left that no vault holds (Kael nit)", async () => {
+test("a key minted for a download that then fails is revoked, so no live key is left that no vault holds", async () => {
 	keel({
 		answers: {
 			...accountAnswers(),
@@ -362,7 +362,7 @@ test("downloading the same account world again reuses the vault's write key, no 
 	assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion (1)"), null);
 });
 
-test("downloading again holding only a READ key, as a role that can write: a write key is minted, replaces it in World.md, and the read key is revoked (Kael 3.2)", async () => {
+test("downloading again holding only a READ key, as a role that can write: a write key is minted, replaces it in World.md, and the read key is revoked", async () => {
 	const { app, vault } = makeApp();
 	const plugin = fakePlugin(app, true);
 	const cmd = new DownloadWorldCommand(app, { version: "test" }, plugin);
@@ -387,7 +387,7 @@ test("downloading again holding only a READ key, as a role that can write: a wri
 	assert.equal(vault.getAbstractFileByPath("OnlyWorlds/Worlds/Hyperion (1)"), null);
 });
 
-test("a held read key, still no account PIN: no new key, the read key stays, and the user is told (Kael 3.2)", async () => {
+test("a held read key, still no account PIN: no new key, the read key stays, and the user is told", async () => {
 	const { app, vault } = makeApp();
 	const plugin = fakePlugin(app, true);
 	const cmd = new DownloadWorldCommand(app, { version: "test" }, plugin);
@@ -408,7 +408,7 @@ test("a held read key, still no account PIN: no new key, the read key stays, and
 	assert.ok(__notices.some((n) => /no PIN yet/.test(n)));
 });
 
-test("a world already in the vault under a legacy key, or a key the account does not list, is found by its id: no mint, no 'Name (1)' (Kael 3.4)", async () => {
+test("a world already in the vault under a legacy key, or a key the account does not list, is found by its id: no mint, no 'Name (1)'", async () => {
 	for (const held of ["1234567890", "ow_w_unlisted_hyperion"]) {
 		const { app, vault } = makeApp();
 		const plugin = fakePlugin(app, true);
@@ -486,7 +486,7 @@ test("a person code, declined at the preview, accepts nothing", async () => {
 	assert.equal(sent("/account/join").length, 0);
 });
 
-test("a person code's preview says the key by role: a guest's is a read key, a role that writes keeps the plain line (Seethe's walk)", async () => {
+test("a person code's preview says the key by role: a guest's is a read key, a role that writes keeps the plain line", async () => {
 	const READ_LINE = "This vault then downloads the world with its own read key: you can read it here, not change it.";
 	const WRITE_LINE = "This vault then downloads the world with its own key.";
 	for (const [role, line] of [["guest", READ_LINE], ["co_builder", WRITE_LINE], ["contributor", WRITE_LINE]] as const) {
@@ -636,7 +636,7 @@ test("★ the plugin's bundle names the old create route nowhere", () => {
 	assert.ok(!code.includes(OLD_ROUTE), "the bundle still calls a worldsync route");
 });
 
-test("Create World online, signed in: a typed PIN is checked against the account before anything is created (Kael nit)", async () => {
+test("Create World online, signed in: a typed PIN is checked against the account before anything is created", async () => {
 	for (const [pin, created] of [[9999, 0], [1234, 1]] as const) {
 		keel({
 			answers: {

@@ -5,8 +5,8 @@
  * Up to 3.8.1 Download and the counts renamed every category folder to
  * "Location (2)" (a vault not downloaded since may still hold one); the
  * validator looked for "Location" exactly, skipped every folder and reported
- * "Total elements scanned: 0" on a world of real notes (Seethe's walk of the
- * journey's Obsidian chapter, on 3.3.1). Then, with the folders
+ * "Total elements scanned: 0" on a world of real notes (a walk of the
+ * real app, on 3.3.1). Then, with the folders
  * found, it counted frontmatter notes and checked none of them, so a note with
  * no id passed as "No issues". Frontmatter notes now get the two
  * checks that hold in that format: an id, and a name that matches the file.
@@ -85,7 +85,7 @@ test("a frontmatter note whose name does not match its file is an error", async 
 	assert.match(cmd.errors.nameMismatchErrors[0], /Gila River.*Name/);
 });
 
-test("★ a second run on the same command object counts afresh (Seethe saw Checked 2, 4, 6, 8)", async () => {
+test("★ a second run on the same command object counts afresh (not Checked 2, 4, 6, 8)", async () => {
 	const { app, vault } = makeApp();
 	await vault.createFolder(`${WORLD}/Elements/Location (2)`);
 	await vault.create(`${WORLD}/World.md`, "# World Overview: W\n");

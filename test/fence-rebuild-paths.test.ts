@@ -1,5 +1,5 @@
 /**
- * Kael's fixes read, should-fix 1: Manage Fields, Update World Format and
+ * Manage Fields, Update World Format and
  * Copy/Paste World read a note without checking its unclosed fence. The note
  * Save refuses (a fence typed open that swallows `### Background`) was
  * rebuilt with the opener and the swallowed heading escaped and an empty

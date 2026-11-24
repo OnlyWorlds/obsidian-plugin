@@ -1,6 +1,6 @@
 /**
- * A read key (`ow_r_`) never writes and never asks for a PIN (Kael's review of
- * rc-next 3c2780f, finding 3.1). A vault holds one after a player link, as a
+ * A read key (`ow_r_`) never writes and never asks for a PIN (a review of
+ * rc-next 3c2780f). A vault holds one after a player link, as a
  * guest, or as a member with no account PIN. Before: Save, Delete, Upload and
  * auto-sync went straight to the PIN prompt, which opened on every edit, and
  * any PIN then met a 401/403.
@@ -83,7 +83,7 @@ test("Upload with a read key refuses before the PIN is asked", async () => {
 	assert.ok(__notices.some((n) => /^This world is read-only in this vault:/.test(n)));
 });
 
-// --- Delete Element and Rename World refuse BEFORE their dialogs (Seethe's walk of rc-next) ---
+// --- Delete Element and Rename World refuse BEFORE their dialogs ---
 
 const READ_ONLY_LINE = /^This world is read-only in this vault:/;
 
@@ -157,7 +157,7 @@ test("Rename World in a vault holding a read-key world and a write-key world off
 	assert.deepEqual(__requests, []);
 });
 
-// --- Upload World's picker offers only writable worlds (Kael's cold read) ---
+// --- Upload World's picker offers only writable worlds ---
 
 function uploadCommand(h: Awaited<ReturnType<typeof setup>>, activeWorld: string, pin: string | null) {
 	const asked = { pin: false };
@@ -193,7 +193,7 @@ test("Upload in a vault whose every world is read-only refuses up front: the rea
 	assert.ok(__notices.some((n) => READ_ONLY_LINE.test(n)), __notices.join(" / "));
 });
 
-// --- Both pickers say when read-only worlds were left out (Kael's cold read) ---
+// --- Both pickers say when read-only worlds were left out ---
 
 const NOT_LISTED = "Read-only worlds are not listed: their key can read but not write.";
 

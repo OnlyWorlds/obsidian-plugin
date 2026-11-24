@@ -1,6 +1,6 @@
 /**
- * Nameless elements no longer overwrite each other (3.8.0, Fix 1; Kael's
- * measurement 2026-10-22: Moppetopia's 131 nameless Markers downloaded to 113
+ * Nameless elements no longer overwrite each other (3.8.0, Fix 1; measured
+ * 2026-10-22: Moppetopia's 131 nameless Markers downloaded to 113
  * files, `unnamed.md` to `unnamed (100).md` then a clock suffix that several
  * shared in one millisecond, 292 of 310 elements landed).
  *
@@ -9,7 +9,7 @@
  * download; a name past `Name (100)` falls to `Name <id tail>.md`; never the
  * clock. Run against the REAL Download through the in-memory vault.
  *
- * ★ The TAIL, never the first 8 (Skeld's ruling, 2026-10-22): measured on
+ * ★ The TAIL, never the first 8 (ruled 2026-10-22): measured on
  * Moppetopia's capture, its 131 nameless Markers have 10 distinct first-8
  * prefixes and 131 distinct last-8 tails. A uuidv7 starts with its
  * millisecond clock, so elements made in the same minute share a prefix; the

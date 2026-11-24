@@ -1,5 +1,5 @@
 /**
- * Round C fix round, item 6 (N7 from Kael's fixes read): auto-sync sends a
+ * Round C fix round, item 6 (N7): auto-sync sends a
  * new name first, so by the time the user runs Save Element the server
  * already holds it, the name is not in the diff, and Save never renamed the
  * file. Auto-sync still never renames (a rename while typing moves the file
@@ -71,7 +71,7 @@ test("★ the next Save Element renames the note though nothing else changed", a
 	assert.equal(s.sent.length, 1, "the manual Save sent something");
 });
 
-test("★ the pending rename is kept in the plugin's data, per world and note id (Kael's fixes read, low 5)", async () => {
+test("★ the pending rename is kept in the plugin's data, per world and note id", async () => {
 	const s = await session();
 	await s.run(false);
 	assert.deepEqual((s.settings as { pendingRenames?: unknown }).pendingRenames, { W: [ID] });

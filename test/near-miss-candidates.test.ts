@@ -1,5 +1,5 @@
 /**
- * Round C fix round, item 5 (Kael's c-read, low 6): the near-miss notice
+ * Round C fix round, item 5: the near-miss notice
  * named `factions` on a Creature as a likely `actions`. The notice exists for
  * a link that would silently miss, so its candidates are only the type's
  * LINK fields, one edit or a plural/singular slip away; several candidates or

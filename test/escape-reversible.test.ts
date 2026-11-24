@@ -1,5 +1,5 @@
 /**
- * Round C fix round, item 3 (Kael's c-read, low 3): a `\###` line meant
+ * Round C fix round, item 3: a `\###` line meant
  * `###` in a section but kept its backslash in the text before the first
  * heading and in a heading-less body, so the same line read two ways.
  *

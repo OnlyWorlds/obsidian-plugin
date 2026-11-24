@@ -1,7 +1,7 @@
 /**
  * Copy World and Upload World walk a type's folder; a relationship canvas
  * (and a user's copy of one) sits there beside its note. The walks take only
- * Markdown notes (Kael's seam read of rc-350, should-fix 1 and low 1: Copy
+ * Markdown notes (before, Copy
  * World turned each canvas into an "Unnamed" element with a random id).
  */
 import "./support/obsidian-shim"; // MUST stay first
@@ -44,7 +44,7 @@ function ids(entries: Record<string, unknown>[]): string[] {
 	return entries.map((e) => String(e.id)).sort();
 }
 
-test("Kael's probe: Copy World takes the 3 notes as 3 elements, never a canvas as an Unnamed one", async () => {
+test("Copy World takes the 3 notes as 3 elements, never a canvas as an Unnamed one", async () => {
 	const { app } = await seedWorldWithCanvases();
 	const data = (await new CopyWorldCommand(app as App, {} as never, new WorldService(app)).collectWorldData(W)) as Record<
 		string,

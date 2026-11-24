@@ -1,6 +1,5 @@
 /**
- * Round C fix round, item 2 (Kael's c-read, should-fix 2, a regression from
- * 336e123): the folder export resolves a prose `[[link]]` by the note
+ * Round C fix round, item 2 (a regression from 336e123): the folder export resolves a prose `[[link]]` by the note
  * Obsidian resolves it to, and in a vault with two worlds that each hold a
  * `Vallaki` (Copy World then Paste World makes it) Obsidian may pick the
  * other world's note. The mention then went out as literal `[[Vallaki]]`,
@@ -42,7 +41,7 @@ test("★ in a vault with two worlds, [[Vallaki]] exports as the mention of this
 	assert.equal(descriptionOf(p, "ireena"), `Born in [Vallaki](ow://location/${V_BBB}).`);
 });
 
-test("★ when Obsidian picks a plain note inside this world (no id), [[Vallaki]] still exports as this world's element (Kael's fixes read, low 6)", async () => {
+test("★ when Obsidian picks a plain note inside this world (no id), [[Vallaki]] still exports as this world's element", async () => {
 	const { app, vault } = makeApp();
 	await vault.seed("OnlyWorlds/Worlds/Bbb/Elements/Location/Vallaki.md", `---\nname: Vallaki\nid: ${V_BBB}\n---\n\n### Description\n\nA town.\n`);
 	// Beside Ireena, so Obsidian's same-folder preference picks it: a note with no id.

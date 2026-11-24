@@ -1,5 +1,5 @@
 /**
- * Round C, item 3 (Kael's cold read, 6): prose mentions of two same-named
+ * Round C, item 3: prose mentions of two same-named
  * elements imported as `[[Twin]]` twice and exported onto one id, because
  * import wrote the bare name and the folder export's index was keyed by name
  * (the last twin won). A mention now resolves to the note its link points at:

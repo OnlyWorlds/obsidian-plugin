@@ -117,7 +117,7 @@ test("row 5: an edit made in World.md travels; untouched keys stay verbatim", as
 	assert.deepEqual(Object.keys(world), Object.keys(FULL_WORLD));
 });
 
-test("row 5: a world.json spelling the wire's time_range_current is read, and exported as time_current in its place (§5, Kael 3.6)", async () => {
+test("row 5: a world.json spelling the wire's time_range_current is read, and exported as time_current in its place (§5)", async () => {
 	const { app, vault } = makeApp();
 	const wire = { id: WID, name: "Barovia", time_range_current: 12, time_basic_unit: "Year" };
 	await seedFolder(vault, "in/barovia", wire, { "elements/character/ireena--000000c1.json": CHAR_FILE });
@@ -277,7 +277,7 @@ test("row 13: import still reads a legacy spatial/<type>/ folder (old exports on
 	}
 });
 
-// Temper (Atlas): Atlas serves the copy with the larger local_updated_at when an
+// Atlas serves the copy with the larger local_updated_at when an
 // id sits in both spatial/ and elements/, so an old spatial/ file beside a new
 // elements/ one would win forever. A mixed folder can only come from writing
 // into an existing folder, and every export path refuses that.
@@ -407,7 +407,7 @@ const ROUND_TRIP_FOLDER: Record<string, unknown> = {
  * field of the type present, unset ones as the server serves them (the export
  * writes that shape, row 18), in a key order unlike the plugin's own (`id`
  * first, `type` last), so that a byte match proves key order as received
- * (spec §5, Kael's review).
+ * (spec §5).
  */
 function completeSource(rel: string, src: Record<string, unknown>): Record<string, unknown> {
 	const type = rel.split("/")[1];
@@ -530,7 +530,7 @@ test("format_version: every export is a birth: 0.3.16 whether the source carried
 
 // --- v0.3.8 §4 "one id, one file": a reader serves the elements/ copy -------
 
-test("import serves the elements/ copy of an id found in both layouts, and lists the duplicate (§4, Kael 3.5)", async () => {
+test("import serves the elements/ copy of an id found in both layouts, and lists the duplicate (§4)", async () => {
 	const { app, vault } = makeApp();
 	__modals.length = 0;
 	// The legacy spatial/ copy first, so getFiles() order alone would pick it.
