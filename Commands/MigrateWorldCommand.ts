@@ -8,6 +8,11 @@ import {
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
+	bodyFieldForCategory,
+	buildElementBody,
+	getCategorySchema,
+	hasOwn,
+	isExtensionKey,
 	inLineEndingsOf,
 	joinNote,
 	splitNote,
@@ -276,10 +281,22 @@ export class MigrateWorldCommand {
 	): Promise<void> {
 		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
 		const fmText = serializeFrontmatter(fm);
+		// Every text field goes into the body as its section, as writeElement writes
+		// a note (apiDataToFrontmatter leaves text fields out of the front matter);
+		// a span field the type no longer has keeps its value as a section of its own.
+		const schema = getCategorySchema(category) ?? {};
+		const values: Record<string, unknown> = { ...frontmatter, [bodyFieldForCategory(category)]: bodyValue };
+		const extra: string[] = [];
+		for (const [k, v] of Object.entries(frontmatter)) {
+			if (k === 'id' || k === 'name' || hasOwn(schema, k) || isExtensionKey(k) || v == null || v === '') continue;
+			values[`x_${k}`] = Array.isArray(v) ? v.join(', ') : String(v);
+			extra.push(`x_${k}`);
+		}
+		const body = buildElementBody(values, category, extra);
 		// The guard is one-shot per path: marked before the one 'modify' so
 		// auto-sync never sees a migration write.
 		this.markSelfWrite(file.path);
-		await this.app.vault.modify(file, inLineEndingsOf(content, joinNote(fmText, `${bodyValue}\n`)));
+		await this.app.vault.modify(file, inLineEndingsOf(content, joinNote(fmText, `${body}\n`)));
 	}
 }
 

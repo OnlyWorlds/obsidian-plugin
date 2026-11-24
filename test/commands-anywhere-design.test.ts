@@ -80,3 +80,19 @@ test("★ an old note's every field is read, a backtick in a value included", as
 	const r = await migrate(app);
 	assert.deepEqual(r?.converted, [`${E}/Character/Bob.md`], JSON.stringify(r));
 });
+
+// --- 2 Migrate writes every field of an old note --------------------------------------------
+
+test("★ Migrate writes every text field of an old note into its body, and one its type no longer has as a section of its own", async () => {
+	const { app, vault } = makeApp();
+	const path = `${E}/Character/Bob.md`;
+	await seedAll(vault, {
+		[path]: ["## Base", FIELD("Id", A), FIELD("Name", "Bob"), FIELD("Description", "A man."), "", "## Constitution", FIELD("Physicality", "Carries a \\` shaped staff.", "string"), FIELD("Psychology", "Restless.", "text-field"), ""].join("\n"),
+	});
+	const r = await migrate(app);
+	assert.deepEqual(r?.converted, [path], JSON.stringify(r));
+	const text = vault.contentAt(path) ?? "";
+	assert.match(text, /### Physicality\n\nCarries a \\` shaped staff\./, text);
+	assert.match(text, /### Psychology\n\nRestless\./, text);
+	assert.match(text, /### Description\n\nA man\./, text);
+});
