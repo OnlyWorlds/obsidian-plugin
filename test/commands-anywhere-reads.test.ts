@@ -263,3 +263,14 @@ test("Copy world marks its output write as the plugin's own before it writes", a
 	await new Copy(app, {} as never, new WorldService(app), undefined, (p: string) => order.push(`mark ${p}`)).copyWorldData("W");
 	assert.deepEqual(order, [`mark ${W}/World Data File.md`, `modify ${W}/World Data File.md`]);
 });
+
+// --- 6 Copy world: a note that only quotes span markup -------------------------------
+
+test("★ Copy world never makes up an element from a note in a type folder that shows the old format with no Id line", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n\n- **Name:** W\n");
+	await vault.seed(`${E}/Character/Draft.md`, `---\nname: Draft\n---\n\nAn example of the old format:\n- <span class="text-field" data-tooltip="Text">Description</span>: Example.\n`);
+	await vault.seed(`${E}/Character/Ireena.md`, `---\nname: Ireena\nid: ${IREENA}\n---\n\n### Description\n\nA noble.\n`);
+	const data = (await new CopyWorldCommand(app, {} as never, new WorldService(app)).collectWorldData(W)) as Record<string, Record<string, unknown>[]>;
+	assert.deepEqual(data.Character.map((e) => e.name), ["Ireena"], JSON.stringify(data.Character));
+});

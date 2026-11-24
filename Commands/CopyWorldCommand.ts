@@ -200,6 +200,8 @@ export class CopyWorldCommand {
                         parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
                         parsedElement = await this.parseTemplate(fileContent, worldName);
+                        // Span markup with no Id line is a note showing the old format, never an element under a made-up id.
+                        if (!parsedElement.id) return {};
                     }
                     return this.addMissingElementFields(parsedElement, category);
                 }));
