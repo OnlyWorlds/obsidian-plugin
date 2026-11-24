@@ -159,3 +159,21 @@ test("the serializer writes a date as the plain date and a number YAML calls inf
 		"---",
 	].join("\n"));
 });
+
+// --- 3 Update world format: an element's id is a lower-case UUID ------------------
+
+test("★ Update world format leaves a note in a type folder whose id is no element's, and one that only quotes span markup", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed(`${W}/World.md`, "# World Overview: W\n");
+	const notes: Record<string, string> = {
+		[`${E}/Character/Checklist.md`]: "---\nname: Checklist\nid: checklist-7\n---\n\nMy checklist.\n",
+		[`${E}/Character/Upper.md`]: "---\nname: Upper\nid: 019B0000-0000-7000-8000-0000000000E1\n---\n\nShouting.\n",
+		[`${E}/Character/Draft.md`]: `---\nname: Draft\n---\n\nAn example of the old format:\n- <span class="text-field" data-tooltip="Text">Description</span>: Example.\n`,
+	};
+	for (const [p, t] of Object.entries(notes)) await vault.seed(p, t);
+	const cmd = new UpdateWorldFormatCommand(app) as unknown as { buildPlan(w: string): Promise<{ notes: { path: string }[] }>; apply(p: unknown): Promise<void> };
+	const plan = await cmd.buildPlan("W");
+	assert.deepEqual(plan.notes.map((n) => n.path), [], JSON.stringify(plan.notes));
+	await cmd.apply(plan);
+	for (const [p, t] of Object.entries(notes)) assert.equal(vault.contentAt(p), t, `${p} was rewritten`);
+});
