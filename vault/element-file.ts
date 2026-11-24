@@ -273,16 +273,20 @@ export async function readElement(
 	 * `fromBytes`: the note's front matter, and so its id and type, read from the
 	 * bytes just read, never the metadata cache. Copy and Upload read so: a stale
 	 * cache must never make a note of the person's own an element.
+	 * `content`: the note's bytes as the caller already read them (Copy and
+	 * Upload's one reading): parsed instead of a second read, and read as
+	 * `fromBytes` reads.
 	 */
-	opts: { fromBytes?: boolean } = {}
+	opts: { fromBytes?: boolean; content?: string } = {}
 ): Promise<ParsedElement | null> {
-	const content = await app.vault.read(file);
+	const content = opts.content ?? (await app.vault.read(file));
+	const fromBytes = opts.fromBytes === true || opts.content !== undefined;
 
 	// Frontmatter path: cache first, raw YAML fallback (cache-timing safety).
-	let fm = opts.fromBytes ? undefined : (app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined);
+	let fm = fromBytes ? undefined : (app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined);
 	if (!fm || typeof fm.id !== "string") {
 		const raw = parseRawFrontmatter(content);
-		if (raw && (opts.fromBytes || typeof raw.id === "string")) fm = raw;
+		if (raw && (fromBytes || typeof raw.id === "string")) fm = raw;
 	}
 	const pathInfo = elementNoteType(file.path, fm);
 	if (!pathInfo) return null;
@@ -899,6 +903,27 @@ export async function worldElementNotes(app: App, worldName: string): Promise<Ar
 		const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(app, file);
 		const found = elementNoteType(file.path, fm);
 		if (found) out.push({ file, category: found.category });
+	}
+	return out;
+}
+
+/**
+ * A world's element notes as Copy and Upload read them: each candidate note's
+ * bytes read once, and everything decided from that one reading, never the
+ * metadata cache. Its type is `elementNoteType` of its front matter as the
+ * bytes hold it (place decides, else the `type` property with a UUID id), as
+ * `readElement` reads it from the same bytes. An old span note has no front
+ * matter, so it is listed only where its place gives the type. Returns each
+ * note with its type (the folder spelling) and the content read, for every
+ * read after: no second read of a note in the run.
+ */
+export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string; content: string }>> {
+	const out: Array<{ file: TFile; category: string; content: string }> = [];
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(file.path, worldName)) continue;
+		const content = await app.vault.read(file);
+		const found = elementNoteType(file.path, parseRawFrontmatter(content) ?? undefined);
+		if (found) out.push({ file, category: found.category, content });
 	}
 	return out;
 }
