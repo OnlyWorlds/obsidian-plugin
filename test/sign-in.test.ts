@@ -223,7 +223,9 @@ test("closing the dialog while the sign-in is still starting stops it: the liste
 	byText(el, "button", BROWSER_BUTTON)!.click();
 	(m as unknown as { onClose: () => void }).onClose();
 	release();
-	await flush();
+	// Wait for the outcome, not for a count of turns: the start's own async steps take as long as they take
+	// (a slow runner once needed more than one flush, and the assertion read the list too early).
+	for (let i = 0; i < 100 && closed.length === 0; i++) await flush();
 	assert.deepEqual(closed, ["closed"], "the late listener was closed");
 	assert.equal(h.settings.accountToken, "", "and no account was kept");
 });

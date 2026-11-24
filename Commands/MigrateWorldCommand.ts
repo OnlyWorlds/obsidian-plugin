@@ -1,13 +1,25 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from 'obsidian';
 import {
-	isSpanFormat,
+	hasOldSpanIdLine,
+	isOldSpanNote,
+	oldSpanNoteId,
 	parseSpanNote,
+	serializeFrontmatter,
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
+	bodyFieldForCategory,
+	buildElementBody,
+	getCategorySchema,
+	hasOwn,
+	isExtensionKey,
+	inLineEndingsOf,
+	joinNote,
+	splitNote,
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
-import { categoryFolderType } from '../vault/category-folder';
+import { isUnderElements, mayBeElementNote } from '../vault/category-folder';
+import { elementNoteType, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
 	converted: string[];
@@ -17,6 +29,8 @@ interface MigrationResult {
 	 * id lists but preserved in the backup. Surfaced so the loss is never silent. */
 	unresolvedLinks: { path: string; names: string[] }[];
 	backupFolder: string;
+	/** Old span notes outside the type folders under Elements/: not converted, named so none is left without a word. */
+	left: { path: string; reason: string }[];
 }
 
 /**
@@ -64,15 +78,53 @@ export class MigrateWorldCommand {
 		return root.children.filter((c): c is TFolder => c instanceof TFolder).map((f) => f.name);
 	}
 
-	private elementFilesFor(world: string): TFile[] {
-		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
-		return this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
-	}
-
-	private categoryForPath(path: string): string | null {
-		const m = /^OnlyWorlds\/Worlds\/[^/]+\/Elements\/([^/]+)\/.+\.md$/i.exec(path);
-		if (!m) return null;
-		return normalizeCategory(categoryFolderType(m[1]));
+	/**
+	 * What Migrate does with each note of the world's folder, read once.
+	 *
+	 * An old span note is a note in the plugin's old layout and nothing else
+	 * (isOldSpanNote: no front matter, every line a span field or group line).
+	 * It is converted only where the plugin wrote such notes, in a type folder
+	 * under `Elements/`; one anywhere else in the world's folder is left as it
+	 * is and reported, so the person can move it into its type's folder. A note
+	 * with no front matter that has an old `Id` line among other lines is the
+	 * person's own and is reported too, so no old-looking note is left without
+	 * a word. An element note in front matter is counted as skipped. A note
+	 * that cannot be read stops the run before anything is backed up or changed.
+	 */
+	private async survey(world: string): Promise<{
+		convert: Array<{ file: TFile; category: string }>;
+		skipped: string[];
+		left: { path: string; reason: string }[];
+		unreadable: string[];
+		/** Every readable old span note, converted or left: the link targets, as before the survey narrowed what is converted. */
+		linkSources: TFile[];
+	}> {
+		const out = { convert: [] as Array<{ file: TFile; category: string }>, skipped: [] as string[], left: [] as { path: string; reason: string }[], unreadable: [] as string[], linkSources: [] as TFile[] };
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			if (!mayBeElementNote(file.path, world)) continue;
+			let content: string;
+			try {
+				content = await this.app.vault.read(file);
+			} catch {
+				out.unreadable.push(file.path);
+				continue;
+			}
+			const block = splitNote(content).frontmatter;
+			if (block) {
+				const fmId = ownFrontmatterId(content);
+				if (fmId && elementNoteType(file.path, parseRawFrontmatter(block) ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
+				continue;
+			}
+			if (!oldSpanNoteId(content)) {
+				if (hasOldSpanIdLine(content)) out.left.push({ path: file.path, reason: 'old span lines among other lines: read as your own, not converted' });
+				continue; // the person's own note
+			}
+			out.linkSources.push(file);
+			const place = isUnderElements(file.path) ? elementNoteType(file.path, {}) : null;
+			if (place) out.convert.push({ file, category: normalizeCategory(place.category) });
+			else out.left.push({ path: file.path, reason: 'an old note outside the type folders under Elements/: move it into its type\'s folder there, then run Migrate again' });
+		}
+		return out;
 	}
 
 	// A cache-independent span id/name scrape for building the resolver, since a
@@ -111,9 +163,18 @@ export class MigrateWorldCommand {
 	}
 
 	private async migrateWorld(world: string): Promise<void> {
-		const files = this.elementFilesFor(world);
+		const found = await this.survey(world);
+		if (found.unreadable.length > 0) {
+			new Notice(`Migration aborted: ${found.unreadable.join(', ')} could not be read. Nothing was backed up or changed.`, 15000);
+			return;
+		}
+		const files = found.convert.map((n) => n.file);
+		const categoryOf = new Map(found.convert.map((n) => [n.file.path, n.category]));
 		if (files.length === 0) {
-			new Notice(`No element notes found in ${world}.`);
+			const left = found.left.length
+				? ` ${found.left.length} old note${found.left.length === 1 ? ' is' : 's are'} outside the type folders under Elements/ and ${found.left.length === 1 ? 'was' : 'were'} left as ${found.left.length === 1 ? 'it is' : 'they are'}: ${found.left.map((l) => l.path).join(', ')}.`
+				: '';
+			new Notice(`No old notes to migrate in ${world}.${left}`, left ? 15000 : 5000);
 			return;
 		}
 
@@ -132,22 +193,22 @@ export class MigrateWorldCommand {
 		// for resolving span [[names]], and id->name so migrated link fields
 		// render as readable [[Name]] wikilinks instead of raw ids (audit polish
 		// 2026-07-17 — migration is the one write path that skipped this).
-		const spanIndex = await this.scrapeSpanIndex(files);
+		const spanIndex = await this.scrapeSpanIndex(found.linkSources);
 		const resolve = (name: string) => spanIndex.get(name) ?? null;
-		const idToName = await this.scrapeIdToName(files);
+		const idToName = await this.scrapeIdToName(found.linkSources);
 
 		const result: MigrationResult = {
-			converted: [], skipped: [], failed: [], unresolvedLinks: [], backupFolder,
+			converted: [], skipped: found.skipped, failed: [], unresolvedLinks: [], backupFolder, left: found.left,
 		};
 
 		for (const file of files) {
 			try {
 				const content = await this.app.vault.read(file);
-				if (!isSpanFormat(content)) {
-					result.skipped.push(file.path); // already frontmatter — idempotent
+				if (!isOldSpanNote(content)) {
+					result.skipped.push(file.path); // changed since the survey: no longer an old note
 					continue;
 				}
-				const category = this.categoryForPath(file.path);
+				const category = categoryOf.get(file.path);
 				if (!category) {
 					result.failed.push({ path: file.path, reason: 'not an element path' });
 					continue;
@@ -158,7 +219,7 @@ export class MigrateWorldCommand {
 					continue;
 				}
 				const { frontmatter, bodyValue, unresolved } = spanFieldsToFrontmatter(parsed, category, resolve);
-				await this.writeFrontmatterNote(file, category, parsed.id, frontmatter, bodyValue, idToName);
+				await this.writeFrontmatterNote(file, content, category, parsed.id, frontmatter, bodyValue, idToName);
 				result.converted.push(file.path);
 				if (unresolved.length > 0) {
 					result.unresolvedLinks.push({ path: file.path, names: unresolved });
@@ -202,29 +263,40 @@ export class MigrateWorldCommand {
 	 * Overwrite `file` in place with frontmatter + body. In-place (not via
 	 * writeElement) so the filename/location is preserved exactly and the
 	 * backup remains the sole source of the old bytes.
+	 *
+	 * ONE write (THE WRITE RULE): the block is built here and joined to the
+	 * body, never processFrontMatter. `frontmatter` already excludes the body
+	 * field (span parse split it into bodyValue), and apiDataToFrontmatter
+	 * normalizes link ids and preserves extension keys. An old note has no
+	 * front matter (isOldSpanNote), so the block is the migrated keys alone.
 	 */
 	private async writeFrontmatterNote(
 		file: TFile,
+		content: string,
 		category: string,
 		id: string,
 		frontmatter: Record<string, unknown>,
 		bodyValue: string,
 		idToName: (id: string) => string | null
 	): Promise<void> {
-		// Seed the frontmatter block + body, then let processFrontMatter type the
-		// values. `frontmatter` already excludes the body field (span parse split
-		// it into bodyValue), and apiDataToFrontmatter normalizes link ids and
-		// preserves extension keys.
-		// The guard is one-shot per path and BOTH calls below fire a 'modify'
-		// event — mark before each so auto-sync never sees migration writes.
-		this.markSelfWrite(file.path);
-		await this.app.vault.modify(file, `---\nid: ${id}\n---\n\n${bodyValue}\n`);
 		const fm = apiDataToFrontmatter(frontmatter, category, id, { resolveIdToName: idToName });
+		const fmText = serializeFrontmatter(fm);
+		// Every text field goes into the body as its section, as writeElement writes
+		// a note (apiDataToFrontmatter leaves text fields out of the front matter);
+		// a span field the type no longer has keeps its value as a section of its own.
+		const schema = getCategorySchema(category) ?? {};
+		const values: Record<string, unknown> = { ...frontmatter, [bodyFieldForCategory(category)]: bodyValue };
+		const extra: string[] = [];
+		for (const [k, v] of Object.entries(frontmatter)) {
+			if (k === 'id' || k === 'name' || hasOwn(schema, k) || isExtensionKey(k) || v == null || v === '') continue;
+			values[`x_${k}`] = typeof v === 'string' ? v : Array.isArray(v) ? v.join(', ') : typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
+			extra.push(`x_${k}`);
+		}
+		const body = buildElementBody(values, category, extra);
+		// The guard is one-shot per path: marked before the one 'modify' so
+		// auto-sync never sees a migration write.
 		this.markSelfWrite(file.path);
-		await this.app.fileManager.processFrontMatter(file, (target) => {
-			const t = target as Record<string, unknown>;
-			for (const [k, v] of Object.entries(fm)) t[k] = v;
-		});
+		await this.app.vault.modify(file, inLineEndingsOf(content, joinNote(fmText, `${body}\n`)));
 	}
 }
 
@@ -298,6 +370,14 @@ class MigrationReportModal extends Modal {
 			const list = contentEl.createEl('ul');
 			for (const f of this.result.failed) {
 				list.createEl('li', { text: `${f.path} — ${f.reason}` });
+			}
+		}
+
+		if (this.result.left.length > 0) {
+			contentEl.createEl('h3', { text: 'Old notes left as they are' });
+			const list = contentEl.createEl('ul');
+			for (const l of this.result.left) {
+				list.createEl('li', { text: `${l.path} — ${l.reason}` });
 			}
 		}
 

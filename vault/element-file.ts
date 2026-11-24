@@ -19,7 +19,8 @@ import {
 	bodyFieldForCategory,
 	normalizeCategory,
 	getCategorySchema,
-	isSpanFormat,
+	isOldSpanNote,
+	oldSpanNoteId,
 	parseSpanNote,
 	spanFieldsToFrontmatter,
 	parseRawFrontmatterScalars,
@@ -249,14 +250,27 @@ export function categoryToResourceKey(category: string): string {
  * a caller writes then immediately re-reads, the cache may lag; we fall back to
  * parsing the raw YAML block so reads are not cache-timing-dependent.
  */
-export async function readElement(app: App, file: TFile): Promise<ParsedElement | null> {
-	const content = await app.vault.read(file);
+export async function readElement(
+	app: App,
+	file: TFile,
+	/**
+	 * `fromBytes`: the note's front matter, and so its id and type, read from the
+	 * bytes just read, never the metadata cache: a stale cache must never make a
+	 * note of the person's own an element.
+	 * `content`: the note's bytes as the caller already read them (Copy and
+	 * Upload's one reading, worldElementNotesFromBytes): parsed instead of a
+	 * second read, and read as `fromBytes` reads.
+	 */
+	opts: { fromBytes?: boolean; content?: string } = {}
+): Promise<ParsedElement | null> {
+	const content = opts.content ?? (await app.vault.read(file));
+	const fromBytes = opts.fromBytes === true || opts.content !== undefined;
 
 	// Frontmatter path: cache first, raw YAML fallback (cache-timing safety).
-	let fm = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+	let fm = fromBytes ? undefined : (app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined);
 	if (!fm || typeof fm.id !== "string") {
 		const raw = parseRawFrontmatter(content);
-		if (raw && typeof raw.id === "string") fm = raw;
+		if (raw && (fromBytes || typeof raw.id === "string")) fm = raw;
 	}
 	const pathInfo = elementNoteType(file.path, fm);
 	if (!pathInfo) return null;
@@ -373,8 +387,9 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 		};
 	}
 
-	// Legacy span-format fallback (pre-migration notes).
-	if (isSpanFormat(content)) {
+	// Legacy span-format fallback (pre-migration notes): only a note in the old
+	// layout and nothing else (isOldSpanNote); any other note is the person's own.
+	if (isOldSpanNote(content)) {
 		const parsed = parseSpanNote(content);
 		if (!parsed.id) return null;
 		const resolver = buildVaultLinkResolver(app, pathInfo.worldName);
@@ -673,6 +688,110 @@ export function parseRawFrontmatter(content: string): Record<string, unknown> | 
 }
 
 /**
+ * The id a note's front matter holds, as the YAML reader reads it: a quoted
+ * key (`"id": …`), a comment after the value and any quoting are the
+ * reader's to settle, not a line scan's. When the block does not parse, the
+ * line scan's reading, so a note with a broken block and an `id` line still
+ * counts as a note with an id (never as an old span note). Null when the
+ * note's front matter holds no id.
+ */
+export function ownFrontmatterId(content: string): string | null {
+	const block = splitNote(content).frontmatter;
+	if (!block) return null;
+	const fm = parseRawFrontmatter(block);
+	if (!fm) return parseRawFrontmatterScalars(block, ["id"]).id ?? null;
+	const id = fm.id;
+	if (typeof id === "string") return id.trim() ? id : null;
+	return typeof id === "number" ? String(id) : null;
+}
+
+/**
+ * A note's front matter block with the person's own lines kept as they wrote
+ * them: the keys in `drop` are removed, `first` is written before the kept
+ * lines and `last` after them (a key in either replaces the line of that
+ * name). Every other line, its spelling, quoting, comments and order, stays as
+ * it is, so a date stays `2024-01-01`, a block string stays a block, `.inf`
+ * stays `.inf`, whatever the YAML reader makes of them.
+ *
+ * `block` is the note's `---` block, or "" for a note with none. Returns null
+ * when the lines cannot be told apart by key (a top-level line that is not a
+ * key, two keys on one line), or when reading the result back does not give
+ * each kept property its old value: the caller then writes the whole block.
+ */
+export function editFrontmatterLines(
+	block: string,
+	drop: Iterable<string>,
+	first: Record<string, unknown>,
+	last: Record<string, unknown>
+): string | null {
+	const inner = (o: Record<string, unknown>): string[] => (Object.keys(o).length ? serializeFrontmatter(o).split("\n").slice(1, -1) : []);
+	const dropList = [...drop];
+	if (!block.trim()) {
+		const lines = [...inner(first), ...inner(last)];
+		return lines.length ? ["---", ...lines, "---"].join("\n") : "";
+	}
+	// Nothing to change: the block as it is, whatever form it takes.
+	if (dropList.length === 0 && Object.keys(first).length === 0 && Object.keys(last).length === 0) return block.replace(/(\r?\n)+$/, "");
+	const eol = block.includes("\r\n") ? "\r\n" : "\n";
+	const lines = block.replace(/\r\n/g, "\n").replace(/\n+$/, "").split("\n");
+	if (lines.length < 2 || lines[0].trimEnd() !== "---" || lines[lines.length - 1].trimEnd() !== "---") return null;
+	const head: string[] = [];
+	const tail: string[] = [];
+	const entries: Array<{ key: string; lines: string[] }> = [];
+	for (const line of lines.slice(1, -1)) {
+		// A key starts at the line's first character; indented lines and list items belong to the entry above.
+		if (/^[^\s#]/.test(line) && !/^-(\s|$)/.test(line)) entries.push({ key: "", lines: [line] });
+		else if (entries.length) entries[entries.length - 1].lines.push(line);
+		else head.push(line);
+	}
+	// A comment (or blank line) after an entry's own lines belongs to the key below it: it stays when the entry above goes.
+	for (let i = 0; i < entries.length; i++) {
+		const own = entries[i].lines;
+		let cut = own.length;
+		while (cut > 1 && (own[cut - 1].trim() === "" || own[cut - 1].startsWith("#"))) cut--;
+		const moved = own.splice(cut);
+		if (i + 1 < entries.length) entries[i + 1].lines.unshift(...moved);
+		else tail.push(...moved);
+	}
+	for (const e of entries) {
+		const one = parseRawFrontmatter(`---\n${e.lines.join("\n")}\n---`);
+		const keys = one ? Object.keys(one) : [];
+		if (keys.length !== 1) return null;
+		e.key = keys[0];
+	}
+	const replaced = new Set<string>([...dropList, ...Object.keys(first), ...Object.keys(last)]);
+	const kept = entries.filter((e) => !replaced.has(e.key));
+	// A dropped entry's comment lines stay where they were; only its key and value go.
+	const body = entries.flatMap((e) => (replaced.has(e.key) ? e.lines.filter((l) => l.startsWith("#")) : e.lines));
+	const out = ["---", ...head, ...inner(first), ...body, ...tail, ...inner(last), "---"].join(eol);
+	// The check: every kept property reads back as it read before, and nothing else came or went.
+	const before = parseRawFrontmatter(block.replace(/\n+$/, "")) ?? {};
+	const after = parseRawFrontmatter(out);
+	if (!after) return null;
+	const want = new Set<string>([...kept.map((e) => e.key), ...Object.keys(first), ...Object.keys(last)]);
+	if (Object.keys(after).some((k) => !want.has(k))) return null;
+	for (const e of kept) {
+		if (!hasOwn(after, e.key) || !sameYamlValue(before[e.key], after[e.key])) return null;
+	}
+	return out;
+}
+
+/** Two values a YAML reader made are the same value: dates by their time, NaN as NaN, lists and maps entry by entry. */
+function sameYamlValue(a: unknown, b: unknown): boolean {
+	if (a instanceof Date || b instanceof Date) return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+	if (typeof a === "number" && typeof b === "number") return Object.is(a, b) || a === b;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameYamlValue(x, b[i]));
+	}
+	if (a && b && typeof a === "object" && typeof b === "object") {
+		const ka = Object.keys(a);
+		const kb = Object.keys(b);
+		return ka.length === kb.length && ka.every((k) => hasOwn(b, k) && sameYamlValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+	}
+	return a === b;
+}
+
+/**
  * The path for an element whose note was not found by id: `<base>.md`, unless a
  * DIFFERENT element (or any id-less note) already holds it — then the next free
  * `<base> (N).md`, N from 1, the collision convention create/download/paste
@@ -717,7 +836,9 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	// is still this element's, and rewriting it in place is what heals it.
 	const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ""), ["id"]).id;
 	if (fmId) return fmId;
-	if (isSpanFormat(content)) return parseSpanNote(content).id;
+	// An old span note's id, only from a note in the old layout: a quoted example never makes a note an element's.
+	const spanId = oldSpanNoteId(content);
+	if (spanId) return spanId;
 	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
 }
 
@@ -747,6 +868,108 @@ export async function readFrontmatter(app: App, file: TFile): Promise<Record<str
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * A world's element notes, wherever they sit in its folder, each with its type
+ * (the Markdown profile, sentences 1 and 2), by `elementNoteType`: the first
+ * type folder on its path decides, and only a note outside every type folder is
+ * read by its `type` property, with an id that is a UUID. Every other note is
+ * the person's own and is not listed. A note in a type folder under Elements/
+ * needs no front matter to be read (an old span note has none); any other is
+ * read from the metadata cache, or from the disk when the cache is cold. One
+ * pass over the vault. `category` is the type's folder spelling (`Location`).
+ */
+export async function worldElementNotes(app: App, worldName: string): Promise<Array<{ file: TFile; category: string }>> {
+	const out: Array<{ file: TFile; category: string }> = [];
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(file.path, worldName)) continue;
+		const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(app, file);
+		const found = elementNoteType(file.path, fm);
+		if (found) out.push({ file, category: found.category });
+	}
+	return out;
+}
+
+/**
+ * A world's element notes as Copy and Upload read them: each candidate note's
+ * bytes read once, and everything decided from that one reading, never the
+ * metadata cache. Its type is `elementNoteType` of its front matter as the
+ * bytes hold it (place decides, else the `type` property with a UUID id), as
+ * `readElement` reads it from the same bytes. An old span note has no front
+ * matter, so it is listed only where its place gives the type. Returns each
+ * note with its type (the folder spelling), the content read, for every
+ * read after (no second read of a note in the run), and its front matter's
+ * string id as `readElement` reads it from those bytes (null for a note with
+ * none, an old span note included: each command counts an old span note by the
+ * id its own parser emits). A candidate whose read fails (a file deleted
+ * mid-run, a sync placeholder) is returned in `unreadable`: Copy and Upload
+ * then stop and name it (unreadableStopMessage), copying and sending nothing.
+ */
+export async function worldElementNotesFromBytes(app: App, worldName: string): Promise<{
+	notes: Array<{ file: TFile; category: string; content: string; id: string | null }>;
+	unreadable: TFile[];
+}> {
+	const notes: Array<{ file: TFile; category: string; content: string; id: string | null }> = [];
+	const unreadable: TFile[] = [];
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(file.path, worldName)) continue;
+		let content: string;
+		try {
+			content = await app.vault.read(file);
+		} catch {
+			unreadable.push(file);
+			continue;
+		}
+		const fm = parseRawFrontmatter(content) ?? undefined;
+		const found = elementNoteType(file.path, fm);
+		if (!found) continue;
+		notes.push({ file, category: found.category, content, id: typeof fm?.id === "string" ? fm.id : null });
+	}
+	return { notes, unreadable };
+}
+
+/**
+ * What Copy and Upload say when a note in the world's folder could not be
+ * read: the run stops, since a note nobody read may hold another note's id.
+ * Named by its path in the vault (two notes may share a name); more than one:
+ * the first, and how many more. `nothing` is what did not happen ("nothing
+ * was copied").
+ */
+export function unreadableStopMessage(unreadable: TFile[], nothing: string): string {
+	const more = unreadable.length - 1;
+	const others = more > 0 ? ` and ${more} more note${more === 1 ? "" : "s"}` : "";
+	return `${unreadable[0].path}${others} could not be read, so ${nothing}. Try again.`;
+}
+
+/**
+ * The key a duplicate count gives an id a command emits: the id as text, or
+ * null when it has none. An old span parser can emit a link's id list, which
+ * counts as its text joined by commas, as the count over the emitted elements
+ * always did (String of a list).
+ */
+export function emittedIdKey(id: unknown): string | null {
+	if (!id) return null;
+	if (typeof id === "string") return id;
+	if (typeof id === "number") return String(id);
+	if (Array.isArray(id)) return id.map((v) => emittedIdKey(v) ?? "").join(",");
+	return null;
+}
+
+/**
+ * The ids two or more of these notes hold: counted over every note a command
+ * listed, before any note is refused for anything else, so a refused note
+ * never makes its twin look unique.
+ */
+export function duplicateIds(ids: Array<string | null>): Set<string> {
+	const seen = new Set<string>();
+	const twice = new Set<string>();
+	for (const id of ids) {
+		if (!id) continue;
+		if (seen.has(id)) twice.add(id);
+		seen.add(id);
+	}
+	return twice;
 }
 
 /**

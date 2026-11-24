@@ -63,7 +63,7 @@ export function hasOwn(obj: object, key: string): boolean {
 }
 
 /** Set an own property of `obj` even for a name like `__proto__` or `constructor`, which a plain assignment treats as the prototype's. */
-function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
+export function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
 	Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
@@ -637,21 +637,60 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
 		const key = yamlKey(rawKey);
 		if (value === null || value === undefined) {
 			lines.push(`${key}:`);
+		} else if (value instanceof Date || (typeof value === "number" && !Number.isFinite(value))) {
+			lines.push(`${key}: ${yamlFlow(value)}`);
 		} else if (Array.isArray(value)) {
 			if (value.length === 0) lines.push(`${key}: []`);
-			else if (!value.every(isBlockListItem)) lines.push(`${key}: ${JSON.stringify(value)}`);
+			else if (!value.every(isBlockListItem)) lines.push(`${key}: ${structure(value)}`);
 			else {
 				lines.push(`${key}:`);
 				for (const item of value) lines.push(`  - ${yamlScalar(item)}`);
 			}
 		} else if (typeof value === "object") {
-			lines.push(`${key}: ${JSON.stringify(value)}`);
+			lines.push(`${key}: ${structure(value)}`);
 		} else {
 			lines.push(`${key}: ${yamlScalar(value)}`);
 		}
 	}
 	lines.push("---");
 	return lines.join("\n");
+}
+
+/**
+ * A list or map on one line: JSON, as it always was, unless it holds a value
+ * JSON cannot carry (a date a YAML reader made, a number that is infinite or
+ * not a number). Then YAML's flow form, which can: JSON's strings and quoted
+ * keys, the date as the plain date, `.inf` and `.nan` as YAML spells them.
+ * JSON stays for everything else, so no other note's bytes change.
+ */
+function structure(value: unknown): string {
+	return needsYaml(value) ? yamlFlow(value) : JSON.stringify(value);
+}
+
+function needsYaml(value: unknown): boolean {
+	if (value instanceof Date) return true;
+	if (typeof value === "number") return !Number.isFinite(value);
+	if (Array.isArray(value)) return value.some(needsYaml);
+	if (value && typeof value === "object") return Object.values(value).some(needsYaml);
+	return false;
+}
+
+/** One value in YAML's flow form (see `structure`). */
+function yamlFlow(value: unknown): string {
+	if (value instanceof Date) {
+		const s = dateToFieldString(value);
+		return typeof s === "string" ? s : "null";
+	}
+	if (typeof value === "number") {
+		if (Number.isNaN(value)) return ".nan";
+		if (!Number.isFinite(value)) return value > 0 ? ".inf" : "-.inf";
+		return String(value);
+	}
+	if (Array.isArray(value)) return `[${value.map(yamlFlow).join(", ")}]`;
+	if (value && typeof value === "object") {
+		return `{${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${yamlFlow(v)}`).join(", ")}}`;
+	}
+	return JSON.stringify(value ?? null);
 }
 
 /**
@@ -756,6 +795,17 @@ export function joinNote(frontmatter: string, body: string): string {
 	const b = body.replace(/^\s*\n/, "");
 	if (!fm) return b;
 	return `${fm}\n\n${b.replace(/^\n+/, "")}`;
+}
+
+/**
+ * `text` in the line endings of the note it replaces: a note written with
+ * CRLF throughout is written back with CRLF throughout, so a rewrite never
+ * changes every line of it (a whole-note diff in a vault kept in git). A note
+ * with LF, or with mixed endings, gets `text` as it is.
+ */
+export function inLineEndingsOf(original: string, text: string): string {
+	const crlfOnly = original.includes("\r\n") && !/(^|[^\r])\n/.test(original);
+	return crlfOnly ? text.replace(/\r?\n/g, "\r\n") : text;
 }
 
 /** `x_looks` -> `looks`. Only strips the namespace, never other content. */
@@ -1977,6 +2027,48 @@ function extractWikilinks(raw: string): string[] {
 		if (n) names.push(n);
 	}
 	return names;
+}
+
+/** A field line of the plugin's old span layout: `- <span class="…" data-tooltip="…">Label</span>: value`. */
+const OLD_SPAN_FIELD = /^- <span class="[a-z-]+" data-tooltip="[^"]*">[^<]+<\/span>:/;
+/** A group line of the old layout: `## Base`, `## Constitution`, ... */
+const OLD_SPAN_GROUP = /^## \S/;
+/** An old layout's `Id` field line, at the start of a line. */
+const OLD_SPAN_ID_LINE = /^- <span class="[a-z-]+" data-tooltip="[^"]*">Id<\/span>:/m;
+
+/**
+ * True when a note is in the plugin's old span layout and nothing else: no
+ * front matter at all, and every non-blank line a span field line or a
+ * `## Group` line, with at least one field line. That is exactly what the old
+ * writers wrote (the upstream templates, obsidian_handlebars and
+ * obsidian_templates, 2024-07 to 2025-07: group lines, blank lines and field
+ * lines; Create element filled the Name and Id lines in place; no title, no
+ * front matter). Any other line, prose, a fence, an example in inline code,
+ * makes the note the person's own: no reader guesses which of its span lines
+ * are the note's. (A value an old writer wrote with a line break runs onto a
+ * line of its own, so such a note is the person's own too; Migrate names it.)
+ */
+export function isOldSpanNote(content: string): boolean {
+	const text = content.replace(/^\uFEFF/, "");
+	if (splitNote(text).frontmatter) return false;
+	let fields = 0;
+	for (const raw of text.split("\n")) {
+		const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+		if (line.trim() === "") continue;
+		if (OLD_SPAN_FIELD.test(line)) fields++;
+		else if (!OLD_SPAN_GROUP.test(line)) return false;
+	}
+	return fields > 0;
+}
+
+/** The id an old span note carries in its Id line (`isOldSpanNote`), or null for any other note. */
+export function oldSpanNoteId(content: string): string | null {
+	return isOldSpanNote(content) ? parseSpanNote(content).id : null;
+}
+
+/** True when a note has an old layout's `Id` line at the start of a line, whatever else it holds (for naming what Migrate leaves). */
+export function hasOldSpanIdLine(content: string): boolean {
+	return OLD_SPAN_ID_LINE.test(content);
 }
 
 /** Detect span format cheaply (used to decide read path / migration eligibility). */

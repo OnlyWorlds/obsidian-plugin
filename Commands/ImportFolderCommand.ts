@@ -1,7 +1,8 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
-import { writeElement } from "../vault/element-file";
+import { ownFrontmatterId, pickNoteForId, writeElement } from "../vault/element-file";
+import { mayBeElementNote } from "../vault/category-folder";
 import { isKnownOfElement } from "../sync/known-of";
-import { bodyFieldForCategory, getCategorySchema, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
+import { bodyFieldForCategory, getCategorySchema, normalizeCategory } from "../vault/element-transform";
 import { sanitizeFileName } from "../Scripts/WorldService";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
@@ -16,6 +17,9 @@ import {
 	isUuid,
 	type ElementRef,
 } from "../vault/folder-format";
+
+/** A note in the target world's folder that holds an id, the id, and whether it was read from the disk (else the metadata cache). */
+type HeldNote = { file: TFile; id: string; onDisk: boolean };
 
 /**
  * Import OnlyWorlds folder (S9 Phase C / Rail 2).
@@ -210,14 +214,15 @@ export class ImportFolderCommand {
 			return;
 		}
 
-		// Existing element ids in the target world (R5 skip-existing).
-		const existingIds = await this.existingElementIds(targetWorld);
+		// Existing element ids in the target world, wherever their notes sit (R5 skip-existing).
+		const held = await this.worldElementIds(targetWorld);
+		const existingIds = new Set(held.map((n) => n.id));
 
 		// Plan every note's name before writing any, and render link fields as
 		// `[[Name]]` from that plan, as Download does. The
 		// metadata cache is not consulted: it is cold for notes written moments
 		// ago in this run, so links came in as raw uuids (hop 9: 43%).
-		const idToName = await this.planNoteNames(targetWorld, parsed, existingIds);
+		const idToName = await this.planNoteNames(targetWorld, parsed, existingIds, held);
 		// The elements' own names, for the `### Depends on` lines (shown where
 		// they differ from the note's name).
 		const realNames = new Map<string, string>();
@@ -365,22 +370,29 @@ export class ImportFolderCommand {
 	private async planNoteNames(
 		world: string,
 		parsed: { type: string; payload: Record<string, unknown> }[],
-		existingIds: Set<string>
+		existingIds: Set<string>,
+		held: HeldNote[]
 	): Promise<Map<string, string>> {
 		const names = new Map<string, string>();
 		const inFolder = new Set(parsed.map((el) => String(el.payload.id)));
 		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
+		// Every file under Elements/ holds its path, element note or not: a new note never takes it.
 		const taken = new Set<string>();
 		for (const f of this.app.vault.getMarkdownFiles()) {
-			if (!f.path.startsWith(prefix)) continue;
-			taken.add(f.path.toLowerCase());
-			let id: string | undefined;
-			try {
-				id = parseRawFrontmatterScalars((await this.app.vault.read(f)).replace(/^\s+/, ""), ["id"]).id;
-			} catch {
-				id = undefined;
-			}
-			if (id && inFolder.has(id) && existingIds.has(id)) names.set(id, f.basename);
+			if (f.path.startsWith(prefix)) taken.add(f.path.toLowerCase());
+		}
+		// A skipped element's note, wherever the person keeps it, names its links
+		// (of two notes with one id, the one a pull would write to).
+		const byId = new Map<string, HeldNote[]>();
+		for (const n of held) {
+			if (n.onDisk && inFolder.has(n.id) && existingIds.has(n.id)) byId.set(n.id, [...(byId.get(n.id) ?? []), n]);
+		}
+		const typeOf = new Map(parsed.map((el) => [String(el.payload.id), normalizeCategory(el.type)]));
+		for (const [id, notes] of byId) {
+			const cat = typeOf.get(id) ?? "";
+			const path = pickNoteForId(notes.map((n) => n.file.path), world, cat.charAt(0).toUpperCase() + cat.slice(1));
+			const note = notes.find((n) => n.file.path === path);
+			if (note) names.set(id, note.file.basename);
 		}
 		for (const el of parsed) {
 			const id = String(el.payload.id);
@@ -402,29 +414,36 @@ export class ImportFolderCommand {
 	}
 
 	/**
-	 * All element ids already present in the target world's notes (R5). Each
-	 * note's id is read from disk when the metadata cache has none: on a
-	 * re-import before Obsidian has indexed the notes, a cache-only read missed
-	 * every id and wrote a second note for each (Kael's cold read, 3).
+	 * Every id a note in the target world's folder holds (R5), wherever it sits
+	 * and whether or not the profile reads it as an element: a note the person
+	 * moved out of its type folder, typed or not, is skipped by the import, never
+	 * written over (writeElement finds an element's note by id anywhere) and
+	 * never given a second note with its id. Each note's id is read from disk
+	 * when the metadata cache has none, an entry with no front matter included:
+	 * on a re-import before Obsidian has indexed the notes, a cache-only read
+	 * missed every id and wrote a second note for each (Kael's cold read, 3).
+	 *
+	 * Each note is read from disk too, and both ids are held when the cache is
+	 * stale and they differ, so neither is imported over the note. Only the
+	 * disk's id names a link target (`onDisk`): a stale cache must never make a
+	 * link to one element name the note that now holds another.
 	 */
-	private async existingElementIds(world: string): Promise<Set<string>> {
-		const ids = new Set<string>();
-		const prefix = `OnlyWorlds/Worlds/${world}/Elements/`;
-		for (const f of this.app.vault.getMarkdownFiles()) {
-			if (!f.path.startsWith(prefix)) continue;
-			const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
-			if (fm && typeof fm.id === "string") {
-				ids.add(fm.id);
-				continue;
-			}
+	private async worldElementIds(world: string): Promise<HeldNote[]> {
+		const out: HeldNote[] = [];
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			if (!mayBeElementNote(file.path, world)) continue;
+			const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+			const cached = fm && typeof fm.id === "string" ? fm.id : undefined;
+			let onDisk: string | undefined;
 			try {
-				const id = parseRawFrontmatterScalars((await this.app.vault.read(f)).replace(/^\s+/, ""), ["id"]).id;
-				if (id) ids.add(id);
+				onDisk = ownFrontmatterId(await this.app.vault.read(file)) ?? undefined;
 			} catch {
-				/* unreadable note: not an id this import can see */
+				/* unreadable note: only the cache's id, if any, is seen */
 			}
+			if (onDisk) out.push({ file, id: onDisk, onDisk: true });
+			if (cached && cached !== onDisk) out.push({ file, id: cached, onDisk: false });
 		}
-		return ids;
+		return out;
 	}
 
 	/**

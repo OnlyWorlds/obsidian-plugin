@@ -64,12 +64,16 @@ export class UpdateWorldFormatModal extends Modal {
 			warn.style.padding = '8px 12px';
 			warn.style.margin = '12px 0';
 			warn.createEl('strong', { text: `${review.length} note(s) skipped. Check these yourself` });
-			warn.createEl('p', {
-				text:
-					'Their body already contains headings that match field names. Updating them ' +
-					'would move that text out of the description, so they are left untouched.',
-				cls: 'setting-item-description',
-			});
+			// The paragraph explains only the notes listed by their path. A note with a sentence of its own
+			// (an open code fence, the plugin's old layout) says its reason on its own line.
+			if (review.some((n) => !n.refused)) {
+				warn.createEl('p', {
+					text:
+						'A note listed by its path already has headings in its body that match field names. ' +
+						'Updating it would move that text out of the description, so it is left untouched.',
+					cls: 'setting-item-description',
+				});
+			}
 			const rl = warn.createEl('ul');
 			// A note skipped for an open code fence says why, as Save does.
 			for (const n of review.slice(0, 10)) rl.createEl('li', { text: n.refused ?? n.path });

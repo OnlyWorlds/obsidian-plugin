@@ -9,8 +9,8 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { elementNoteType, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
-import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
+import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
@@ -18,10 +18,23 @@ import { confirm } from '../Modals/ConfirmModal';
 import { forgetDeleted } from '../sync/deleted-on-server';
 import { isStubNote } from '../sync/hidden-on-server';
 import { isKnownOfNote, isLastKnownId } from '../sync/known-of';
-import { isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
 /** An element id as a link value holds it. */
 const ELEMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** One upload's reading of a world's element notes (worldElementNotesFromBytes): each note's type, bytes and front-matter id. */
+type ListedNote = { file: TFile; type: string; content: string; id: string | null };
+
+/**
+ * The listed notes of one type, wherever they sit in the world's folder: a
+ * note's place decides its type (the first folder named for one of the 22, in
+ * either spelling), and only a note outside every type folder is read by its
+ * `type` property, with an id that is a UUID.
+ */
+function notesOfType(listing: ListedNote[], type: string): ListedNote[] {
+    const want = type.toLowerCase();
+    return listing.filter((n) => n.type === want);
+}
 
 export class ExportWorldCommand {
     app: App;
@@ -429,7 +442,6 @@ export class ExportWorldCommand {
     
 
     async collectWorldData(worldFolder: string) {
-        this.noteTypes = null; // classified afresh for each collection (a vault changes between uploads)
         this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
         this.ambiguousLinks = [];
         this.refusedNotes = [];
@@ -458,19 +470,42 @@ export class ExportWorldCommand {
             return {}; // Stop further processing if the World file cannot be read
         }
     
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): a copy kept in an
+        // archive folder must not overwrite the element, and neither is the element's to choose. Counted over every
+        // listed note before any other refusal, so a note refused for something else never makes its twin look
+        // unique. A known-of note and a hidden element's stub are never sent, so they hold no id among the sent notes.
+        // Each note counts by the id Upload sends for it: a front-matter note's, as readElement reads it from the same
+        // bytes; an old span note's, as Upload's own span parser reads it, so every old span note is parsed once here
+        // and the pass below uses that result.
+        // The listing is this run's own, passed to every reader of it: two uploads on this one command never share it.
+        const { notes: listedNotes, unreadable } = await worldElementNotesFromBytes(this.app, worldFolder);
+        const listing: ListedNote[] = listedNotes.map(({ file, category, content, id }) => ({ file, type: category.toLowerCase(), content, id }));
+        // A note that could not be read stops the upload before any request: its id is unknown, so no duplicate
+        // count over the rest can be shown whole. Named by its path; the caller sends nothing for an empty result.
+        if (unreadable.length > 0) {
+            new Notice(unreadableStopMessage(unreadable, 'nothing was sent'), 15000);
+            return {};
+        }
+        const counted = listing.filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content));
+        const oldParsed = new Map<TFile, Record<string, unknown>>();
+        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, listing));
+        const twins = duplicateIds(counted.map((n) => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
+        const twinRefusal = (category: string, name: unknown, id: string) =>
+            `${category} "${String(name ?? id)}" not sent: another note holds the same id. Keep one of them, then try again.`;
+
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
                 // The type's notes, wherever they sit in the world's folder (the Markdown profile, sentences 1 and 2).
-                const files = await this.notesOfType(worldFolder, category);
-     
-                const categoryData = await Promise.all(files.map(async (file) => {
+                // Each note was read once, and everything below is decided from those bytes.
+                const notes = notesOfType(listing, category);
+
+                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent, id: listedId }) => {
                     // Phase B: frontmatter notes read via the shared element reader
                     // (id + typed fields + extension namespaces preserved); legacy
                     // span notes still fall through to the span parser so a mixed,
                     // partly-migrated world uploads correctly either way.
-                    const fileContent = await fs.read(file.path);
                     if (isKnownOfNote(fileContent) && !isStubNote(fileContent)) {
                         // Known of: a stub of the server's element, never sent
                         // (the folder spec §4.4 rule 3). Links to
@@ -492,11 +527,20 @@ export class ExportWorldCommand {
                         }
                         return {};
                     }
-                    if (!isSpanFormat(fileContent) && file instanceof TFile) {
-                        const parsed = await readElement(this.app, file);
+                    // The span reader takes only a note in the old layout and nothing else
+                    // (isOldSpanNote): no front matter, and every line a span field or group
+                    // line. Any other note is read by its front matter, or is the person's
+                    // own, so a quoted Id line is never sent as an id.
+                    const oldSpanNote = isOldSpanNote(fileContent);
+                    if (!oldSpanNote && file instanceof TFile) {
+                        const parsed = await readElement(this.app, file, { content: fileContent });
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
+                        if (parsed && listedId && twins.has(listedId)) {
+                            this.refusedNotes.push(twinRefusal(category, parsed.name, listedId));
+                            return {};
+                        }
                         if (parsed?.unclosedFence) {
                             // Never sent cut short: named in the summary instead.
                             this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
@@ -512,28 +556,20 @@ export class ExportWorldCommand {
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
-                    return await this.parseTemplate(fileContent, worldFolder);
+                    // Parsed once, before the count: the id counted is the id sent.
+                    const old = oldSpanNote ? oldParsed.get(file) : undefined;
+                    if (!old) return {};
+                    const oldId = emittedIdKey(old.id);
+                    if (oldId && twins.has(oldId)) {
+                        this.refusedNotes.push(twinRefusal(category, old.name, oldId));
+                        return {};
+                    }
+                    return old;
                 }));
     
                 // Filter out empty entries
                 worldData[category] = categoryData.filter(item => Object.keys(item).length > 0);
             }
-        }
-    
-        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): a copy kept in an
-        // archive folder must not overwrite the element, and neither is the element's to choose.
-        const idCount = new Map<string, number>();
-        for (const list of Object.values(worldData)) {
-            if (!Array.isArray(list)) continue;
-            for (const el of list as { id?: unknown }[]) if (el.id) idCount.set(String(el.id), (idCount.get(String(el.id)) ?? 0) + 1);
-        }
-        for (const [category, list] of Object.entries(worldData)) {
-            if (!Array.isArray(list)) continue;
-            worldData[category] = (list as { id?: unknown; name?: unknown }[]).filter((el) => {
-                if (!el.id || (idCount.get(String(el.id)) ?? 0) < 2) return true;
-                this.refusedNotes.push(`${category} "${String(el.name ?? el.id)}" not sent: another note holds the same id. Keep one of them, then try again.`);
-                return false;
-            });
         }
 
         // Add debug logging at the end of the method, before returning the data
@@ -676,7 +712,7 @@ export class ExportWorldCommand {
     
     
     
-    private async extractLinkedIds(linkedText: string, lineText: string, worldFolder: string): Promise<string[] | null> {
+    private async extractLinkedIds(linkedText: string, lineText: string, listing: ListedNote[]): Promise<string[] | null> {
         const linkPattern = /\[\[(.*?)\]\]/g;
         const ids: string[] = [];
         let match;
@@ -702,7 +738,7 @@ export class ExportWorldCommand {
             }
 
             // Search for the element by name content instead of constructing file path
-            const elementId = await this.findElementIdByName(linkedName, elementType, worldFolder);
+            const elementId = await this.findElementIdByName(linkedName, elementType, listing);
             if (elementId) {
                 ids.push(elementId);
             } else {
@@ -720,37 +756,11 @@ export class ExportWorldCommand {
         return ids;
     }
     
-    /**
-     * The world's notes of one type, wherever they sit in its folder: a note's
-     * place decides its type (the first folder named for one of the 22, in
-     * either spelling), and only a note outside every type folder is read by its
-     * `type` property, with an id that is a UUID.
-     */
-    private async notesOfType(worldFolder: string, type: string): Promise<TFile[]> {
-        // Every note of the world is classified once per upload (its type, or none), not once per type.
-        if (!this.noteTypes || this.noteTypes.world !== worldFolder) {
-            const byFile = new Map<TFile, string>();
-            for (const file of this.app.vault.getFiles()) {
-                if (file.extension !== 'md' || !(file instanceof TFile) || !mayBeElementNote(file.path, worldFolder)) continue;
-                // A note in a type folder under Elements/ needs no front matter to be read; any other is read by its id and `type`, from the cache or the disk.
-                const fm = isUnderElements(file.path) && typeOfPlace(file.path) ? undefined : await readFrontmatter(this.app, file);
-                const found = elementNoteType(file.path, fm);
-                if (found) byFile.set(file, found.category.toLowerCase());
-            }
-            this.noteTypes = { world: worldFolder, byFile };
-        }
-        const want = type.toLowerCase();
-        return [...this.noteTypes.byFile].filter(([, t]) => t === want).map(([f]) => f);
-    }
-    /** The classification `notesOfType` made for the world being collected. */
-    private noteTypes: { world: string; byFile: Map<TFile, string> } | null = null;
+    private async findElementIdByName(elementName: string, elementType: string, listing: ListedNote[]): Promise<string | null> {
+        const notes = notesOfType(listing, elementType);
 
-    private async findElementIdByName(elementName: string, elementType: string, worldFolder: string): Promise<string | null> {
-        const files = await this.notesOfType(worldFolder, elementType);
-
-        for (const file of files) {
+        for (const { file, content: fileContent } of notes) {
             try {
-                const fileContent = await this.app.vault.read(file);
                 const { name, id } = this.parseElement(fileContent);
 
                 // Match by name content rather than filename. Compare sanitized
@@ -768,7 +778,8 @@ export class ExportWorldCommand {
         return null;
     }
     
-    async parseTemplate(content: string, worldFolder: string): Promise<Record<string, unknown>> {
+    /** An old span note's fields; its [[links]] resolve against this run's listing (`listing`). */
+    async parseTemplate(content: string, listing: ListedNote[]): Promise<Record<string, unknown>> {
         let currentSection: string | null = null;
         const data: Record<string, unknown> = {};
 
@@ -802,7 +813,7 @@ export class ExportWorldCommand {
                 const lowerTooltip = tooltip.toLowerCase();
                 // --- Links: ship as <field>_id / <field>_ids (UUIDs, never names) ---
                 if (lowerTooltip.startsWith('single ') || lowerTooltip.startsWith('multi ')) {
-                    const ids = value ? await this.extractLinkedIds(value, line, worldFolder) : [];
+                    const ids = value ? await this.extractLinkedIds(value, line, listing) : [];
                     // A non-wikilink value in a link field can't be resolved to a UUID here
                     // (extractLinkedIds only matches [[Name]]). Never ship a raw name.
                     if (value && !value.includes('[[')) {

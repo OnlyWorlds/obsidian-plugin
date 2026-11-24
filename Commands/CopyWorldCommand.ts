@@ -5,8 +5,8 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { readElement, unclosedFenceMessage } from '../vault/element-file';
-import { isSpanFormat, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
+import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
 import { isInCategoryFolder } from '../vault/category-folder';
@@ -19,11 +19,15 @@ export class CopyWorldCommand {
     /** The plugin's settings, for the hidden lists; absent, only stubs are known. */
     private host: HiddenListHost | null;
 
-    constructor(app: App, manifest: PluginManifest, worldService: WorldService, host?: HiddenListHost) {
+    /** Auto-sync's self-write guard, called before the World Data File is written. */
+    private markSelfWrite: ((path: string) => void) | null;
+
+    constructor(app: App, manifest: PluginManifest, worldService: WorldService, host?: HiddenListHost, markSelfWrite?: (path: string) => void) {
         this.app = app;
         this.manifest = manifest;
         this.worldService = worldService;
         this.host = host ?? null;
+        this.markSelfWrite = markSelfWrite ?? null;
     }
 
     async execute() {
@@ -66,23 +70,39 @@ export class CopyWorldCommand {
         if (worldFile instanceof TFile) {
             try {
                 const worldData = await this.collectWorldData(worldFolderPath); // Assuming this collects data correctly
+                // The collection stopped and said why (World.md or a note could not be read): nothing is written or copied.
+                if (worldData === null) return;
                 const worldDataJSON = JSON.stringify(worldData, null, 4);
     
-                // Check if the World Data File exists, create new or modify existing
-                let worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
+                // The World Data File is written only when it is absent, or when its
+                // first line is the mark Copy writes (COPY_OUTPUT_MARKER): Copy never
+                // writes over a note it cannot show it wrote. An older copy's output
+                // has no mark and is refused like any other note; the notice says to
+                // delete it once. The write is marked as the plugin's own first, so
+                // auto-sync never reads the JSON as a note's prose.
+                const worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
+                const output = `${COPY_OUTPUT_MARKER}\n${worldDataJSON}`;
+                let kept = false;
                 if (worldDataFile instanceof TFile) {
-                    // Modify existing World Data File
-                    await this.app.vault.modify(worldDataFile, worldDataJSON);
+                    const text = await this.app.vault.read(worldDataFile);
+                    if (text.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] !== COPY_OUTPUT_MARKER) {
+                        kept = true;
+                    } else {
+                        this.markSelfWrite?.(worldDataPath);
+                        await this.app.vault.modify(worldDataFile, output);
+                    }
                 } else {
-                    // Create new World Data File if it does not exist
-                    worldDataFile = await this.app.vault.create(worldDataPath, worldDataJSON);
+                    this.markSelfWrite?.(worldDataPath);
+                    await this.app.vault.create(worldDataPath, output);
                 }
-    
-                // Copy to clipboard
+
+                // Copy to clipboard: the world's JSON alone, never the mark.
                 navigator.clipboard.writeText(worldDataJSON);
-    
+
                 // Modal confirmation removed
-                new Notice(`World ${worldFolder} copied to clipboard.`);
+                new Notice(kept
+                    ? `World ${worldFolder} copied to clipboard. World Data File.md was not overwritten: Copy world did not write it (its first line is not Copy world's mark). If it is an older copy's output, delete it once and copy again; otherwise rename or move it.`
+                    : `World ${worldFolder} copied to clipboard.`, kept ? 15000 : undefined);
             } catch (error) {
                 console.error('Error during world data processing:', error);
                 new Notice('Could not process world data.');
@@ -135,7 +155,8 @@ export class CopyWorldCommand {
             console.error('Error reading World file:', error);
             const msg = error instanceof Error ? error.message : String(error);
             new Notice('Could not read the World file: ' + msg);
-            return {}; // Stop further processing if the World file cannot be read
+            // The copy stops: nothing is written to World Data File.md or the clipboard.
+            return null;
         }
     
         // Notes left out because a code fence typed open swallows a heading:
@@ -143,27 +164,61 @@ export class CopyWorldCommand {
         // (Kael's fixes read, should-fix 1). Named once the walk is done.
         const refused: string[] = [];
 
+        // The world's element notes wherever they sit in its folder, each of the
+        // type its folder decides, else its `type` property (the Markdown
+        // profile); every other note is the person's own and is not copied.
+        // Each note is read once, and everything below is decided from those
+        // bytes: never the metadata cache, never a second read.
+        const { notes: elementNotes, unreadable } = await worldElementNotesFromBytes(this.app, worldName);
+        // A note that could not be read stops the copy: its id is unknown, so no
+        // duplicate count over the rest can be shown whole. Nothing is copied.
+        if (unreadable.length > 0) {
+            new Notice(unreadableStopMessage(unreadable, 'nothing was copied'), 15000);
+            return null;
+        }
+
+        // Hidden by the world's owner: a stub, or an id on a hidden list, is
+        // never copied as an element, and so holds no id among the copied notes.
+        const hidden = (content: string): boolean => {
+            if (isStubNote(content)) return true;
+            const ownId = ownFrontmatterId(content);
+            return !!(ownId && this.host && isHiddenId(this.host.settings, ownId));
+        };
+        // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1), as Upload world
+        // refuses them: a copy kept in an archive folder must not stand for the element in the pasted world, and
+        // neither is the element's to choose. Counted over every listed note before any other refusal, so a note
+        // refused for something else never makes its twin look unique. Each note counts by the id Copy emits for it:
+        // a front-matter note's, as readElement reads it from the same bytes; an old span note's, as Copy's own span
+        // parser reads it, so every old span note is parsed once here and the pass below uses that result.
+        const counted = elementNotes.filter(n => !hidden(n.content));
+        const oldParsed = new Map<TFile, Record<string, any>>();
+        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, worldName));
+        const twins = duplicateIds(counted.map(n => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
+        const twinRefusal = (category: string, name: unknown, id: string) =>
+            `${category} "${String(name ?? id)}" not copied: another note holds the same id. Keep one of them, then try again.`;
+
         // Iterate over categories to collect their data
         for (const categoryKey in Category) {
             const category = Category[categoryKey];
             if (isNaN(Number(category))) {
-                // The type's notes in either folder spelling (`Location`, an older `Location (2)`).
-                const elementsPath = normalizePath(`${worldFolder}/Elements`);
-                const files = this.app.vault.getFiles().filter(file => file.extension === 'md' && isInCategoryFolder(file.path, elementsPath, category));
-     
-                const categoryData = await Promise.all(files.map(async (file) => {
-                    const fileContent = await fs.read(file.path);
-                    // Hidden by the world's owner: a stub, or
-                    // an id on a hidden list, is never copied as an element.
-                    if (isStubNote(fileContent)) return {};
-                    const ownId = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
-                    if (ownId && this.host && isHiddenId(this.host.settings, ownId)) return {};
+                const notes = elementNotes.filter(n => n.category === category);
+
+                const categoryData = await Promise.all(notes.map(async ({ file, content: fileContent, id: listedId }) => {
+                    if (hidden(fileContent)) return {};
                     // Phase B: frontmatter notes read via the shared reader; legacy
                     // span notes fall through to the span parser (mixed worlds copy
-                    // correctly either way).
+                    // correctly either way). The span reader takes only a note in the
+                    // old layout and nothing else (isOldSpanNote): no front matter, and
+                    // every line a span field or group line; any other note is read by
+                    // its front matter, or is the person's own.
                     let parsedElement: Record<string, any>;
-                    if (!isSpanFormat(fileContent) && file instanceof TFile) {
-                        const parsed = await readElement(this.app, file);
+                    const oldSpanNote = isOldSpanNote(fileContent);
+                    if (!oldSpanNote && file instanceof TFile) {
+                        const parsed = await readElement(this.app, file, { content: fileContent });
+                        if (parsed && listedId && twins.has(listedId)) {
+                            refused.push(twinRefusal(category, parsed.name, listedId));
+                            return {};
+                        }
                         if (parsed?.unclosedFence) {
                             refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
                             return {};
@@ -175,11 +230,22 @@ export class CopyWorldCommand {
                         // `known_of: true` and only what it keeps, no field
                         // filled in (the folder spec §4.4 rule 1).
                         if (parsed?.knownOf) return { id: parsed.id, ...parsed.fields, known_of: true };
-                        parsedElement = parsed
-                            ? { id: parsed.id, ...parsed.fields }
-                            : await this.parseTemplate(fileContent, worldName);
+                        // A note with no id is the person's own (the Markdown profile): never
+                        // copied as an element under an id made up for it.
+                        if (!parsed) return {};
+                        parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
-                        parsedElement = await this.parseTemplate(fileContent, worldName);
+                        // Parsed once, before the count: the id counted is the id copied.
+                        const old = oldParsed.get(file);
+                        if (!old) return {};
+                        parsedElement = old;
+                        // Span markup with no Id line is a note showing the old format, never an element under a made-up id.
+                        if (!parsedElement.id) return {};
+                        const oldId = emittedIdKey(parsedElement.id);
+                        if (oldId && twins.has(oldId)) {
+                            refused.push(twinRefusal(category, parsedElement.name, oldId));
+                            return {};
+                        }
                     }
                     return this.addMissingElementFields(parsedElement, category);
                 }));
@@ -609,3 +675,10 @@ export class CopyWorldCommand {
     }
      
 }
+
+/**
+ * The first line of every World Data File.md Copy world writes: an Obsidian comment, hidden in
+ * reading view. Copy writes over that note only when its first line is this mark, so it never
+ * replaces a note it cannot show it wrote.
+ */
+export const COPY_OUTPUT_MARKER = '%% Copy world output: Copy world writes this note again at every copy, and anything written in it is replaced. %%';
