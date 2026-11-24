@@ -837,6 +837,14 @@ export interface ParsedBody {
 	 * round, item 1).
 	 */
 	unclosedFence?: { heading: string | null; line: number; swallows: string };
+	/**
+	 * Headings that start two sections or more, read as one field key (two
+	 * `### Description`, or `### Looks` and `### looks`), each as first typed, in
+	 * document order. `fields` keeps only the last such section's text, so a
+	 * caller that rebuilds the body or sends the field from them refuses the
+	 * note rather than drop the earlier text. Absent when no heading repeats.
+	 */
+	repeated?: string[];
 }
 
 /**
@@ -905,11 +913,17 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	let swallows: string | null = null;
 	let lineNo = 0;
 	let firstHeadingEol = "\n";
+	// Each section's field key, with the heading it was first typed as.
+	const seen = new Map<string, string>();
+	const repeated: string[] = [];
 
 	const flush = (end: number) => {
 		if (!current) return;
 		const text = sectionValue(body.slice(current.start, end), current.eol);
 		const key = headingToFieldKey(current.heading);
+		const first = seen.get(key);
+		if (first === undefined) seen.set(key, current.heading.trim());
+		else if (!repeated.includes(first)) repeated.push(first);
 		if (known.has(key)) {
 			fields[key] = text;
 		} else {
@@ -963,9 +977,24 @@ export function parseElementBody(body: string, category: string): ParsedBody {
 	const preamble = unescapeSectionValue(
 		!sawHeading ? body.replace(/\r?\n$/, "") : preambleValue(body.slice(0, preambleEnd), firstHeadingEol)
 	);
-	return fence && fenceAt && swallows !== null
+	const parsed: ParsedBody = fence && fenceAt && swallows !== null
 		? { fields, unknown, preamble, unclosedFence: { ...fenceAt, swallows } }
 		: { fields, unknown, preamble };
+	if (repeated.length > 0) parsed.repeated = repeated;
+	return parsed;
+}
+
+/**
+ * What a command says of a note it leaves because a heading starts two of its
+ * sections: which heading, that only one would be kept, and what to do.
+ * `verb` is the command's own word ("not updated", "not saved"), `outcome`
+ * what it left as it was ("Nothing was changed."; "" says nothing more, as a
+ * summary of many notes does).
+ */
+export function repeatedHeadingMessage(name: string, headings: string[], verb: string, outcome = "Nothing was changed."): string {
+	const shown = headings.map((h) => `"${h}"`).join(", ");
+	const one = headings.length === 1;
+	return `${name} ${verb}: ${one ? "the heading" : "the headings"} ${shown} ${one ? "is" : "are each"} there twice, and only one of the two sections would be kept. Keep one, then try again.${outcome ? ` ${outcome}` : ""}`;
 }
 
 /**

@@ -6,7 +6,7 @@ import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { writeElement } from '../vault/element-file';
+import { noteIdIn, writeElement } from '../vault/element-file';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { knownOfKeptText, knownOfWrite, noteStateOf } from '../sync/known-of';
 
@@ -18,11 +18,15 @@ export class PasteWorldCommand {
     /** The plugin's settings, for the hidden lists; absent, only stubs are known. */
     private host: HiddenListHost | null;
 
-    constructor(app: App, manifest: any, host?: HiddenListHost) {
+    /** Auto-sync's self-write guard: each element note this writes is the plugin's own, never an edit to save. */
+    private markSelfWrite: ((path: string) => void) | null;
+
+    constructor(app: App, manifest: any, host?: HiddenListHost, markSelfWrite?: (path: string) => void) {
         this.app = app;
         this.manifest = manifest;
         this.worldService = new WorldService(app);
         this.host = host ?? null;
+        this.markSelfWrite = markSelfWrite ?? null;
     }
 
     async execute() {
@@ -160,6 +164,8 @@ export class PasteWorldCommand {
                 // placement (re-finds by embedded id), preserves extension fields,
                 // renders link ids as [[Name]] wikilinks, maps body to
                 // description/story. No Handlebars templates, no span format.
+                // Marked before each write as Download marks it, so auto-sync
+                // does not take the pasted content for an edit and save it.
                 await writeElement(
                     this.app,
                     worldName,
@@ -169,6 +175,7 @@ export class PasteWorldCommand {
                     {
                         folderPath: existingElementPath ? existingElementPath.slice(0, existingElementPath.lastIndexOf('/')) : categoryDirectory,
                         fileName, idToName, idToRealName, keepAbove, knownOf: write === 'stub',
+                        markSelfWrite: (p) => this.markSelfWrite?.(p),
                     }
                 );
             }
@@ -266,22 +273,11 @@ export class PasteWorldCommand {
                 //    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
                 //    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
                     
-                    // Match the id in either format: frontmatter `id:` (3.0.0)
-                    // or the legacy span/bold forms (older notes not yet migrated).
-                    const idMatch = content.match(/^id:\s*(\S+)/m) ||
-                                  content.match(/^- \*\*ID:\*\* (.+)$/m) ||
-                                  content.match(/^- .*Id.*: (.+)$/m) ||
-                                  content.match(/Id.*: (.+)$/m);
-
-                    if (idMatch) {
-                    //    console.log(`[PasteWorldCommand] Found ID in file ${child.path}: ${idMatch[1].trim()}`);
-                        if (idMatch[1].trim() === elementId) {
-                    //        console.log(`[PasteWorldCommand] MATCH! Found existing element at: ${child.path}`);
-                            return child.path;
-                        }
-                    } else {
-                    //    console.log(`[PasteWorldCommand] No ID found in file: ${child.path}`);
-                    }
+                    // The id as the writer reads it (noteIdIn): the front matter's,
+                    // else an old span note's Id line. A line of the person's
+                    // writing that looks like an id (`- **ID:** …`, which no plugin
+                    // version wrote into an element note) is never taken for one.
+                    if (noteIdIn(content) === elementId) return child.path;
                 } catch (error) {
                     console.error(`Error reading element file: ${child.path}`, error);
                 }

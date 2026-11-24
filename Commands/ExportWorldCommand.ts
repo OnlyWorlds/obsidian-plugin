@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, unclosedFenceMessage, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -541,9 +541,10 @@ export class ExportWorldCommand {
                             this.refusedNotes.push(twinRefusal(category, parsed.name, listedId));
                             return {};
                         }
-                        if (parsed?.unclosedFence) {
-                            // Never sent cut short: named in the summary instead.
-                            this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));
+                        // Never sent cut short (a fence that never closes, a heading twice): named in the summary instead.
+                        const refusal = parsed && readRefusal(parsed, `${category} "${parsed.name}"`);
+                        if (refusal) {
+                            this.refusedNotes.push(refusal);
                             return {};
                         }
                         if (parsed?.ownConflicts) {

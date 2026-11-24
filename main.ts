@@ -160,7 +160,7 @@ export default class OnlyWorldsPlugin extends Plugin {
         const drawRelationshipsCommand = new DrawRelationshipsCommand(this.app, () => this.settings.canvasIncomingLinks !== false);
         const joinWorldCommand = new JoinWorldCommand(this.app, this, downloadWorldCommand);
         const validateWorldCommand = new ValidateWorldCommand(this.app, this.manifest, this.worldService, true);
-        const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest, this);
+        const pasteWorldCommand = new PasteWorldCommand(this.app, this.manifest, this, (p) => this.autoSync?.markSelfWrite(p));
         const copyWorldCommand = new CopyWorldCommand(this.app, this.manifest, this.worldService, this, (p) => this.autoSync?.markSelfWrite(p));
         const renameWorldCommand = new RenameWorldCommand(this.app, this.manifest, this);
         const saveElementCommand = new SaveElementCommand(this.app, this);

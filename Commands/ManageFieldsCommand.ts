@@ -15,6 +15,8 @@ import {
 	serializeFrontmatter,
 	appendBodySection,
 	isDependsOnHeading,
+	hasOwn,
+	repeatedHeadingMessage,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
@@ -68,7 +70,7 @@ export class ManageFieldsCommand {
 		// The spine list's generated section is no field to manage.
 		const { body } = ownBody(content);
 		const parsed = parseElementBody(body, category);
-		if (refusedForFence(file, category, content, body, parsed)) return;
+		if (refusedToRebuild(file, category, content, body, parsed)) return;
 
 		// Schema text fields (body sections), plus custom sections already present.
 		const choices: FieldChoice[] = bodyTextFields(category).map((key) => ({
@@ -137,13 +139,18 @@ export class ManageFieldsCommand {
 		// The fields are rebuilt; the generated section goes back last as it was.
 		const { body, section } = ownBody(content);
 		const parsed = parseElementBody(body, category);
-		// A dialog opened before the fence was typed open: still refused.
-		if (refusedForFence(file, category, content, body, parsed)) return;
+		// A dialog opened before the fence was typed open (or the text above, or the heading twice): still refused.
+		if (refusedToRebuild(file, category, content, body, parsed)) return;
 
 		// Re-check content here, not just in the UI: a field holding text is kept
-		// regardless of what the modal returned (stale-modal safety).
+		// regardless of what the modal returned (stale-modal safety). What the note
+		// holds NOW decides, from this one read: a section written after the
+		// dialog opened (by another writer, a sync) is kept though the dialog's
+		// choices said it was empty. The choices still keep the properties.
 		const keep = new Set(selected);
 		for (const c of choices) if (c.hasContent) keep.add(c.key);
+		for (const key of bodyTextFields(category)) if ((parsed.fields[key] || '').trim()) keep.add(key);
+		for (const u of parsed.unknown) if (u.text.trim()) keep.add(`x_${headingToFieldKey(u.heading)}`);
 
 		const values: Record<string, unknown> = { ...parsed.fields };
 		const customKeys: string[] = [];
@@ -174,9 +181,15 @@ export class ManageFieldsCommand {
 		// renders as plain text). Two writers racing on one file also meant a
 		// toggle-on could be overwritten by the other half's stale copy — which
 		// is why re-ticking a field appeared to do nothing. One writer fixes both.
+		// The same read the body was built from: a second read here would put
+		// its frontmatter beside a body an edit in between had already changed.
 		const schema = getCategorySchema(category);
-		const current = await this.app.vault.read(file);
-		const existing = parseFrontmatterObject(current);
+		const existing = parseFrontmatterObject(content);
+		if (!existing) {
+			// Same refusal as Update world to latest format: nothing is written.
+			new Notice(`${file.basename} not changed: its properties are not valid YAML. Fix them, then try again. Nothing was changed.`, 15000);
+			return;
+		}
 		const fmOut: Record<string, unknown> = {};
 		for (const [key, value] of Object.entries(existing)) {
 			if (!schema || BASE_KEYS.has(key)) {
@@ -201,7 +214,7 @@ export class ManageFieldsCommand {
 		// The body ends as writeElement ends it (one newline after the last
 		// section), so the last value reads back exactly.
 		const finalContent = joinNote(serializeFrontmatter(fmOut), withDependsOn(`${newBody}\n`, section));
-		if (finalContent !== current) {
+		if (finalContent !== content) {
 			this.markSelfWrite?.(file.path);
 			await this.app.vault.modify(file, finalContent);
 		}
@@ -293,18 +306,39 @@ function ownBody(content: string): { body: string; section: string } {
  * rebuilt: the rebuild would escape the swallowed heading into the field
  * above, add an empty section for it, and the next Save would clear that
  * field on onlyworlds.com (Kael's fixes read, should-fix 1). Says so as Save
- * does, naming the field and the heading; true when refused.
+ * does, naming the field and the heading; true when refused. A note with a
+ * heading that starts two sections, or with text above its first section, is
+ * refused the same way, naming it: the rebuild keeps sections only.
  */
-function refusedForFence(
+function refusedToRebuild(
 	file: TFile,
 	category: string,
 	content: string,
 	body: string,
 	parsed: ReturnType<typeof parseElementBody>
 ): boolean {
-	if (!parsed.unclosedFence) return false;
-	new Notice(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not changed'), 15000);
-	return true;
+	if (parsed.unclosedFence) {
+		new Notice(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not changed'), 15000);
+		return true;
+	}
+	// A heading that starts two sections: the rebuild would keep only the last one's text.
+	if (parsed.repeated) {
+		new Notice(repeatedHeadingMessage(file.basename, parsed.repeated, 'not changed'), 15000);
+		return true;
+	}
+	// Text above the first section (a 3.0/3.1 note's whole body, or a paragraph
+	// over its first heading): the rebuild would drop it. Never moved on the
+	// side: Update world to latest format moves it into the body field's
+	// section when the note has none; beside one, it is the person's to place.
+	if (parsed.preamble.trim() !== '') {
+		const bodyField = bodyTextFields(category)[0];
+		const next = hasOwn(parsed.fields, bodyField)
+			? 'Move it into a section, then try again.'
+			: `Run Update world to latest format to move it into a ${fieldToHeading(bodyField)} section, then try again.`;
+		new Notice(`${file.basename} not changed: it has text above its first section, which Manage fields would not keep. ${next} Nothing was changed.`, 15000);
+		return true;
+	}
+	return false;
 }
 
 
@@ -319,8 +353,12 @@ function refusedForKnownOf(content: string): boolean {
 	return true;
 }
 
-/** Parse the note's frontmatter block into an object (key order preserved). */
-function parseFrontmatterObject(content: string): Record<string, unknown> {
+/**
+ * Parse the note's frontmatter block into an object (key order preserved).
+ * null when the block is there and its YAML cannot be read: rebuilt from
+ * nothing it would lose every property, the note's id with them.
+ */
+function parseFrontmatterObject(content: string): Record<string, unknown> | null {
 	const { frontmatter } = splitNote(content);
 	if (!frontmatter) return {};
 	const lines = frontmatter.split(/\r?\n/);
@@ -329,6 +367,6 @@ function parseFrontmatterObject(content: string): Record<string, unknown> {
 		const parsed = parseYaml(inner);
 		return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
 	} catch {
-		return {};
+		return null;
 	}
 }

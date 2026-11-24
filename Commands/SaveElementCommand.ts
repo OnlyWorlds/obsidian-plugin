@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, readElement, readFrontmatter, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
@@ -102,8 +102,8 @@ async function worldIdOf(client: { getWorld(): Promise<Record<string, unknown>> 
 /** Note path and key of each likely-misnamed key auto-sync has named this session (round C, 4). */
 const misnamedShown = new Set<string>();
 
-/** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
-const fenceShown = new Set<string>();
+/** Note paths whose read refusal (readRefusal: an unclosed fence, a heading twice) auto-sync has shown this session (the fix round, item 1). */
+const readRefusalShown = new Set<string>();
 /** Notes whose id another note holds, said once a session per note by auto-sync. */
 const duplicateShown = new Set<string>();
 
@@ -322,8 +322,12 @@ export class SaveElementCommand {
             return this.fail("No active file selected or it's not a valid file.");
         }
 
-        // 1. Validate Path and Extract Info
-        const pathInfo = await this.extractPathInfo(activeFile.path);
+        // 1. Validate Path and Extract Info. The note is read once, and its id,
+        // type and name come from those bytes, never the metadata cache: a cache
+        // that still holds an id the note no longer carries would send the new
+        // text under that id.
+        const content = await this.app.vault.read(activeFile);
+        const pathInfo = await this.extractPathInfo(activeFile.path, content);
         if (!pathInfo) {
             return this.fail("The current file is not a valid OnlyWorlds element note.");
         }
@@ -331,8 +335,8 @@ export class SaveElementCommand {
 
         // 2. Read the note with the one reader: front matter, or an old span note by its one grammar.
         let elementData: ElementData | null = null;
-        const v2 = await readElement(this.app, activeFile);
-        if (v2?.id && (await this.isHidden(activeFile, v2.id))) return this.hiddenRefusal(activeFile, manual);
+        const v2 = await readElement(this.app, activeFile, { content });
+        if (v2?.id && (isHiddenId(this.plugin.settings, v2.id) || isStubNote(content))) return this.hiddenRefusal(activeFile, manual);
         // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
         const twin = v2?.id ? this.otherNoteHolding(worldName, v2.id, activeFile.path) : null;
         if (twin) {
@@ -350,15 +354,17 @@ export class SaveElementCommand {
         // (rule 2). Refused up front, as a known-of note is.
         if (v2?.id && isLastKnownId(this.plugin.settings, v2.id)) return this.knownOfRefusal(activeFile, manual, LAST_KNOWN_NOT_SAVED);
         if (v2 && v2.id) {
-            // A fence that never closes swallowed the sections after it: the
-            // note is refused, never sent cut short (round C, 1).
+            // A fence that never closes swallowed the sections after it (round
+            // C, 1), or a field's heading typed twice keeps only the last
+            // section: the note is refused, never sent cut short, by the one
+            // check every sending reader asks (readRefusal).
             // Auto-sync says it once a session per note, not at every pause;
             // the status bar still shows the error (the fix round, item 1).
-            if (v2.unclosedFence) {
-                const reason = unclosedFenceMessage(v2.name, v2.unclosedFence);
-                if (!manual && fenceShown.has(activeFile.path)) return { ok: false, reason };
-                if (!manual) fenceShown.add(activeFile.path);
-                return this.fail(reason, 15000);
+            const refusal = readRefusal(v2, v2.name, 'not saved', 'Nothing was sent.');
+            if (refusal) {
+                if (!manual && readRefusalShown.has(activeFile.path)) return { ok: false, reason: refusal };
+                if (!manual) readRefusalShown.add(activeFile.path);
+                return this.fail(refusal, 15000);
             }
             // A name the note holds as a property and again inside its own
             // x_properties: refused by name, never sent with one of the two picked.
@@ -780,10 +786,12 @@ export class SaveElementCommand {
                     overflow = true;
                     return;
                 }
-                // A target whose fence never closes would be created cut short
-                // (round C, 1): the save stops and names it.
-                if (parsed.unclosedFence) {
-                    refused = unclosedFenceMessage(`${capitalize(parsed.category)} "${parsed.name}"`, parsed.unclosedFence);
+                // A target whose fence never closes, or whose heading starts
+                // two sections, would be created cut short (round C, 1): the
+                // save stops and names it.
+                const targetRefusal = readRefusal(parsed, `${capitalize(parsed.category)} "${parsed.name}"`);
+                if (targetRefusal) {
+                    refused = targetRefusal;
                     overflow = true;
                     return;
                 }
@@ -1132,12 +1140,22 @@ export class SaveElementCommand {
     // The world and type of an element note: its place decides (the first folder below the
     // world's folder named for one of the 22, in either spelling), and only a note outside
     // every type folder is read by its `type` property (the Markdown profile, sentence 2).
-    // The front matter comes from the cache, else from the note on disk: a cold cache must not make a note
-    // outside the type folders look like no element's.
-    async extractPathInfo(filePath: string): Promise<{ worldName: string; category: string } | null> {
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        const fm = file instanceof TFile ? await readFrontmatter(this.app, file) : undefined;
-        return elementNoteType(filePath, fm);
+    // The front matter comes from the note's own bytes (`content` when the caller has read them), never the
+    // cache: a cold cache must not make a note outside the type folders look like no element's, and a stale one
+    // must not make a note whose id was taken out look like one.
+    async extractPathInfo(filePath: string, content?: string): Promise<{ worldName: string; category: string } | null> {
+        let bytes = content;
+        if (bytes === undefined) {
+            const file = this.app.vault.getAbstractFileByPath(filePath);
+            if (file instanceof TFile) {
+                try {
+                    bytes = await this.app.vault.read(file);
+                } catch {
+                    bytes = undefined;
+                }
+            }
+        }
+        return elementNoteType(filePath, bytes === undefined ? undefined : parseRawFrontmatter(bytes) ?? undefined);
     }
 
     // The same, from the metadata cache alone, where a caller cannot wait (a map over links).

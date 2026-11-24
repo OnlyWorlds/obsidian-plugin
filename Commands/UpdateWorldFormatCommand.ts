@@ -14,6 +14,7 @@ import {
 	serializeFrontmatter,
 	hasOwn,
 	isOldSpanNote,
+	repeatedHeadingMessage,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
@@ -121,9 +122,13 @@ export class UpdateWorldFormatCommand {
 			// would escape that heading into the field above and add it again
 			// empty, and the next Save would clear it on onlyworlds.com (Kael's
 			// fixes read, should-fix 1). Skipped and named, never rebuilt.
-			const fenceRefusal = parsed.unclosedFence
+			// A heading that starts two sections: the rebuild would keep only the
+			// last one's text. Skipped and named, never rebuilt.
+			const refusal = parsed.unclosedFence
 				? unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not updated')
-				: undefined;
+				: parsed.repeated
+					? repeatedHeadingMessage(file.basename, parsed.repeated, 'not updated')
+					: undefined;
 			if (movingFromFm.length || missingSections.length || missingProps.length) {
 				notes.push({
 					path: file.path,
@@ -132,8 +137,8 @@ export class UpdateWorldFormatCommand {
 					movingFromFm,
 					missingSections,
 					missingProps,
-					needsReview: legacyBodyHasFieldHeading || ambiguousHeadings.length > 0 || !!fenceRefusal,
-					...(fenceRefusal ? { refused: fenceRefusal } : {}),
+					needsReview: legacyBodyHasFieldHeading || ambiguousHeadings.length > 0 || !!refusal,
+					...(refusal ? { refused: refusal } : {}),
 				});
 			}
 		}
@@ -193,6 +198,12 @@ export class UpdateWorldFormatCommand {
 				refusals.push(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not updated'));
 				continue;
 			}
+			if (parsed.repeated) {
+				// A heading typed twice since the plan was made: skipped the same way.
+				skipped++;
+				refusals.push(repeatedHeadingMessage(file.basename, parsed.repeated, 'not updated'));
+				continue;
+			}
 			const bodyField = bodyFieldForCategory(category);
 
 			// Update never chooses between two places a field's text could come from:
@@ -220,10 +231,13 @@ export class UpdateWorldFormatCommand {
 			}
 
 			// Values for the new body: existing sections win, then frontmatter text
-			// being moved, then the legacy whole-body-is-description case.
+			// being moved, then the legacy whole-body-is-description case. A
+			// property that is empty or blank is no value, as the check above reads
+			// it: taken, it would stand in for the body and the body be lost.
 			const values: Record<string, unknown> = { ...parsed.fields };
 			for (const key of bodyTextFields(category)) {
-				if (values[key] === undefined && typeof fm[key] === 'string') values[key] = fm[key];
+				const held = fm[key];
+				if (values[key] === undefined && typeof held === 'string' && held.trim() !== '') values[key] = held;
 			}
 			if (values[bodyField] === undefined) {
 				// A 3.0/3.1 note's whole body IS the description. Preserve it,

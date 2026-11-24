@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Platform, Setting, TFile, TFolder, normalizePath } from "obsidian";
 import { v7 as uuidv7 } from "uuid";
-import { ownConflictMessage, readElement, unclosedFenceMessage } from "../vault/element-file";
+import { ownConflictMessage, readElement, readRefusal } from "../vault/element-file";
 import { bodyFieldForCategory, getCategorySchema, parseRawFrontmatterScalars } from "../vault/element-transform";
 import { inUnreadFolder, isElementId, isUnderElements, typeOfPlace, worldNotePath } from "../vault/category-folder";
 import { isHiddenId, isStubNote, type HiddenListHost } from "../sync/hidden-on-server";
@@ -325,9 +325,10 @@ export class ExportFolderCommand {
 					refusedPaths.add(file.path);
 					continue;
 				}
-				if (parsed.unclosedFence) {
-					// Never written cut short (round C, 1).
-					failed.push({ path: file.path, reason: unclosedFenceMessage(parsed.name, parsed.unclosedFence) });
+				// Never written cut short (round C, 1): a fence that never closes, a heading twice.
+				const refusal = readRefusal(parsed, parsed.name);
+				if (refusal) {
+					failed.push({ path: file.path, reason: refusal });
 					refusedPaths.add(file.path);
 					continue;
 				}

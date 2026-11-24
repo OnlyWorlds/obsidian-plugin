@@ -37,6 +37,7 @@ import {
 	dependsOnOwnText,
 	withDependsOn,
 	withoutDependsOn,
+	repeatedHeadingMessage,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -94,11 +95,19 @@ export interface ParsedElement {
 	 * A code fence in the body that never closes and swallows a `###`
 	 * heading, read as its text (round C, 1): the field it opened in, as its
 	 * heading reads, its line in the note, and the first heading it swallows.
-	 * The CALLER refuses to send the note (unclosedFenceMessage), never sends
+	 * The CALLER refuses to send the note (readRefusal), never sends
 	 * it cut short. An open fence that swallows no heading is not one (the fix
 	 * round, item 1).
 	 */
 	unclosedFence?: { field: string; line: number; heading: string };
+	/**
+	 * Headings that start two sections of one field, a schema text field or a
+	 * custom one (parseElementBody's `repeated`), each as first typed: `fields`
+	 * holds only the last section's text. The CALLER refuses to send the note
+	 * (readRefusal). A repeated heading that is prose, folded into
+	 * the description with every section's text, is not one.
+	 */
+	repeatedHeadings?: string[];
 	/**
 	 * Frontmatter keys that are no field of the type, sent as `x_<key>`, that
 	 * look like a slip for one of its link fields (round C, 4): the key and
@@ -169,6 +178,29 @@ export function unclosedFenceMessage(
 	return `${name} ${verb}: the code fence on line ${fence.line} (in ${fence.field}) never closes, ` +
 		`so the heading "${fence.heading}" after it would be read as its text. ` +
 		"Close the fence with a line of the same backticks or tildes, then try again.";
+}
+
+/**
+ * Why a note readElement read is not sent (or copied, exported: `verdict`),
+ * or null when its fields are the note's whole text: a code fence that never
+ * closes, or a heading that starts two sections, each leaves `fields` holding
+ * less than the note does. The one place every reader that sends, copies or
+ * writes a note's fields asks: a new kind of loss is refused here, for all of
+ * them. `outcome` is the command's own last sentence ("Nothing was sent."),
+ * left out by a summary of many notes.
+ */
+export function readRefusal(
+	parsed: Pick<ParsedElement, "unclosedFence" | "repeatedHeadings">,
+	label: string,
+	verdict = "not sent",
+	outcome = ""
+): string | null {
+	if (parsed.unclosedFence) {
+		const message = unclosedFenceMessage(label, parsed.unclosedFence, verdict);
+		return outcome ? `${message} ${outcome}` : message;
+	}
+	if (parsed.repeatedHeadings?.length) return repeatedHeadingMessage(label, parsed.repeatedHeadings, verdict, outcome);
+	return null;
 }
 
 /**
@@ -339,6 +371,7 @@ export async function readElement(
 		// than dropped (never-drop, R2) — a user who renames a heading loses no
 		// prose. A legacy body with no headings at all parses to a lone preamble,
 		// which lands in the body field exactly as it did before.
+		let repeatedHeadings: string[] = [];
 		if (body) {
 			// A `### Looks` section is a user-added custom TEXT field and must reach
 			// the API as `x_looks`, not be salvaged into description. We cannot know
@@ -366,6 +399,12 @@ export async function readElement(
 			for (const [k, v] of Object.entries(sectionValues)) {
 				fields[k] = v;
 			}
+			// A heading read as a field, typed twice: only its last section would travel.
+			const textKeys = new Set(bodyTextFields(category));
+			repeatedHeadings = (parsedBody?.repeated ?? []).filter((h) => {
+				const key = headingToFieldKey(h);
+				return textKeys.has(key) || customKeys.includes(`x_${key}`);
+			});
 		}
 		if (!fields.name) {
 			fields.name = typeof fm.name === "string" ? fm.name : file.basename;
@@ -379,6 +418,7 @@ export async function readElement(
 			unresolvedLinks: unresolved,
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
+			...(repeatedHeadings.length ? { repeatedHeadings } : {}),
 			...misnamed(category, adopted),
 			...(ownConflicts.length ? { ownConflicts: [...new Set(ownConflicts)] } : {}),
 			knownOf,
@@ -824,7 +864,7 @@ async function claimNotePath(app: App, folder: string, base: string, elementId: 
 	throw new Error(`No free note name for "${base}" in ${folder}`);
 }
 
-/** The element id a note carries on disk — frontmatter, else a legacy span/bold id line. */
+/** The element id a note carries on disk: its front matter's, else an old span note's (noteIdIn). */
 async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	let content: string;
 	try {
@@ -832,14 +872,25 @@ async function noteIdOf(app: App, file: TFile): Promise<string | null> {
 	} catch {
 		return null;
 	}
+	return noteIdIn(content);
+}
+
+/**
+ * The element id a note's bytes carry: its front matter's `id`, else the Id
+ * line of an old span note (only a note in the old layout and nothing else:
+ * isOldSpanNote), else none. A `- **ID:**` line is no id: no version of the
+ * plugin, and no upstream template it fetched, wrote one into an element note
+ * (World.md's `- **Id:**` line is the world's), so in a note it is the
+ * person's own writing, and a pull or a paste must never take the note for
+ * the element's.
+ */
+export function noteIdIn(content: string): string | null {
 	// Tolerate leading blank lines (the corruption splitNote repairs): the note
 	// is still this element's, and rewriting it in place is what heals it.
 	const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ""), ["id"]).id;
 	if (fmId) return fmId;
 	// An old span note's id, only from a note in the old layout: a quoted example never makes a note an element's.
-	const spanId = oldSpanNoteId(content);
-	if (spanId) return spanId;
-	return /^- \*\*ID:\*\* (.+)$/m.exec(content)?.[1].trim() ?? null;
+	return oldSpanNoteId(content);
 }
 
 /**
