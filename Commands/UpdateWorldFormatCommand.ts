@@ -220,10 +220,13 @@ export class UpdateWorldFormatCommand {
 			}
 
 			// Values for the new body: existing sections win, then frontmatter text
-			// being moved, then the legacy whole-body-is-description case.
+			// being moved, then the legacy whole-body-is-description case. A
+			// property that is empty or blank is no value, as the check above reads
+			// it: taken, it would stand in for the body and the body be lost.
 			const values: Record<string, unknown> = { ...parsed.fields };
 			for (const key of bodyTextFields(category)) {
-				if (values[key] === undefined && typeof fm[key] === 'string') values[key] = fm[key];
+				const held = fm[key];
+				if (values[key] === undefined && typeof held === 'string' && held.trim() !== '') values[key] = held;
 			}
 			if (values[bodyField] === undefined) {
 				// A 3.0/3.1 note's whole body IS the description. Preserve it,
