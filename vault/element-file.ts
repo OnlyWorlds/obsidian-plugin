@@ -1022,6 +1022,16 @@ export function duplicateIds(ids: Array<string | null>): Set<string> {
 	return twice;
 }
 
+/** The id in a note's own front matter, read from its bytes with the same YAML reader the cache's reading stands for (a flow block, a quoted key and a trailing comment included). */
+async function frontmatterIdOnDisk(app: App, file: TFile): Promise<string | undefined> {
+	try {
+		const id = parseRawFrontmatter(await app.vault.read(file))?.id;
+		return typeof id === "string" ? id : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Find an element note by embedded frontmatter id, wherever it sits in the
  * world's folder (the Markdown profile, sentence 1): a note a person moved out
@@ -1044,8 +1054,17 @@ async function findNoteById(
 		if (!fm || fm.id !== id || !elementNoteType(f.path, fm)) continue;
 		found.set(f.path, f);
 	}
-	const path = pickNoteForId([...found.keys()], worldName, folderName);
-	return path ? found.get(path) ?? null : null;
+	// The pick is confirmed from the note's own bytes: the index can still hold
+	// an id a person has just taken out of the note, and a writer that trusted
+	// it would write the element over what is now the person's own note.
+	while (found.size > 0) {
+		const path = pickNoteForId([...found.keys()], worldName, folderName);
+		const file = path ? found.get(path) : undefined;
+		if (!path || !file) return null;
+		if ((await frontmatterIdOnDisk(app, file)) === id) return file;
+		found.delete(path);
+	}
+	return null;
 }
 
 /**
