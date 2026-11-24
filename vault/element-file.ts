@@ -100,6 +100,14 @@ export interface ParsedElement {
 	 */
 	unclosedFence?: { field: string; line: number; heading: string };
 	/**
+	 * Headings that start two sections of one field, a schema text field or a
+	 * custom one (parseElementBody's `repeated`), each as first typed: `fields`
+	 * holds only the last section's text. The CALLER refuses to send the note
+	 * (repeatedHeadingMessage). A repeated heading that is prose, folded into
+	 * the description with every section's text, is not one.
+	 */
+	repeatedHeadings?: string[];
+	/**
 	 * Frontmatter keys that are no field of the type, sent as `x_<key>`, that
 	 * look like a slip for one of its link fields (round C, 4): the key and
 	 * the field it likely meant. The CALLER names them; nothing is corrected.
@@ -339,6 +347,7 @@ export async function readElement(
 		// than dropped (never-drop, R2) — a user who renames a heading loses no
 		// prose. A legacy body with no headings at all parses to a lone preamble,
 		// which lands in the body field exactly as it did before.
+		let repeatedHeadings: string[] = [];
 		if (body) {
 			// A `### Looks` section is a user-added custom TEXT field and must reach
 			// the API as `x_looks`, not be salvaged into description. We cannot know
@@ -366,6 +375,12 @@ export async function readElement(
 			for (const [k, v] of Object.entries(sectionValues)) {
 				fields[k] = v;
 			}
+			// A heading read as a field, typed twice: only its last section would travel.
+			const textKeys = new Set(bodyTextFields(category));
+			repeatedHeadings = (parsedBody?.repeated ?? []).filter((h) => {
+				const key = headingToFieldKey(h);
+				return textKeys.has(key) || customKeys.includes(`x_${key}`);
+			});
 		}
 		if (!fields.name) {
 			fields.name = typeof fm.name === "string" ? fm.name : file.basename;
@@ -379,6 +394,7 @@ export async function readElement(
 			unresolvedLinks: unresolved,
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
+			...(repeatedHeadings.length ? { repeatedHeadings } : {}),
 			...misnamed(category, adopted),
 			...(ownConflicts.length ? { ownConflicts: [...new Set(ownConflicts)] } : {}),
 			knownOf,

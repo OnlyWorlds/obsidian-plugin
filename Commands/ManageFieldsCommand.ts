@@ -15,6 +15,7 @@ import {
 	serializeFrontmatter,
 	appendBodySection,
 	isDependsOnHeading,
+	repeatedHeadingMessage,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
@@ -293,7 +294,8 @@ function ownBody(content: string): { body: string; section: string } {
  * rebuilt: the rebuild would escape the swallowed heading into the field
  * above, add an empty section for it, and the next Save would clear that
  * field on onlyworlds.com (Kael's fixes read, should-fix 1). Says so as Save
- * does, naming the field and the heading; true when refused.
+ * does, naming the field and the heading; true when refused. A note with a
+ * heading that starts two sections is refused the same way, naming it.
  */
 function refusedForFence(
 	file: TFile,
@@ -302,9 +304,16 @@ function refusedForFence(
 	body: string,
 	parsed: ReturnType<typeof parseElementBody>
 ): boolean {
-	if (!parsed.unclosedFence) return false;
-	new Notice(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not changed'), 15000);
-	return true;
+	if (parsed.unclosedFence) {
+		new Notice(unclosedFenceMessage(file.basename, noteFence(content, body, category, parsed.unclosedFence), 'not changed'), 15000);
+		return true;
+	}
+	// A heading that starts two sections: the rebuild would keep only the last one's text.
+	if (parsed.repeated) {
+		new Notice(repeatedHeadingMessage(file.basename, parsed.repeated, 'not changed'), 15000);
+		return true;
+	}
+	return false;
 }
 
 

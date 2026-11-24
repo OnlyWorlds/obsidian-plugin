@@ -7,7 +7,7 @@ import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
+import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, repeatedHeadingMessage, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -104,6 +104,8 @@ const misnamedShown = new Set<string>();
 
 /** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
 const fenceShown = new Set<string>();
+/** Note paths whose repeated-heading refusal auto-sync has shown this session. */
+const repeatedShown = new Set<string>();
 /** Notes whose id another note holds, said once a session per note by auto-sync. */
 const duplicateShown = new Set<string>();
 
@@ -358,6 +360,15 @@ export class SaveElementCommand {
                 const reason = unclosedFenceMessage(v2.name, v2.unclosedFence);
                 if (!manual && fenceShown.has(activeFile.path)) return { ok: false, reason };
                 if (!manual) fenceShown.add(activeFile.path);
+                return this.fail(reason, 15000);
+            }
+            // A field's heading typed twice: only the last section would be
+            // sent, and the earlier text lost on onlyworlds.com. Refused and
+            // named the same way.
+            if (v2.repeatedHeadings) {
+                const reason = repeatedHeadingMessage(v2.name, v2.repeatedHeadings, 'not saved', 'Nothing was sent.');
+                if (!manual && repeatedShown.has(activeFile.path)) return { ok: false, reason };
+                if (!manual) repeatedShown.add(activeFile.path);
                 return this.fail(reason, 15000);
             }
             // A name the note holds as a property and again inside its own
