@@ -9,7 +9,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '..
 import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
-import { ownConflictMessage, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { ownConflictMessage, readElement, sameElementType, typeReadTwiceMessage, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
@@ -501,6 +501,13 @@ export class ExportWorldCommand {
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
+                        // The type the bytes give must be the type the note was listed
+                        // under (the metadata cache, a moment before): otherwise it is
+                        // left out and named in the summary, never sent under either type.
+                        if (parsed && !sameElementType(category, parsed.category)) {
+                            this.refusedNotes.push(typeReadTwiceMessage(`"${parsed.name}"`, category, parsed.category, 'not sent', 'Upload world'));
+                            return {};
+                        }
                         if (parsed?.unclosedFence) {
                             // Never sent cut short: named in the summary instead.
                             this.refusedNotes.push(unclosedFenceMessage(`${category} "${parsed.name}"`, parsed.unclosedFence));

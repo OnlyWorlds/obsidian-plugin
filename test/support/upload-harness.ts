@@ -48,9 +48,11 @@ export async function harnessUpload(o: UploadOpts) {
 	const patches: Record<string, Record<string, unknown>> = {};
 	proto.getWorld = async () => ({ id: UPLOAD_WID, name: "W" });
 	proto.changesWalk = async () => ({ changes: o.changes, cursor: "c9", head: 9 });
-	proto.bulkCreate = async (items: { element: Record<string, unknown> }[], opts?: unknown) => {
+	const bulkTypes: Record<string, string> = {};
+	proto.bulkCreate = async (items: { type?: string; element: Record<string, unknown> }[], opts?: unknown) => {
 		bulkOpts.push(opts);
 		bulkSent.push(...items.map((i) => i.element));
+		for (const i of items) bulkTypes[String(i.element.id)] = String(i.type);
 		const held = (i: { element: Record<string, unknown> }) => o.conflict?.includes(String(i.element.id));
 		return {
 			errors: items.some(held),
@@ -95,5 +97,5 @@ export async function harnessUpload(o: UploadOpts) {
 		for (const [k, v] of Object.entries(saved)) proto[k] = v;
 	}
 	const seqFile = vault.dotfiles.get("OnlyWorlds/Worlds/W/.ow-seq.json");
-	return { bulkSent, bulkOpts, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
+	return { bulkSent, bulkTypes, bulkOpts, patches, ifMatch, seqIndex: (seqFile ? JSON.parse(seqFile) : {}) as Record<string, number>, notices: [...__notices], settings: plugin.settings };
 }

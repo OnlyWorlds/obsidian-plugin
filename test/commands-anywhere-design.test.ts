@@ -306,3 +306,24 @@ test("★ Copy world leaves out and names a note whose type the cache and its by
 	assert.deepEqual(holds(agreed, A), ["Narrative"], "Copy: " + JSON.stringify(agreed));
 	assert.equal((agreed.Narrative[0] as { story?: unknown }).story, "The only copy of my chapter.");
 });
+
+test("★ Upload world sends nothing for a note whose type the cache and its bytes read two ways, and names it; with the cache agreeing it is sent as its type", async () => {
+	const notes = { "Drafts/Chapter.md": CHAPTER };
+	const proto = (await import("./support/obsidian-mock")).MockMetadataCache.prototype as unknown as { getFileCache(f: { path: string }): unknown };
+	const orig = proto.getFileCache;
+	proto.getFileCache = function (this: unknown, f: { path: string }) {
+		return f.path.endsWith("Drafts/Chapter.md") ? STALE_TYPE : orig.call(this, f);
+	};
+	let up: Awaited<ReturnType<typeof harnessUpload>>;
+	try {
+		up = await harnessUpload({ notes, changes: [] });
+	} finally {
+		proto.getFileCache = orig;
+	}
+	const ids = [...up.bulkSent.map((e) => String(e.id)), ...Object.keys(up.patches)];
+	assert.ok(!ids.includes(A), "Upload sent the note under a type its bytes do not give: " + JSON.stringify(up.bulkTypes));
+	assert.ok(up.notices.some((n) => /Chapter/.test(n) && /type/.test(n)), up.notices.join(" | "));
+	const agreed = await harnessUpload({ notes, changes: [] });
+	assert.equal(agreed.bulkTypes[A], "narrative", JSON.stringify(agreed.bulkTypes));
+	assert.equal(agreed.bulkSent.find((e) => e.id === A)?.story, "The only copy of my chapter.");
+});
