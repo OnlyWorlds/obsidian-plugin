@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { elementNoteType, ownFrontmatterId, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -188,7 +188,7 @@ export class CopyWorldCommand {
                     let parsedElement: Record<string, any>;
                     const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
-                        const parsed = await readElement(this.app, file);
+                        const parsed = await readElement(this.app, file, { fromBytes: true });
                         if (parsed?.unclosedFence) {
                             refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
                             return {};

@@ -497,7 +497,7 @@ export class ExportWorldCommand {
                     // own, so a quoted Id line is never sent as an id.
                     const oldSpanNote = isOldSpanNote(fileContent);
                     if (!oldSpanNote && file instanceof TFile) {
-                        const parsed = await readElement(this.app, file);
+                        const parsed = await readElement(this.app, file, { fromBytes: true });
                         // id rides OUTSIDE parsed.fields — without it the upload
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).

@@ -250,14 +250,23 @@ export function categoryToResourceKey(category: string): string {
  * a caller writes then immediately re-reads, the cache may lag; we fall back to
  * parsing the raw YAML block so reads are not cache-timing-dependent.
  */
-export async function readElement(app: App, file: TFile): Promise<ParsedElement | null> {
+export async function readElement(
+	app: App,
+	file: TFile,
+	/**
+	 * `fromBytes`: the note's front matter, and so its id and type, read from the
+	 * bytes just read, never the metadata cache. Copy and Upload read so: a stale
+	 * cache must never make a note of the person's own an element.
+	 */
+	opts: { fromBytes?: boolean } = {}
+): Promise<ParsedElement | null> {
 	const content = await app.vault.read(file);
 
 	// Frontmatter path: cache first, raw YAML fallback (cache-timing safety).
-	let fm = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+	let fm = opts.fromBytes ? undefined : (app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined);
 	if (!fm || typeof fm.id !== "string") {
 		const raw = parseRawFrontmatter(content);
-		if (raw && typeof raw.id === "string") fm = raw;
+		if (raw && (opts.fromBytes || typeof raw.id === "string")) fm = raw;
 	}
 	const pathInfo = elementNoteType(file.path, fm);
 	if (!pathInfo) return null;

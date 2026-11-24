@@ -148,3 +148,29 @@ test("★ Update world format refuses a text property when the body holds prose 
 	assertUnchanged(vault, notes);
 	assert.ok(__notices.some((n) => /Zel not updated/.test(n)), __notices.join(" | "));
 });
+
+// --- 5 Copy and Upload read identity from the note's bytes --------------------------------------
+
+test("★ Copy and Upload never take a note for an element by a stale metadata cache", async () => {
+	const diary = `---\nid: false\n---\n\n### Description\n\nA new private chapter.\n`;
+	const stale = { frontmatter: { id: A, name: "Diary", type: "character" } };
+	const { app, vault, cache } = makeApp();
+	await seedAll(vault, { [`${W}/Drafts/Diary.md`]: diary });
+	const c = cache as unknown as { getFileCache(f: { path: string }): unknown };
+	const get = c.getFileCache.bind(c);
+	c.getFileCache = (f: { path: string }) => (f.path.endsWith("Diary.md") ? stale : get(f));
+	const data = await copyData(app);
+	assert.deepEqual(data.Character, [], "Copy: " + JSON.stringify(data.Character));
+	const proto = (await import("./support/obsidian-mock")).MockMetadataCache.prototype as unknown as { getFileCache(f: { path: string }): unknown };
+	const orig = proto.getFileCache;
+	proto.getFileCache = function (this: unknown, f: { path: string }) {
+		return f.path.endsWith("Diary.md") ? stale : orig.call(this, f);
+	};
+	try {
+		const up = await harnessUpload({ notes: { "Character/Ireena.md": `---\nname: Ireena\nid: 019e0000-0000-7000-8000-0000000000b1\n---\n\n### Description\n\nA noble.\n`, "Drafts/Diary.md": diary }, changes: [] });
+		const ids = [...up.bulkSent.map((e) => String(e.id)), ...Object.keys(up.patches)];
+		assert.ok(!ids.includes(A), "Upload sent a note of the person's own under a stale cache's id: " + JSON.stringify(up.bulkSent));
+	} finally {
+		proto.getFileCache = orig;
+	}
+});
