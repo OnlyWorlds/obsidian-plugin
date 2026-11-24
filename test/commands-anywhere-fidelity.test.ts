@@ -99,3 +99,20 @@ test("★ Import names a link target from the id a note holds on the disk, never
 	assert.doesNotMatch(cara, /\[\[OldTown\]\]/, "a link to B names the note that holds A: " + cara);
 	assert.equal(vault.contentAt(oldTown), `---\nid: ${A}\nname: OldTown\n---\n\nThe town.\n`);
 });
+
+// --- 4 Copy's own output, by its shape -------------------------------------------------------
+
+function withClipboard(): void {
+	Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
+}
+
+test("★ Copy world never writes over a note that is JSON with a type's name as a key but not its own output", async () => {
+	withClipboard();
+	const { app, vault } = makeApp();
+	const chapter = '{"Character":"The only copy of my chapter."}';
+	await seedAll(vault, { [`${W}/World Data File.md`]: chapter });
+	__notices.length = 0;
+	await new CopyWorldCommand(app, {} as never, new WorldService(app)).copyWorldData("W");
+	assert.equal(vault.contentAt(`${W}/World Data File.md`), chapter, "a person's note was overwritten");
+	assert.ok(__notices.some((n) => /World Data File/.test(n) && /not overwritten/.test(n)), __notices.join(" | "));
+});

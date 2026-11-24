@@ -660,9 +660,10 @@ export class CopyWorldCommand {
 }
 
 /**
- * True when a note's whole text is what Copy world writes to `World Data File.md`: one JSON
- * object whose keys are `World` and type names only (an empty object included, which Copy writes
- * when the World file cannot be read). Anything else there is a person's note, never written over.
+ * True when a note's whole text has the shape Copy world writes to `World Data File.md`: one JSON
+ * object whose `World` is a map of the world's fields and whose every other key is a type's name
+ * holding a list of element maps (an empty object included, which Copy writes when the World file
+ * cannot be read). Anything else there is a person's note, never written over.
  */
 export function isCopyOutput(text: string): boolean {
     let data: unknown;
@@ -671,7 +672,11 @@ export function isCopyOutput(text: string): boolean {
     } catch {
         return false;
     }
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+    if (!isMap(data)) return false;
     const types = new Set(Object.keys(Category).filter((k) => isNaN(Number(k))));
-    return Object.keys(data).every((k) => k === 'World' || types.has(k));
+    // The shape Copy writes: `World` a map of the world's fields, each type a list of element maps.
+    return Object.entries(data).every(([k, v]) =>
+        k === 'World' ? isMap(v) : types.has(k) && Array.isArray(v) && v.every(isMap)
+    );
 }
