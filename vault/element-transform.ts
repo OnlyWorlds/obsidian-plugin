@@ -2041,39 +2041,92 @@ function extractWikilinks(raw: string): string[] {
  * stand at the start of their lines, so none of this takes one away.
  */
 export function outsideCode(content: string): string {
-	const kept: string[] = [];
-	let fence: OpenFence | null = null;
-	for (const raw of splitNote(content).body.split("\n")) {
-		const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-		if (fence) {
-			const close = /^\s*(`{3,}|~{3,})[ \t]*$/.exec(line);
-			if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null;
-			continue;
-		}
-		const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-		if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-			fence = { char: open[1][0], len: open[1].length };
-			continue;
-		}
-		if (/^( {4}|\t)/.test(line) && line.trim() !== "") continue;
-		kept.push(line);
-	}
+	const { lines, code } = codeLines(content);
+	const kept = lines.filter((_, i) => !code[i]).map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
 	// Inline code, paragraph by paragraph: a run of backticks to the next run of the same length.
 	return kept
 		.join("\n")
 		.split(/\n[ \t]*\n/)
-		.map((para) => para.replace(/(\x60+)(?!\x60)[\s\S]*?(?<!\x60)\1(?!\x60)/g, ""))
+		.map((para) => para.replace(INLINE_CODE, ""))
 		.join("\n\n");
 }
 
+/** A run of backticks to the next run of the same length: inline code. */
+const INLINE_CODE = /(\x60+)(?!\x60)[\s\S]*?(?<!\x60)\1(?!\x60)/g;
+
 /**
- * The id an old span note carries in its text: span markup and an `Id` line
- * outside every code context (`outsideCode`). Null for a note that only shows
- * the old format as code, or has no `Id` line.
+ * The body's lines and which of them Markdown shows as code: in a fence (at
+ * any indent, or after one that never closes), indented, or starting inside
+ * inline code that runs across lines (`outsideCode` says what each means).
+ */
+function codeLines(content: string): { lines: string[]; code: boolean[] } {
+	const lines = splitNote(content).body.split("\n");
+	const code = lines.map(() => false);
+	let fence: OpenFence | null = null;
+	lines.forEach((raw, i) => {
+		const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+		if (fence) {
+			code[i] = true;
+			const close = /^\s*(`{3,}|~{3,})[ \t]*$/.exec(line);
+			if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null;
+			return;
+		}
+		const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+		if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+			fence = { char: open[1][0], len: open[1].length };
+			code[i] = true;
+			return;
+		}
+		if (/^( {4}|\t)/.test(line) && line.trim() !== "") code[i] = true;
+	});
+	// A line that starts inside inline code (a run of backticks opened on a line above it, in the same paragraph).
+	let start = 0;
+	while (start < lines.length) {
+		if (code[start] || lines[start].trim() === "") {
+			start++;
+			continue;
+		}
+		let end = start;
+		while (end < lines.length && !code[end] && lines[end].trim() !== "") end++;
+		const para = lines.slice(start, end);
+		const text = para.join("\n");
+		const offsets: number[] = [];
+		let at = 0;
+		for (const l of para) {
+			offsets.push(at);
+			at += l.length + 1;
+		}
+		for (const m of text.matchAll(INLINE_CODE)) {
+			const from = m.index ?? 0;
+			const to = from + m[0].length;
+			offsets.forEach((o, k) => {
+				if (o > from && o < to) code[start + k] = true;
+			});
+		}
+		start = end;
+	}
+	return { lines, code };
+}
+
+/**
+ * The text an old span note's fields are read from: its lines outside code
+ * (`codeLines`), each as it stands. Code is left out only to tell which lines
+ * are fields; a field's value keeps its own inline code (a Description
+ * that says to speak the words Moon Sword in backticks is read whole).
+ */
+export function spanFieldText(content: string): string {
+	const { lines, code } = codeLines(content);
+	return lines.filter((_, i) => !code[i]).join("\n");
+}
+
+/**
+ * The id an old span note carries in its text: span markup outside every code
+ * context (`outsideCode`), and an `Id` line among its own lines
+ * (`spanFieldText`). Null for a note that only shows the old format as code,
+ * or has no `Id` line.
  */
 export function spanNoteId(content: string): string | null {
-	const text = outsideCode(content);
-	return isSpanFormat(text) ? parseSpanNote(text).id : null;
+	return isSpanFormat(outsideCode(content)) ? parseSpanNote(spanFieldText(content)).id : null;
 }
 
 /** Detect span format cheaply (used to decide read path / migration eligibility). */

@@ -10,7 +10,7 @@ import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/chan
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { ownConflictMessage, ownFrontmatterId, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
-import { outsideCode, parseRawFrontmatterScalars, spanNoteId, splitNote } from '../vault/element-transform';
+import { spanFieldText, parseRawFrontmatterScalars, spanNoteId, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
@@ -516,7 +516,7 @@ export class ExportWorldCommand {
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
-                    return oldSpanNote ? await this.parseTemplate(outsideCode(fileContent), worldFolder) : {};
+                    return oldSpanNote ? await this.parseTemplate(spanFieldText(fileContent), worldFolder) : {};
                 }));
     
                 // Filter out empty entries

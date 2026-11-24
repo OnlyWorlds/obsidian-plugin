@@ -6,7 +6,7 @@ import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { elementNoteType, ownFrontmatterId, parseRawFrontmatter, readElement, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
-import { outsideCode, spanNoteId } from '../vault/element-transform';
+import { spanFieldText, spanNoteId } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
 import { isInCategoryFolder } from '../vault/category-folder';
@@ -209,7 +209,7 @@ export class CopyWorldCommand {
                         if (!parsed) return {};
                         parsedElement = { id: parsed.id, ...parsed.fields };
                     } else {
-                        parsedElement = await this.parseTemplate(outsideCode(fileContent), worldName);
+                        parsedElement = await this.parseTemplate(spanFieldText(fileContent), worldName);
                         // Span markup with no Id line is a note showing the old format, never an element under a made-up id.
                         if (!parsedElement.id) return {};
                     }

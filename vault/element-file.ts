@@ -22,6 +22,7 @@ import {
 	isSpanFormat,
 	outsideCode,
 	parseSpanNote,
+	spanFieldText,
 	spanNoteId,
 	spanFieldsToFrontmatter,
 	parseRawFrontmatterScalars,
@@ -377,9 +378,8 @@ export async function readElement(app: App, file: TFile): Promise<ParsedElement 
 
 	// Legacy span-format fallback (pre-migration notes): only span lines outside
 	// every code context are the note's own; an example shown as code is not.
-	const spanText = outsideCode(content);
-	if (isSpanFormat(spanText)) {
-		const parsed = parseSpanNote(spanText);
+	if (isSpanFormat(outsideCode(content))) {
+		const parsed = parseSpanNote(spanFieldText(content));
 		if (!parsed.id) return null;
 		const resolver = buildVaultLinkResolver(app, pathInfo.worldName);
 		const { frontmatter, bodyValue } = spanFieldsToFrontmatter(parsed, category, resolver);
