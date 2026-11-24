@@ -6,6 +6,7 @@ import {
 	spanFieldsToFrontmatter,
 	normalizeCategory,
 	apiDataToFrontmatter,
+	inLineEndingsOf,
 	joinNote,
 	splitNote,
 } from '../vault/element-transform';
@@ -285,7 +286,7 @@ export class MigrateWorldCommand {
 		// The guard is one-shot per path: marked before the one 'modify' so
 		// auto-sync never sees a migration write.
 		this.markSelfWrite(file.path);
-		await this.app.vault.modify(file, joinNote(fmText, `${bodyValue}\n`));
+		await this.app.vault.modify(file, inLineEndingsOf(content, joinNote(fmText, `${bodyValue}\n`)));
 	}
 }
 

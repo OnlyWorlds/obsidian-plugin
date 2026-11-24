@@ -10,6 +10,7 @@ import {
 	normalizeCategory,
 	splitNote,
 	joinNote,
+	inLineEndingsOf,
 	serializeFrontmatter,
 	hasOwn,
 	spanNoteId,
@@ -254,7 +255,7 @@ export class UpdateWorldFormatCommand {
 			// The body ends as writeElement ends it, one newline after the last
 			// section, or the last value's own final newline is read away
 			// (round C, 11).
-			const newContent = joinNote(fmText, withDependsOn(`${newBody}\n`, section));
+			const newContent = inLineEndingsOf(content, joinNote(fmText, withDependsOn(`${newBody}\n`, section)));
 			if (newContent !== content) {
 				this.markSelfWrite?.(file.path);
 				await this.app.vault.modify(file, newContent);

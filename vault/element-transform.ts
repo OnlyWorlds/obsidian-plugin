@@ -797,6 +797,17 @@ export function joinNote(frontmatter: string, body: string): string {
 	return `${fm}\n\n${b.replace(/^\n+/, "")}`;
 }
 
+/**
+ * `text` in the line endings of the note it replaces: a note written with
+ * CRLF throughout is written back with CRLF throughout, so a rewrite never
+ * changes every line of it (a whole-note diff in a vault kept in git). A note
+ * with LF, or with mixed endings, gets `text` as it is.
+ */
+export function inLineEndingsOf(original: string, text: string): string {
+	const crlfOnly = original.includes("\r\n") && !/(^|[^\r])\n/.test(original);
+	return crlfOnly ? text.replace(/\r?\n/g, "\r\n") : text;
+}
+
 /** `x_looks` -> `looks`. Only strips the namespace, never other content. */
 export function stripExtensionPrefix(key: string): string {
 	for (const ns of EXTENSION_NAMESPACES) {

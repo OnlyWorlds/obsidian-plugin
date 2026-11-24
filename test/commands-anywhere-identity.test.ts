@@ -234,3 +234,22 @@ test("★ Copy world writes its output only over its own earlier output, never o
 	assert.match(vault.contentAt(`${W}/World Data File.md`) ?? "", /"World": \{/);
 	assert.doesNotMatch(vault.contentAt(`${W}/World Data File.md`) ?? "", /"old"/);
 });
+
+// --- 8 a CRLF note keeps its line endings --------------------------------------------------
+
+const loneLf = (s: string) => /(^|[^\r])\n/.test(s);
+
+test("★ Update world format and Migrate keep a CRLF note's line endings", async () => {
+	const { app, vault } = makeApp();
+	const crlf = (s: string) => s.replace(/\n/g, "\r\n");
+	await seedAll(vault, {
+		[`${E}/Character/Win.md`]: crlf(`---\nname: Win\nid: ${A}\nphysicality: Tall.\n---\n\nA legacy body.\n`),
+		[`${E}/Location/Old win.md`]: crlf(SPAN(B, "Old win", "A town.")),
+	});
+	await update(app);
+	await migrate(app);
+	for (const p of [`${E}/Character/Win.md`, `${E}/Location/Old win.md`]) {
+		const text = vault.contentAt(p) ?? "";
+		assert.ok(text.includes("\r\n") && !loneLf(text), `${p} has a line ending of its own changed: ${JSON.stringify(text)}`);
+	}
+});
