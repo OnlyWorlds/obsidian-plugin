@@ -14,11 +14,10 @@ import {
 	hasOwn,
 	setOwn,
 	spanNoteId,
-	parseRawFrontmatterScalars,
 	withDependsOn,
 	withoutDependsOn,
 } from '../vault/element-transform';
-import { editFrontmatterLines, noteFence, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
+import { editFrontmatterLines, noteFence, ownFrontmatterId, parseRawFrontmatter, unclosedFenceMessage, worldElementNotes } from '../vault/element-file';
 import { isElementId, isUnderElements } from '../vault/category-folder';
 import { isKnownOfNote } from '../sync/known-of';
 import { isStubNote } from '../sync/hidden-on-server';
@@ -78,7 +77,7 @@ export class UpdateWorldFormatCommand {
 			// scaffold. The one exception is an old span note where the plugin
 			// wrote them (a type folder under Elements/, no front matter id, its
 			// Id line outside every code fence), read as before.
-			const fmId = parseRawFrontmatterScalars(splitNote(content).frontmatter, ['id']).id;
+			const fmId = ownFrontmatterId(content);
 			const oldSpanNote = !fmId && isUnderElements(file.path) && spanNoteId(content) !== null;
 			if (!isElementId(fmId) && !oldSpanNote) continue;
 			scanned++;

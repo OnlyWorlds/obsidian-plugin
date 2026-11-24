@@ -1,7 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from 'obsidian';
 import {
 	outsideFences,
-	parseRawFrontmatterScalars,
 	parseSpanNote,
 	spanNoteId,
 	spanFieldsToFrontmatter,
@@ -15,7 +14,7 @@ import {
 } from '../vault/element-transform';
 import { sanitizeFileName } from '../Scripts/WorldService';
 import { isUnderElements, mayBeElementNote } from '../vault/category-folder';
-import { editFrontmatterLines, elementNoteType, parseRawFrontmatter } from '../vault/element-file';
+import { editFrontmatterLines, elementNoteType, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
 
 interface MigrationResult {
 	converted: string[];
@@ -104,7 +103,7 @@ export class MigrateWorldCommand {
 				continue;
 			}
 			const fm = parseRawFrontmatter(content.replace(/^\s+/, ''));
-			const fmId = parseRawFrontmatterScalars(content.replace(/^\s+/, ''), ['id']).id;
+			const fmId = ownFrontmatterId(content);
 			if (fmId) {
 				if (elementNoteType(file.path, fm ?? { id: fmId })) out.skipped.push(file.path); // already frontmatter: idempotent
 				continue;
@@ -194,7 +193,7 @@ export class MigrateWorldCommand {
 		for (const file of files) {
 			try {
 				const content = await this.app.vault.read(file);
-				if (parseRawFrontmatterScalars(content.replace(/^\s+/, ''), ['id']).id) {
+				if (ownFrontmatterId(content)) {
 					result.skipped.push(file.path); // given a front matter id since the survey
 					continue;
 				}

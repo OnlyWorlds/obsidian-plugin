@@ -673,6 +673,24 @@ export function parseRawFrontmatter(content: string): Record<string, unknown> | 
 }
 
 /**
+ * The id a note's front matter holds, as the YAML reader reads it: a quoted
+ * key (`"id": …`), a comment after the value and any quoting are the
+ * reader's to settle, not a line scan's. When the block does not parse, the
+ * line scan's reading, so a note with a broken block and an `id` line still
+ * counts as a note with an id (never as an old span note). Null when the
+ * note's front matter holds no id.
+ */
+export function ownFrontmatterId(content: string): string | null {
+	const block = splitNote(content).frontmatter;
+	if (!block) return null;
+	const fm = parseRawFrontmatter(block);
+	if (!fm) return parseRawFrontmatterScalars(block, ["id"]).id ?? null;
+	const id = fm.id;
+	if (typeof id === "string") return id.trim() ? id : null;
+	return typeof id === "number" ? String(id) : null;
+}
+
+/**
  * A note's front matter block with the person's own lines kept as they wrote
  * them: the keys in `drop` are removed, `first` is written before the kept
  * lines and `last` after them (a key in either replaces the line of that

@@ -1,8 +1,8 @@
 import { App, Modal, Notice, Setting, TFile, TFolder, normalizePath } from "obsidian";
-import { pickNoteForId, writeElement } from "../vault/element-file";
+import { ownFrontmatterId, pickNoteForId, writeElement } from "../vault/element-file";
 import { mayBeElementNote } from "../vault/category-folder";
 import { isKnownOfElement } from "../sync/known-of";
-import { bodyFieldForCategory, getCategorySchema, normalizeCategory, parseRawFrontmatterScalars } from "../vault/element-transform";
+import { bodyFieldForCategory, getCategorySchema, normalizeCategory } from "../vault/element-transform";
 import { sanitizeFileName } from "../Scripts/WorldService";
 import { readWorldIdMarker, writeWorldIdMarker } from "../vault/world-id-marker";
 import { readFolderSidecar, writeFolderSidecar } from "../vault/folder-sidecar";
@@ -431,7 +431,7 @@ export class ImportFolderCommand {
 			let id = fm && typeof fm.id === "string" ? fm.id : undefined;
 			if (!id) {
 				try {
-					id = parseRawFrontmatterScalars((await this.app.vault.read(file)).replace(/^\s+/, ""), ["id"]).id;
+					id = ownFrontmatterId(await this.app.vault.read(file)) ?? undefined;
 				} catch {
 					/* unreadable note: not an id this import can see */
 				}
