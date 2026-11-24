@@ -191,3 +191,14 @@ test("★ Update world format leaves a note that stopped being an element after 
 	assert.equal(vault.contentAt(path), mine, "a note that is no element any more was rewritten");
 	assert.ok(__notices.some((n) => /Kai not updated/.test(n)), __notices.join(" | "));
 });
+
+// --- 7 text above the first section beside a Description section -------------------------------
+
+test("★ Update world format refuses a note with text above its first section and a Description section, and names it", async () => {
+	const { app, vault } = makeApp();
+	const notes = { [`${E}/Character/Pell.md`]: `---\nname: Pell\nid: ${A}\n---\n\nMy preamble, the only copy.\n\n### Description\n\nA guard.\n` };
+	await seedAll(vault, notes);
+	await update(app);
+	assertUnchanged(vault, notes);
+	assert.ok(__notices.some((n) => /Pell not updated/.test(n)), __notices.join(" | "));
+});

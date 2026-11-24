@@ -203,6 +203,13 @@ export class UpdateWorldFormatCommand {
 				refusals.push(`${file.basename} not updated: ${twice.join(', ')} ${one ? 'is' : 'are'} written both in the properties and in the note's body, and updating would keep only one. Keep one of them, then try again. Nothing was changed.`);
 				continue;
 			}
+			// Text above the first section beside a section of the description is
+			// the same choice inside the body: the rebuilt body keeps the section only.
+			if (parsed.preamble.trim() !== '' && hasOwn(parsed.fields, bodyField)) {
+				skipped++;
+				refusals.push(`${file.basename} not updated: it has text above its first section and a ${fieldToHeading(bodyField)} section, and updating would keep only the section. Move the text into a section, then try again. Nothing was changed.`);
+				continue;
+			}
 
 			// Values for the new body: existing sections win, then frontmatter text
 			// being moved, then the legacy whole-body-is-description case.
