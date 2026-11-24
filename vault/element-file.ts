@@ -37,6 +37,7 @@ import {
 	dependsOnOwnText,
 	withDependsOn,
 	withoutDependsOn,
+	repeatedHeadingMessage,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -94,7 +95,7 @@ export interface ParsedElement {
 	 * A code fence in the body that never closes and swallows a `###`
 	 * heading, read as its text (round C, 1): the field it opened in, as its
 	 * heading reads, its line in the note, and the first heading it swallows.
-	 * The CALLER refuses to send the note (unclosedFenceMessage), never sends
+	 * The CALLER refuses to send the note (readRefusal), never sends
 	 * it cut short. An open fence that swallows no heading is not one (the fix
 	 * round, item 1).
 	 */
@@ -103,7 +104,7 @@ export interface ParsedElement {
 	 * Headings that start two sections of one field, a schema text field or a
 	 * custom one (parseElementBody's `repeated`), each as first typed: `fields`
 	 * holds only the last section's text. The CALLER refuses to send the note
-	 * (repeatedHeadingMessage). A repeated heading that is prose, folded into
+	 * (readRefusal). A repeated heading that is prose, folded into
 	 * the description with every section's text, is not one.
 	 */
 	repeatedHeadings?: string[];
@@ -177,6 +178,29 @@ export function unclosedFenceMessage(
 	return `${name} ${verb}: the code fence on line ${fence.line} (in ${fence.field}) never closes, ` +
 		`so the heading "${fence.heading}" after it would be read as its text. ` +
 		"Close the fence with a line of the same backticks or tildes, then try again.";
+}
+
+/**
+ * Why a note readElement read is not sent (or copied, exported: `verdict`),
+ * or null when its fields are the note's whole text: a code fence that never
+ * closes, or a heading that starts two sections, each leaves `fields` holding
+ * less than the note does. The one place every reader that sends, copies or
+ * writes a note's fields asks: a new kind of loss is refused here, for all of
+ * them. `outcome` is the command's own last sentence ("Nothing was sent."),
+ * left out by a summary of many notes.
+ */
+export function readRefusal(
+	parsed: Pick<ParsedElement, "unclosedFence" | "repeatedHeadings">,
+	label: string,
+	verdict = "not sent",
+	outcome = ""
+): string | null {
+	if (parsed.unclosedFence) {
+		const message = unclosedFenceMessage(label, parsed.unclosedFence, verdict);
+		return outcome ? `${message} ${outcome}` : message;
+	}
+	if (parsed.repeatedHeadings?.length) return repeatedHeadingMessage(label, parsed.repeatedHeadings, verdict, outcome);
+	return null;
 }
 
 /**

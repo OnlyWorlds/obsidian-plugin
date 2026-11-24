@@ -988,12 +988,13 @@ export function parseElementBody(body: string, category: string): ParsedBody {
  * What a command says of a note it leaves because a heading starts two of its
  * sections: which heading, that only one would be kept, and what to do.
  * `verb` is the command's own word ("not updated", "not saved"), `outcome`
- * what it left as it was ("Nothing was changed.").
+ * what it left as it was ("Nothing was changed."; "" says nothing more, as a
+ * summary of many notes does).
  */
 export function repeatedHeadingMessage(name: string, headings: string[], verb: string, outcome = "Nothing was changed."): string {
 	const shown = headings.map((h) => `"${h}"`).join(", ");
 	const one = headings.length === 1;
-	return `${name} ${verb}: ${one ? "the heading" : "the headings"} ${shown} ${one ? "is" : "are each"} there twice, and only one of the two sections would be kept. Keep one, then try again. ${outcome}`;
+	return `${name} ${verb}: ${one ? "the heading" : "the headings"} ${shown} ${one ? "is" : "are each"} there twice, and only one of the two sections would be kept. Keep one, then try again.${outcome ? ` ${outcome}` : ""}`;
 }
 
 /**

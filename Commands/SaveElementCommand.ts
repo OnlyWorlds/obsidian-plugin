@@ -1,13 +1,13 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, parseRawFrontmatter, readElement, unclosedFenceMessage } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, repeatedHeadingMessage, withServerFieldLines } from '../vault/element-transform';
+import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -102,10 +102,8 @@ async function worldIdOf(client: { getWorld(): Promise<Record<string, unknown>> 
 /** Note path and key of each likely-misnamed key auto-sync has named this session (round C, 4). */
 const misnamedShown = new Set<string>();
 
-/** Note paths whose unclosed-fence refusal auto-sync has shown this session (the fix round, item 1). */
-const fenceShown = new Set<string>();
-/** Note paths whose repeated-heading refusal auto-sync has shown this session. */
-const repeatedShown = new Set<string>();
+/** Note paths whose read refusal (readRefusal: an unclosed fence, a heading twice) auto-sync has shown this session (the fix round, item 1). */
+const readRefusalShown = new Set<string>();
 /** Notes whose id another note holds, said once a session per note by auto-sync. */
 const duplicateShown = new Set<string>();
 
@@ -356,24 +354,17 @@ export class SaveElementCommand {
         // (rule 2). Refused up front, as a known-of note is.
         if (v2?.id && isLastKnownId(this.plugin.settings, v2.id)) return this.knownOfRefusal(activeFile, manual, LAST_KNOWN_NOT_SAVED);
         if (v2 && v2.id) {
-            // A fence that never closes swallowed the sections after it: the
-            // note is refused, never sent cut short (round C, 1).
+            // A fence that never closes swallowed the sections after it (round
+            // C, 1), or a field's heading typed twice keeps only the last
+            // section: the note is refused, never sent cut short, by the one
+            // check every sending reader asks (readRefusal).
             // Auto-sync says it once a session per note, not at every pause;
             // the status bar still shows the error (the fix round, item 1).
-            if (v2.unclosedFence) {
-                const reason = unclosedFenceMessage(v2.name, v2.unclosedFence);
-                if (!manual && fenceShown.has(activeFile.path)) return { ok: false, reason };
-                if (!manual) fenceShown.add(activeFile.path);
-                return this.fail(reason, 15000);
-            }
-            // A field's heading typed twice: only the last section would be
-            // sent, and the earlier text lost on onlyworlds.com. Refused and
-            // named the same way.
-            if (v2.repeatedHeadings) {
-                const reason = repeatedHeadingMessage(v2.name, v2.repeatedHeadings, 'not saved', 'Nothing was sent.');
-                if (!manual && repeatedShown.has(activeFile.path)) return { ok: false, reason };
-                if (!manual) repeatedShown.add(activeFile.path);
-                return this.fail(reason, 15000);
+            const refusal = readRefusal(v2, v2.name, 'not saved', 'Nothing was sent.');
+            if (refusal) {
+                if (!manual && readRefusalShown.has(activeFile.path)) return { ok: false, reason: refusal };
+                if (!manual) readRefusalShown.add(activeFile.path);
+                return this.fail(refusal, 15000);
             }
             // A name the note holds as a property and again inside its own
             // x_properties: refused by name, never sent with one of the two picked.
@@ -795,10 +786,12 @@ export class SaveElementCommand {
                     overflow = true;
                     return;
                 }
-                // A target whose fence never closes would be created cut short
-                // (round C, 1): the save stops and names it.
-                if (parsed.unclosedFence) {
-                    refused = unclosedFenceMessage(`${capitalize(parsed.category)} "${parsed.name}"`, parsed.unclosedFence);
+                // A target whose fence never closes, or whose heading starts
+                // two sections, would be created cut short (round C, 1): the
+                // save stops and names it.
+                const targetRefusal = readRefusal(parsed, `${capitalize(parsed.category)} "${parsed.name}"`);
+                if (targetRefusal) {
+                    refused = targetRefusal;
                     overflow = true;
                     return;
                 }

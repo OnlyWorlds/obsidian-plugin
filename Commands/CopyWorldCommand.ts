@@ -5,7 +5,7 @@ import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsi
 import { WorldService } from 'Scripts/WorldService';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
-import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, unclosedFenceMessage, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
+import { duplicateIds, emittedIdKey, ownFrontmatterId, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
 import { isOldSpanNote } from '../vault/element-transform';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { parseWorldUnits } from '../vault/world-units';
@@ -219,8 +219,10 @@ export class CopyWorldCommand {
                             refused.push(twinRefusal(category, parsed.name, listedId));
                             return {};
                         }
-                        if (parsed?.unclosedFence) {
-                            refused.push(unclosedFenceMessage(parsed.name, parsed.unclosedFence, 'not copied'));
+                        // Never copied cut short (a fence that never closes, a heading twice).
+                        const refusal = parsed && readRefusal(parsed, parsed.name, 'not copied');
+                        if (refusal) {
+                            refused.push(refusal);
                             return {};
                         }
                         // id rides OUTSIDE parsed.fields — without it the copied
