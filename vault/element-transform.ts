@@ -1429,10 +1429,12 @@ export function toV2WireKeys(element: Record<string, unknown>): Record<string, u
 		if (key === "world" || key === "world_id") continue;
 		if (GENERIC_PAIR_KEYS.has(key)) {
 			out[key] = value;
-		} else if (key.endsWith("_ids")) {
-			out[key.slice(0, -4)] = value;
-		} else if (key.endsWith("_id")) {
-			out[key.slice(0, -3)] = value;
+		} else if (key.endsWith("_ids") || key.endsWith("_id")) {
+			// A stripped suffix names a link field. `id` and `world` are no link field: `id_id` is a text
+			// field somebody labelled so, and must never become the element's own id (counted before, sent after).
+			const stripped = key.slice(0, key.endsWith("_ids") ? -4 : -3);
+			if (stripped === "id" || stripped === "world") continue;
+			out[stripped] = value;
 		} else {
 			out[key] = value;
 		}
