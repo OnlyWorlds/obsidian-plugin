@@ -77,12 +77,18 @@ export class CopyWorldCommand {
                 // reads the JSON as a note's prose; and a note there that is an
                 // element note (the Markdown profile: an id and a type, wherever it
                 // sits) is never written over.
+                // Only the command's own earlier output is written over: a note whose whole
+                // text is a JSON object of the world and its types. A person's note there
+                // (with or without properties) is never replaced; the notice names it.
                 const worldDataFile = this.app.vault.getAbstractFileByPath(worldDataPath) as TFile | null;
-                let kept = false;
+                let kept: string | null = null;
                 if (worldDataFile instanceof TFile) {
-                    const held = parseRawFrontmatter((await this.app.vault.read(worldDataFile)).replace(/^\s+/, ''));
+                    const text = await this.app.vault.read(worldDataFile);
+                    const held = parseRawFrontmatter(text.replace(/^\s+/, ''));
                     if (elementNoteType(worldDataPath, held)) {
-                        kept = true;
+                        kept = 'is an element note';
+                    } else if (!isCopyOutput(text)) {
+                        kept = "is not this command's earlier output";
                     } else {
                         this.markSelfWrite?.(worldDataPath);
                         await this.app.vault.modify(worldDataFile, worldDataJSON);
@@ -97,7 +103,7 @@ export class CopyWorldCommand {
 
                 // Modal confirmation removed
                 new Notice(kept
-                    ? `World ${worldFolder} copied to clipboard. World Data File.md is an element note, so it was not overwritten: rename or move it to keep a copy in the vault.`
+                    ? `World ${worldFolder} copied to clipboard. World Data File.md ${kept}, so it was not overwritten: rename or move it to keep a copy in the vault.`
                     : `World ${worldFolder} copied to clipboard.`, kept ? 15000 : undefined);
             } catch (error) {
                 console.error('Error during world data processing:', error);
@@ -651,4 +657,21 @@ export class CopyWorldCommand {
         };
     }
      
+}
+
+/**
+ * True when a note's whole text is what Copy world writes to `World Data File.md`: one JSON
+ * object whose keys are `World` and type names only (an empty object included, which Copy writes
+ * when the World file cannot be read). Anything else there is a person's note, never written over.
+ */
+export function isCopyOutput(text: string): boolean {
+    let data: unknown;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        return false;
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    const types = new Set(Object.keys(Category).filter((k) => isNaN(Number(k))));
+    return Object.keys(data).every((k) => k === 'World' || types.has(k));
 }

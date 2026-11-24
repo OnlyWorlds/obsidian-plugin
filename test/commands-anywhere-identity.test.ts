@@ -211,3 +211,26 @@ test("★ Update world format refuses a note whose text property holds a list, a
 	assertUnchanged(vault, notes);
 	assert.ok(__notices.some((n) => /Mine not updated/.test(n)), __notices.join(" | "));
 });
+
+// --- 7 the note Copy writes to ------------------------------------------------------------
+
+function withClipboard(): void {
+	Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
+}
+
+test("★ Copy world writes its output only over its own earlier output, never over a person's note", async () => {
+	withClipboard();
+	const { app, vault } = makeApp();
+	const essay = "---\ntags: [draft]\n---\nThe only copy of my essay.\n";
+	await seedAll(vault, { [`${W}/World Data File.md`]: essay });
+	const copy = new CopyWorldCommand(app, {} as never, new WorldService(app));
+	__notices.length = 0;
+	await copy.copyWorldData("W");
+	assert.equal(vault.contentAt(`${W}/World Data File.md`), essay, "a person's note was overwritten");
+	assert.ok(__notices.some((n) => /World Data File/.test(n) && /not overwritten/.test(n)), __notices.join(" | "));
+	// its own earlier output is written over, as always
+	await app.vault.modify(app.vault.getAbstractFileByPath(`${W}/World Data File.md`) as TFile, JSON.stringify({ World: { name: "old" }, Character: [] }, null, 4));
+	await copy.copyWorldData("W");
+	assert.match(vault.contentAt(`${W}/World Data File.md`) ?? "", /"World": \{/);
+	assert.doesNotMatch(vault.contentAt(`${W}/World Data File.md`) ?? "", /"old"/);
+});
