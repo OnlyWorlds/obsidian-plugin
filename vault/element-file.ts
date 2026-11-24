@@ -139,22 +139,6 @@ export function ownConflictMessage(name: string, names: string[], verb = "not se
 		"Keep one of them, then try again.";
 }
 
-/**
- * Why a note is left out of a Copy or an Upload when the type its own bytes
- * give differs from the type the note was listed under (the metadata cache,
- * a moment before): never sent or copied under either one. `command` is the
- * command to run again.
- */
-export function typeReadTwiceMessage(name: string, listed: string, read: string, verb: string, command: string): string {
-	return `${name} ${verb}: its type was read two ways a moment apart, ${normalizeCategory(listed)} and then ${normalizeCategory(read)}. ` +
-		`Nothing of it was used. Run ${command} again.`;
-}
-
-/** True when the type a note was listed under and the type its bytes give are one type. */
-export function sameElementType(listed: string, read: string): boolean {
-	return normalizeCategory(listed) === normalizeCategory(read);
-}
-
 /** "allies is not a field of Character; did you mean friends? Sent as x_allies." */
 export function likelyMisnamedMessage(category: string, slips: Array<{ key: string; field: string }>): string {
 	const type = category.charAt(0).toUpperCase() + category.slice(1);
@@ -271,11 +255,11 @@ export async function readElement(
 	file: TFile,
 	/**
 	 * `fromBytes`: the note's front matter, and so its id and type, read from the
-	 * bytes just read, never the metadata cache. Copy and Upload read so: a stale
-	 * cache must never make a note of the person's own an element.
+	 * bytes just read, never the metadata cache: a stale cache must never make a
+	 * note of the person's own an element.
 	 * `content`: the note's bytes as the caller already read them (Copy and
-	 * Upload's one reading): parsed instead of a second read, and read as
-	 * `fromBytes` reads.
+	 * Upload's one reading, worldElementNotesFromBytes): parsed instead of a
+	 * second read, and read as `fromBytes` reads.
 	 */
 	opts: { fromBytes?: boolean; content?: string } = {}
 ): Promise<ParsedElement | null> {
