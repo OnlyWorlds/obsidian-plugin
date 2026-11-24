@@ -153,3 +153,18 @@ test("★ Migrate reads a line indented by a space and a tab as code, never as a
 	assertUnchanged(vault, notes);
 	assert.deepEqual(r?.converted ?? [], [], JSON.stringify(r));
 });
+
+// --- 7 Copy's validator reads ids as its collector does --------------------------------------------
+
+test("★ Copy world's validation reads an id written with a comment or under a quoted key, as the copy does", async () => {
+	const { app, vault } = makeApp();
+	await seedAll(vault, {
+		[`${E}/Character/Bob.md`]: `---\nname: Bob\nid: ${A} # Bob's identity\n---\n\n### Description\n\nBob.\n`,
+		[`${E}/Character/Cara.md`]: `---\nname: Cara\n"id": ${B}\n---\n\n### Description\n\nCara.\n`,
+	});
+	__modals.length = 0;
+	await new CopyWorldCommand(app, {} as never, new WorldService(app)).processWorldCopy("W");
+	const modal = __modals.find((m) => m.constructor.name === "ValidateCopyResultModal") as unknown as { errorCount: number; elementCount: number; errors: unknown };
+	assert.equal(modal.errorCount, 0, JSON.stringify(modal.errors));
+	assert.equal(modal.elementCount, 2);
+});

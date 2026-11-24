@@ -2,7 +2,7 @@ import { ValidateResultModal } from '../Modals/ValidateResultModal';
 import { App, normalizePath, Notice, PluginManifest, TFile, TFolder } from 'obsidian';
 import { WorldService, sanitizeFileName } from '../Scripts/WorldService';
 import { isSpanFormat, parseRawFrontmatterScalars } from '../vault/element-transform';
-import { elementNoteType } from '../vault/element-file';
+import { elementNoteType, ownFrontmatterId, parseRawFrontmatter } from '../vault/element-file';
 import { mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 
 export class ValidateWorldCommand {
@@ -37,13 +37,15 @@ export class ValidateWorldCommand {
     validateFrontmatterElement(category: string, fileName: string, content: string) {
         this.checkedCount++;
         const displayName = fileName.replace(/\.md$/, '');
+        // Read as the YAML reader reads them (a quoted key, a comment after the value), as Copy and Upload collect.
         const fm = parseRawFrontmatterScalars(content, ['id', 'name']);
-        const id = (fm.id ?? '').trim().replace(/^["']|["']$/g, '');
+        const parsed = parseRawFrontmatter(content.replace(/^\s+/, ''));
+        const id = (ownFrontmatterId(content) ?? '').trim();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
             this.errorCount++;
             this.errors.missingIdErrors.push(`(${category}) ${displayName} has error in Id: ${id ? 'not a UUID' : 'field is empty'}`);
         }
-        const name = (fm.name ?? '').trim().replace(/^["']|["']$/g, '');
+        const name = (parsed && parsed.name != null ? String(parsed.name) : (fm.name ?? '').replace(/^["']|["']$/g, '')).trim();
         const filed = sanitizeFileName(name);
         if (!name || (displayName !== filed && !displayName.startsWith(`${filed} (`))) {
             this.errorCount++;
@@ -84,11 +86,11 @@ export class ValidateWorldCommand {
         for (const file of this.app.vault.getMarkdownFiles()) {
             if (!mayBeElementNote(file.path, worldFolderName)) continue;
             const content = await this.app.vault.read(file);
-            const found = elementNoteType(file.path, parseRawFrontmatterScalars(content, ['id', 'type']));
+            const found = elementNoteType(file.path, parseRawFrontmatter(content.replace(/^\s+/, '')) ?? parseRawFrontmatterScalars(content, ['id', 'type']));
             if (!found) continue;
             // In a type folder with no id at all (no front matter id, and not a note in the old span format, whose id is in its text): the person's own note, named and left.
             const framed = content.startsWith('---');
-            if (typeOfPlace(file.path) && (framed ? !(parseRawFrontmatterScalars(content, ['id']).id ?? '').trim() : !isSpanFormat(content))) {
+            if (typeOfPlace(file.path) && (framed ? !(ownFrontmatterId(content) ?? '').trim() : !isSpanFormat(content))) {
                 this.couldBeElements.push(`(${found.category}) ${file.basename}`);
                 continue;
             }
