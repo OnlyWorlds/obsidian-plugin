@@ -10,7 +10,7 @@ import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/chan
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
-import { isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
+import { groupUnseen, isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
@@ -358,7 +358,7 @@ export class ExportWorldCommand {
                 const name = item.payload.name ? String(item.payload.name) : item.id;
                 try {
                     const saved = await client.update(item.type, item.id, item.payload, { ifMatch: knownSeqs[item.id] ?? null });
-                    seqs[item.id] = changeSeqOf(saved);
+                    seqs[item.id] = groupUnseen(item.payload, saved) ? null : changeSeqOf(saved);
                     updated++;
                     if (updated % progressEvery === 0) {
                         new Notice(`Uploading... ${updated}/${toUpdate.length}`);

@@ -1942,6 +1942,17 @@ export function parseRawFrontmatterScalars(
 }
 
 /**
+ * The world's element holds a group the note's payload does not carry. A change_seq recorded for the note then claims more than is true: the note
+ * has not held that group, and a later save under that number would clear it. So a save or an upload that leaves such a group in the world
+ * records no number (the note is saved unguarded once, as a note never saved is), and a Download, which writes the group into the note, does.
+ */
+export function groupUnseen(payload: Record<string, unknown>, server: unknown): boolean {
+	if (hasOwn(payload, OWN_PROPERTIES_KEY) || !isPlainRecord(server)) return false;
+	const group = server[OWN_PROPERTIES_KEY];
+	return isPlainRecord(group) && Object.keys(group).length > 0;
+}
+
+/**
  * A note with no own property and no kept entry has no `x_properties` in its payload, and the world's element may still hold the
  * group it held when the note was pulled or last saved: a save then clears it (`null`, which the element route reads back as null).
  * Only a note saved under an If-Match (its change_seq is known): the element has not moved since the note last held what the world

@@ -7,7 +7,7 @@ import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
+import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, groupUnseen, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -596,7 +596,7 @@ export class SaveElementCommand {
         // The note holds what the server holds: it is current at the server's change_seq.
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
-            if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq);
+            if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], groupUnseen(payload, current) ? null : serverSeq);
             await this.refreshServerFields(activeFile, current);
             const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
@@ -635,7 +635,7 @@ export class SaveElementCommand {
                 : changed;
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
-                if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq);
+                if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], groupUnseen(payload, current) ? null : serverSeq);
                 await this.refreshServerFields(activeFile, current);
                 const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
@@ -651,7 +651,7 @@ export class SaveElementCommand {
             const saved = await client.update(type, elementUuid, toSend, { ifMatch: knownSeq });
             // The answer's change_seq guards the next save; an answer without
             // one clears the old number, which is no longer the element's.
-            await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved));
+            await this.recordSeqs(worldName, [elementUuid], groupUnseen(payload, saved) ? null : changeSeqOf(saved));
             // The note's seven server keys follow the answer; the guard
             // above reads its own record.
             await this.refreshServerFields(activeFile, saved);
