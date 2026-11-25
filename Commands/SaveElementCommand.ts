@@ -7,7 +7,7 @@ import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withServerFieldLines } from '../vault/element-transform';
+import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -592,7 +592,7 @@ export class SaveElementCommand {
         // read took off a `###` or fence line (a note from before the escape
         // holds `\### x` as typed) keeps the server's value (the keeper's
         // amendment to items 1 and 3).
-        const changed = keepServerEscapes(diffPayload(payload, current ?? {}), current ?? {});
+        const changed = keepServerEscapes(diffPayload(withGroupCleared(payload, knownSeq !== null), current ?? {}), current ?? {});
         // The note holds what the server holds: it is current at the server's change_seq.
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {

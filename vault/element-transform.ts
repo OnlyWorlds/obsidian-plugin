@@ -1790,6 +1790,8 @@ export function apiDataToFrontmatter(
 		if (key === "id" || key === "name") continue;
 		if (key === bodyField) continue; // description/story goes to the body
 		if (key === "world" || key === "world_id") continue;
+		// A group the world has cleared reads back as null: no key in the note, and none kept from before.
+		if (key === OWN_PROPERTIES_KEY && value == null) continue;
 		if (key === OWN_PROPERTIES_KEY && isPlainRecord(value)) {
 			ownGroup = value; // expanded below, once the content's own keys are known
 			continue;
@@ -1937,6 +1939,17 @@ export function parseRawFrontmatterScalars(
 		if (val) out[m[1]] = val;
 	}
 	return out;
+}
+
+/**
+ * A note with no own property and no kept entry has no `x_properties` in its payload, and the world's element may still hold the
+ * group it held when the note was pulled or last saved: a save then clears it (`null`, which the element route reads back as null).
+ * Only a note saved under an If-Match (its change_seq is known): the element has not moved since the note last held what the world
+ * holds, so a missing group is the person's deletion and never a group the note did not know. With none known, nothing is added.
+ */
+export function withGroupCleared(payload: Record<string, unknown>, guarded: boolean): Record<string, unknown> {
+	if (!guarded || hasOwn(payload, OWN_PROPERTIES_KEY)) return payload;
+	return { ...payload, [OWN_PROPERTIES_KEY]: null };
 }
 
 /**
