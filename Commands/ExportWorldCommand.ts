@@ -10,7 +10,7 @@ import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../v
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
-import { holdsGroup, isOldSpanNote, parseRawFrontmatterScalars, splitNote } from '../vault/element-transform';
+import { holdsGroup, isOldSpanNote, parseRawFrontmatterScalars, splitNote, withGroupCleared } from '../vault/element-transform';
 import { parseWorldUnits, pushWorldUnits, WORLD_UNIT_FIELDS, WorldUnits } from '../vault/world-units';
 import type OnlyWorldsPlugin from '../main';
 import { ambiguousLinksMessage, withoutLinks } from './SaveElementCommand';
@@ -357,7 +357,10 @@ export class ExportWorldCommand {
             for (const item of toUpdate) {
                 const name = item.payload.name ? String(item.payload.name) : item.id;
                 try {
-                    const saved = await client.update(item.type, item.id, item.payload, { ifMatch: knownSeqs[item.id] ?? null });
+                    // As Save does: a note with no group, whose number and mark agree (it showed the group the world holds), clears it.
+                    const knownSeq = knownSeqs[item.id] ?? null;
+                    const body = withGroupCleared(item.payload, knownSeq !== null && knownSeqs[heldKey(item.id)] === knownSeq);
+                    const saved = await client.update(item.type, item.id, body, { ifMatch: knownSeq });
                     seqs[item.id] = changeSeqOf(saved);
                     seqs[heldKey(item.id)] = holdsGroup(item.payload) ? changeSeqOf(saved) : null;
                     updated++;
