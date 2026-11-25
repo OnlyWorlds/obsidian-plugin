@@ -8,14 +8,14 @@ import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the m
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { harnessSave } from "./support/save-harness";
-import { apiDataToFrontmatter, holdsGroup, joinNote, serializeFrontmatter, withGroupCleared } from "../vault/element-transform";
+import { API_DROPPED_FIELDS, apiDataToFrontmatter, frontmatterToPayloadFields, getCategorySchema, holdsGroup, joinNote, serializeFrontmatter, withGroupCleared } from "../vault/element-transform";
 import { heldKey } from "../vault/change-seq-index";
 
 const ID = "0199c000-0000-7000-8000-0000000000b1";
 
 const note = (fm: string) => `---\nname: Ireena\nid: ${ID}\n${fm}---\n\n### Description\n\nA noble.\n`;
 const index = (o: Record<string, number>) => ({ "~/.ow-seq.json": JSON.stringify(o) });
-const MARKED = index({ [ID]: 5, [heldKey(ID)]: 1 });
+const MARKED = index({ [ID]: 5, [heldKey(ID)]: 5 });
 const held = (group: unknown, seq = 5) => ({ [ID]: { name: "Ireena", description: "A noble.", change_seq: seq, x_properties: group } });
 const SEQ_FILE = "OnlyWorlds/Worlds/W/.ow-seq.json";
 const seqOf = (r: { vault: { dotfiles: Map<string, string> } }): Record<string, number> => JSON.parse(r.vault.dotfiles.get(SEQ_FILE) ?? "{}");
@@ -51,7 +51,7 @@ test("a note that keeps an entry of the group (its own x_properties) sends the g
 	});
 	assert.equal(r.sent.length, 1, r.notices.join(" | "));
 	assert.deepEqual(r.sent[0].x_properties, { kept: 1 });
-	assert.equal(seqOf(r)[heldKey(ID)], 1);
+	assert.equal(seqOf(r)[heldKey(ID)], 6, "the mark follows the number the save recorded");
 });
 
 test("a save that sends a group marks the note as holding it", async () => {
@@ -63,7 +63,7 @@ test("a save that sends a group marks the note as holding it", async () => {
 	});
 	assert.deepEqual(r.sent[0]?.x_properties, { status: "done" }, r.notices.join(" | "));
 	assert.equal(seqOf(r)[ID], 6);
-	assert.equal(seqOf(r)[heldKey(ID)], 1);
+	assert.equal(seqOf(r)[heldKey(ID)], 6);
 });
 
 test("an unchanged save of a note that shows no group beside a world group records the number and no mark", async () => {
@@ -75,6 +75,25 @@ test("an unchanged save of a note that shows no group beside a world group recor
 	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
 	assert.equal(seqOf(r)[ID], 5);
 	assert.equal(heldKey(ID) in seqOf(r), false, JSON.stringify(seqOf(r)));
+});
+
+test("★ a mark that is not the note's number (an older plugin renewed the number) clears nothing", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note(""), ...index({ [ID]: 5, [heldKey(ID)]: 4 }) },
+		save: "Character/Ireena.md",
+		server: held({ status: "draft" }),
+	});
+	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
+});
+
+test("an own property named like an Object member is saved, not refused as a duplicate of an empty group", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note("constructor: 1\ntoString: 2\n"), ...index({ [ID]: 5 }) },
+		save: "Character/Ireena.md",
+		server: { [ID]: { name: "Ireena", description: "A noble.", change_seq: 5 } },
+	});
+	assert.equal(r.sent.length, 1, r.notices.join(" | "));
+	assert.deepEqual(r.sent[0].x_properties, { constructor: 1, toString: 2 });
 });
 
 test("a note with no number known never clears a group, marked or not", async () => {
@@ -116,7 +135,7 @@ test("Upload marks a note whose payload carries a group, and not one that carrie
 		changes: [up(ID), up(OTHER)],
 		answerSeq: () => 9,
 	});
-	assert.equal(r.seqIndex[heldKey(ID)], 1, JSON.stringify(r.seqIndex));
+	assert.equal(r.seqIndex[heldKey(ID)], 9, JSON.stringify(r.seqIndex));
 	assert.equal(heldKey(OTHER) in r.seqIndex, false, JSON.stringify(r.seqIndex));
 });
 
@@ -185,3 +204,22 @@ for (const [key, value] of Object.entries(ENTRIES)) {
 		assert.equal(r.sent.length, 0, `${JSON.stringify(r.sent)} :: ${r.notices.join(" | ")} :: ${text}`);
 	});
 }
+
+// Every category, every field name of it and the names a reader leaves out: the group a pull writes comes back out of a note as the same group.
+const CATEGORIES = ["character", "creature", "species", "family", "collective", "institution", "location", "object", "construct", "ability", "trait", "title", "language", "law", "event", "narrative", "phenomenon", "relation", "map", "pin", "marker", "zone"];
+const GENERIC = ["relations", "type", "tags", "aliases", "position", "description", "story", "name", "id", "world", "world_id", "element_type", "element_id", "image_url", "status", "x_a", "atlas_b", "created_at", "change_seq", "supertype", "subtype"];
+
+test("★ every category: a group entry named like a field, a server key or a dropped name comes back out of the note as the same group", () => {
+	const bad: string[] = [];
+	for (const category of CATEGORIES) {
+		const schema = getCategorySchema(category) ?? {};
+		const names = new Set([...Object.keys(schema), ...GENERIC, ...(API_DROPPED_FIELDS[category] ?? [])]);
+		for (const name of names) {
+			const group = { [name]: name === "type" ? "Character" : "v" };
+			const fm = apiDataToFrontmatter({ id: ID, name: "Ireena", x_properties: group }, category, ID);
+			const out = frontmatterToPayloadFields(fm, category).x_properties;
+			if (JSON.stringify(out) !== JSON.stringify(group)) bad.push(`${category}.${name} -> ${JSON.stringify(out)}`);
+		}
+	}
+	assert.deepEqual(bad, []);
+});

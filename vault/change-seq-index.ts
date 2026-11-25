@@ -39,10 +39,10 @@ export function changeSeqOf(body: unknown): number | null {
 }
 
 /**
- * A mark entry beside an id's number (`<id>^`, 1): the note holds the world's group, so deleting every entry of it from the note is the
+ * A mark entry beside an id's number (`<id>^`, the number the note showed the world's group at): the note holds the world's group, so deleting every entry of it from the note is the
  * person's deletion and a save clears the group. Set by a Download of an element that has a group, and by a save or an upload that sends
  * or finds one equal; taken away by a save that sends none, a bulk create and a delete. A note with a number and no mark (made before
- * the mark existed, or never shown the group) is never cleared. An older plugin reads the mark as one more number under an id nobody asks for.
+ * the mark existed, or never shown the group) is never cleared. An older plugin reads the mark as one more number under an id nobody asks for, and renews the id's number without the mark: a mark that no longer equals the number clears nothing.
  */
 export function heldKey(id: string): string {
 	return `${id}^`;

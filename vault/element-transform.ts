@@ -1690,7 +1690,7 @@ export function frontmatterToPayloadFields(
 	if (Object.keys(own).length > 0) {
 		const held = out[OWN_PROPERTIES_KEY];
 		const heldGroup = isPlainRecord(held) ? held : {};
-		for (const name of Object.keys(own)) if (name in heldGroup) opts.ownConflicts?.push(name);
+		for (const name of Object.keys(own)) if (hasOwn(heldGroup, name)) opts.ownConflicts?.push(name);
 		out[OWN_PROPERTIES_KEY] = { ...heldGroup, ...own };
 	}
 	return out;
@@ -1844,10 +1844,10 @@ export function apiDataToFrontmatter(
 	if (ownGroup) {
 		const kept: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(ownGroup)) {
-			// A `type` that repeats the note's own type is read back as no property of the person's (the reader leaves it out),
-			// so it stays in the group: written as a property it would be gone at the next save, and the group with it.
+			// A name the reader leaves out (a `type` that repeats the note's own type, a field the API refuses) stays in the group: written as a
+			// property it would be gone at the next save, and the group with it.
 			const repeatsType = k === "type" && typeof v === "string" && normalizeCategory(v) === normalizeCategory(category);
-			if (repeatsType || ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
+			if (repeatsType || isApiDroppedField(category, k) || ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
 			else setOwn(content, k, v);
 		}
 		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;

@@ -470,8 +470,8 @@ export class SaveElementCommand {
         // and the answer's change_seq is recorded for the next save.
         const seqIndex = await readChangeSeqIndex(this.app, worldName);
         const knownSeq = seqIndex[elementUuid] ?? null;
-        // Only a note marked as holding the world's group clears it by having none.
-        const groupHeld = heldKey(elementUuid) in seqIndex;
+        // Only a note marked as holding the world's group at this very number clears it by having none (an older plugin that renews the number leaves the mark behind).
+        const groupHeld = knownSeq !== null && seqIndex[heldKey(elementUuid)] === knownSeq;
         let current: Record<string, unknown> | null = null;
         try {
             current = await client.get(type, elementUuid);
@@ -595,7 +595,7 @@ export class SaveElementCommand {
         // read took off a `###` or fence line (a note from before the escape
         // holds `\### x` as typed) keeps the server's value (the keeper's
         // amendment to items 1 and 3).
-        const changed = keepServerEscapes(diffPayload(withGroupCleared(payload, knownSeq !== null && groupHeld), current ?? {}), current ?? {});
+        const changed = keepServerEscapes(diffPayload(withGroupCleared(payload, groupHeld), current ?? {}), current ?? {});
         // The note holds what the server holds: it is current at the server's change_seq.
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
@@ -1006,7 +1006,7 @@ export class SaveElementCommand {
         const entries: Record<string, number | null> = {};
         for (const id of ids) {
             entries[id] = seq;
-            entries[heldKey(id)] = holdsTheGroup && seq !== null ? 1 : null;
+            entries[heldKey(id)] = holdsTheGroup && seq !== null ? seq : null;
             staleShown.delete(id);
         }
         await recordChangeSeqs(this.app, worldName, entries);

@@ -240,7 +240,7 @@ export class DownloadWorldCommand {
                         seqs[id] = row ? asChangeSeq(row.change_seq) ?? changeSeqOf(row.element) : null;
                         // the note now shows the world's group, when the element has one
                         const arriving = row?.element && typeof row.element === 'object' ? (row.element as Record<string, unknown>).x_properties : null;
-                        seqs[heldKey(id)] = arriving && typeof arriving === 'object' && !Array.isArray(arriving) && Object.keys(arriving).length > 0 ? 1 : null;
+                        seqs[heldKey(id)] = arriving && typeof arriving === 'object' && !Array.isArray(arriving) && Object.keys(arriving).length > 0 ? seqs[id] : null;
                     }
                     for (const change of latest.values()) if (change.op === 'delete') { seqs[change.id] = null; seqs[heldKey(change.id)] = null; }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);

@@ -359,7 +359,7 @@ export class ExportWorldCommand {
                 try {
                     const saved = await client.update(item.type, item.id, item.payload, { ifMatch: knownSeqs[item.id] ?? null });
                     seqs[item.id] = changeSeqOf(saved);
-                    seqs[heldKey(item.id)] = holdsGroup(item.payload) ? 1 : null;
+                    seqs[heldKey(item.id)] = holdsGroup(item.payload) ? changeSeqOf(saved) : null;
                     updated++;
                     if (updated % progressEvery === 0) {
                         new Notice(`Uploading... ${updated}/${toUpdate.length}`);
