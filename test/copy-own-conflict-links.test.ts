@@ -1,5 +1,5 @@
 /**
- * Copy world reads each note once and refuses what Upload refuses (#2255): a note whose own property is
+ * Copy world reads each note once and refuses what Upload refuses: a note whose own property is
  * written two ways (mood beside x_properties.mood) is not copied, and an old span note's links resolve from
  * the listing Copy already read, never from a second read that can throw and leave the link empty.
  * Each test runs the real Copy command over an in-memory vault.

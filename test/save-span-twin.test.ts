@@ -1,5 +1,5 @@
 /**
- * Save refuses a note whose id an old span note also holds (#2235). The duplicate check read front-matter ids
+ * Save refuses a note whose id an old span note also holds. The duplicate check read front-matter ids
  * from the metadata cache only, so two notes with one id saved when the other was an old span note.
  * Each test runs the real Save command over an in-memory vault.
  */

@@ -1,5 +1,5 @@
 /**
- * An old span note's field can never change the id the note is counted and sent under (#2254).
+ * An old span note's field can never change the id the note is counted and sent under.
  * A text field labelled `Id_id` was read as the link suffix `_id` of a field called `id`, so the wire
  * conversion, which runs after the duplicate count, replaced the note's own id with the field's value.
  * Each test runs the real Upload command over an in-memory vault.
