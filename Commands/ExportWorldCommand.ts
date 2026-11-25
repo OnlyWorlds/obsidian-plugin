@@ -55,6 +55,8 @@ export class UploadRun {
     knownOfIds = new Set<string>();
     /** Each known-of note's `Type "note name"`, to name a link left out to it. */
     knownOfNames = new Map<string, string>();
+    /** The world's change_seq index as it stood before this run read any note: the If-Match of each PATCH, so a Save made while the upload waits is refused as stale, never overwritten. */
+    knownSeqs: Record<string, number> | null = null;
 }
 
 export class ExportWorldCommand {
@@ -345,7 +347,7 @@ export class ExportWorldCommand {
             // Each PATCH carries the change_seq its note was last pulled or
             // saved at as If-Match: an element another
             // writer changed since is refused (412), not reverted, and named.
-            const knownSeqs = await readChangeSeqIndex(this.app, worldFolder);
+            const knownSeqs = run.knownSeqs ?? await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
             for (const id of landed) seqs[id] = null;
@@ -446,6 +448,8 @@ export class ExportWorldCommand {
     /** Collects the world's notes into upload data, with the run that holds this upload's state. */
     async collectRun(worldFolder: string) {
         const run = new UploadRun();
+        // Read before any note's text: a note saved after this read carries a newer number than the text collected here.
+        run.knownSeqs = await readChangeSeqIndex(this.app, worldFolder);
         const data = await this.collectInto(worldFolder, run);
         return { data, run };
     }

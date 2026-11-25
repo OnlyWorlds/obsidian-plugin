@@ -410,3 +410,19 @@ test("★ Upload world: each PATCH carries its note's change_seq; a 412 is named
 	assert.equal(r.seqIndex[OLD], 4, "the stale note keeps the number it was pulled at");
 	assert.equal(NEW in r.seqIndex, false, "a created element's old number goes (/bulk answers none)");
 });
+
+test("★ Upload world: the If-Match of each PATCH is the change_seq read before the notes were, so a Save made while the upload waits is refused as stale, not overwritten", async () => {
+	const { harnessUpload } = await import("./support/upload-harness");
+	const ID = "019e0000-0000-7000-8000-0000000005d1";
+	const loc = `---\nname: Akragas\nid: ${ID}\n---\n\n### Description\n\nThe older text.\n`;
+	const r = await harnessUpload({
+		notes: { "Location/Akragas.md": loc },
+		changes: [{ op: "upsert", type: "location", id: ID, change_seq: 1, element: { id: ID, name: "x" } }],
+		seqs: { [ID]: 1 },
+		// A Save of this note, made after Upload collected its text: the index moves to 2 while the older text waits.
+		afterCollect: async (_app, vault) => {
+			await vault.adapter.write(`${W}/.ow-seq.json`, JSON.stringify({ [ID]: 2 }));
+		},
+	});
+	assert.deepEqual(r.ifMatch, { [ID]: 1 }, "the older text goes out guarded by the number it was collected at, which keel refuses once the note is at 2");
+});

@@ -34,6 +34,8 @@ export interface UploadOpts {
 	answerSeq?: (id: string) => number | undefined;
 	/** Ids keel answers 409 id_conflict for in a create-only /bulk (held there already). */
 	conflict?: string[];
+	/** Runs between the collection and the upload (a Save made while the upload waits). */
+	afterCollect?: (app: ReturnType<typeof makeApp>["app"], vault: ReturnType<typeof makeApp>["vault"]) => Promise<void>;
 }
 
 export async function harnessUpload(o: UploadOpts) {
@@ -88,6 +90,7 @@ export async function harnessUpload(o: UploadOpts) {
 		const { data, run: uploadRun } = await cmd.collectRun("W");
 		// As the export callback does: a collection that stopped (nothing collected) sends nothing.
 		if (!data || Object.keys(data).length === 0) done = true;
+		if (!done) await o.afterCollect?.(app, vault);
 		const run = done ? Promise.resolve() : (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown, r: unknown): Promise<void> })
 			.uploadViaV2(1234, "W", data, uploadRun)
 			.finally(() => (done = true));
