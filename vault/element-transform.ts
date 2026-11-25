@@ -203,8 +203,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 export function wikilinkTarget(value: unknown): string | null {
 	if (typeof value !== "string") return null;
-	const m = /^\[\[([^\]]+?)\]\]$/.exec(value.trim());
-	if (!m) return null;
+	// The name may hold single brackets (`[[The [Lost] City]]`, which the pull
+	// writes); two links in one string are not one link, so no inner `[[` or `]]`.
+	const m = /^\[\[([\s\S]+)\]\]$/.exec(value.trim());
+	if (!m || m[1].includes("[[") || m[1].includes("]]")) return null;
 	const inner = m[1];
 	const name = (inner.includes("|") ? inner.slice(0, inner.indexOf("|")) : inner).trim();
 	return name.length ? name : null;
@@ -1979,6 +1981,16 @@ export function diffPayload(
 	for (const [key, value] of Object.entries(local)) {
 		if (!valuesEqual(value, server[key])) {
 			out[key] = value;
+		}
+	}
+	// A generic link's pair travels whole: the server refuses one half alone
+	// ("element_type and element_id must be set together", measured 2026-11-25
+	// on a Pin pointed at another Character), so a changed half brings the other.
+	for (const key of GENERIC_PAIR_KEYS) {
+		if (key in out) {
+			for (const mate of GENERIC_PAIR_KEYS) {
+				if (mate !== key && mate in local) out[mate] = local[mate];
+			}
 		}
 	}
 	return out;

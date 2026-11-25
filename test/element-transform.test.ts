@@ -363,6 +363,21 @@ test("diffPayload treats null and missing as equal", () => {
 	assert.deepEqual(diff, {}); // location null == server missing; x unchanged
 });
 
+test("diffPayload sends a generic link's pair whole: one half changed brings the other (a Pin, 2026-11-25)", () => {
+	const server = { element_type: "character", element_id: "c-1", x: 10 };
+	// the id pointed at another Character: the type is unchanged and still travels
+	assert.deepEqual(diffPayload({ element_type: "character", element_id: "c-2", x: 10 }, server), { element_type: "character", element_id: "c-2" });
+	// the type changed alone: the id travels with it
+	assert.deepEqual(diffPayload({ element_type: "location", element_id: "c-1", x: 10 }, server), { element_type: "location", element_id: "c-1" });
+	// both changed: both, once
+	assert.deepEqual(diffPayload({ element_type: "location", element_id: "l-1", x: 10 }, server), { element_type: "location", element_id: "l-1" });
+	// neither changed, or only an unrelated field: the pair stays out
+	assert.deepEqual(diffPayload({ element_type: "character", element_id: "c-1", x: 11 }, server), { x: 11 });
+	assert.deepEqual(diffPayload({ element_type: "character", element_id: "c-1", x: 10 }, server), {});
+	// a half the note does not carry is not invented
+	assert.deepEqual(diffPayload({ element_id: "c-2" }, server), { element_id: "c-2" });
+});
+
 // --- S9 readability bout: wikilink display + lean layout (R1/R3/R4) ----------
 
 test("wikilinkTarget extracts the name from [[Name]] and [[Name|Alias]], else null", () => {
@@ -374,6 +389,18 @@ test("wikilinkTarget extracts the name from [[Name]] and [[Name|Alias]], else nu
 	assert.equal(wikilinkTarget("not a link"), null);
 	assert.equal(wikilinkTarget(null), null);
 	assert.equal(wikilinkTarget(42), null);
+});
+
+test("wikilinkTarget reads a name that holds single brackets, and still refuses two links in one string (2026-11-25)", () => {
+	assert.equal(wikilinkTarget("[[The [Lost] City]]"), "The [Lost] City"); // the pull writes this one
+	assert.equal(wikilinkTarget("[[All [of] #it^ now]]"), "All [of] #it^ now");
+	assert.equal(wikilinkTarget("[[Foo [bar]]]"), "Foo [bar]"); // the name ends in a bracket
+	assert.equal(wikilinkTarget("[[The [Lost] City|the ruin]]"), "The [Lost] City"); // alias after the pipe
+	assert.equal(wikilinkTarget("[[Act #2]]"), "Act #2");
+	assert.equal(wikilinkTarget("[[Top^Hat]]"), "Top^Hat");
+	assert.equal(wikilinkTarget("[[A]] and [[B]]"), null); // two links are not one name
+	assert.equal(wikilinkTarget("[[A]][[B]]"), null);
+	assert.equal(wikilinkTarget("[[]]"), null);
 });
 
 test("isEmptyFieldValue: null/''/[]  are empty; 0/false/nonempty are not (R3)", () => {
