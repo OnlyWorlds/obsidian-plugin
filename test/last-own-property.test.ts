@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { harnessSave } from "./support/save-harness";
 import { apiDataToFrontmatter, groupUnseen, withGroupCleared } from "../vault/element-transform";
+import { unseenKey } from "../vault/change-seq-index";
 
 const ID = "0199c000-0000-7000-8000-0000000000b1";
 
@@ -80,14 +81,15 @@ test("the pull of an element whose group the world has cleared writes no x_prope
 const SEQ_FILE = "OnlyWorlds/Worlds/W/.ow-seq.json";
 const seqOf = (r: { vault: { dotfiles: Map<string, string> } }): Record<string, number> => JSON.parse(r.vault.dotfiles.get(SEQ_FILE) ?? "{}");
 
-test("★ an unchanged save that leaves a group in the world the note never held records no number, so the next save cannot clear it", async () => {
+test("★ an unchanged save that leaves a group in the world the note never held records the number and flags it, so the next save cannot clear it", async () => {
 	const r = await harnessSave({
 		notes: { "Character/Ireena.md": note("") },
 		save: "Character/Ireena.md",
 		server: held({ name: "kept" }),
 	});
 	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
-	assert.equal(ID in seqOf(r), false, JSON.stringify(seqOf(r)));
+	assert.equal(seqOf(r)[ID], 5, "the number still guards the note");
+	assert.equal(seqOf(r)[unseenKey(ID)], 1, JSON.stringify(seqOf(r)));
 });
 
 test("control: the same unchanged save with no group in the world records the number", async () => {
@@ -97,9 +99,10 @@ test("control: the same unchanged save with no group in the world records the nu
 		server: { [ID]: { name: "Ireena", description: "A noble.", change_seq: 5 } },
 	});
 	assert.equal(seqOf(r)[ID], 5);
+	assert.equal(unseenKey(ID) in seqOf(r), false, "no flag when the world holds no group");
 });
 
-test("an edit sent while the world holds a group the note never held records no number from the answer", async () => {
+test("an edit sent while the world holds a group the note never held records the answer's number and flags it", async () => {
 	const r = await harnessSave({
 		notes: { "Character/Ireena.md": note("").replace("A noble.", "A noble, changed.") },
 		save: "Character/Ireena.md",
@@ -108,10 +111,11 @@ test("an edit sent while the world holds a group the note never held records no 
 	});
 	assert.equal(r.sent.length, 1, r.notices.join(" | "));
 	assert.equal("x_properties" in r.sent[0], false, "no clearing without a known number");
-	assert.equal(ID in seqOf(r), false, JSON.stringify(seqOf(r)));
+	assert.equal(seqOf(r)[ID], 6, JSON.stringify(seqOf(r)));
+	assert.equal(seqOf(r)[unseenKey(ID)], 1, JSON.stringify(seqOf(r)));
 });
 
-test("Upload records no number from an answer that leaves a group in the world the note never held", async () => {
+test("Upload records the answer's number and flags it when the answer leaves a group in the world the note never held", async () => {
 	const { harnessUpload } = await import("./support/upload-harness");
 	const loc = `---\nname: Akragas\nid: ${ID}\n---\n\n### Description\n\nA city.\n`;
 	const r = await harnessUpload({
@@ -121,7 +125,8 @@ test("Upload records no number from an answer that leaves a group in the world t
 		answerGroup: () => ({ name: "kept" }),
 	});
 	assert.ok(r.patches[ID], "the note is sent");
-	assert.equal(ID in r.seqIndex, false, JSON.stringify(r.seqIndex));
+	assert.equal(r.seqIndex[ID], 9, JSON.stringify(r.seqIndex));
+	assert.equal(r.seqIndex[unseenKey(ID)], 1, JSON.stringify(r.seqIndex));
 });
 
 test("groupUnseen is true only for a payload with no group beside a world element that holds a non-empty one", () => {
@@ -131,4 +136,31 @@ test("groupUnseen is true only for a payload with no group beside a world elemen
 	assert.equal(groupUnseen({ name: "A" }, {}), false);
 	assert.equal(groupUnseen({ name: "A", x_properties: { k: 1 } }, { x_properties: { k: 1 } }), false);
 	assert.equal(groupUnseen({ name: "A" }, undefined), false);
+});
+
+test("★ a flagged note whose number is current never clears the group: nothing is sent", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note(""), "~/.ow-seq.json": JSON.stringify({ [ID]: 5, [unseenKey(ID)]: 1 }) },
+		save: "Character/Ireena.md",
+		server: held({ name: "kept" }),
+	});
+	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
+	assert.ok(r.notices.some((n) => /already up to date/.test(n)), r.notices.join(" | "));
+});
+
+test("a flagged note's number still refuses a stale save: the protection the number gives is kept", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": note("").replace("A noble.", "A noble, changed."), "~/.ow-seq.json": JSON.stringify({ [ID]: 5, [unseenKey(ID)]: 1 }) },
+		save: "Character/Ireena.md",
+		server: held({ name: "kept" }, 6),
+	});
+	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
+	assert.ok(r.notices.some((n) => /changed on onlyworlds.com since this note was pulled/.test(n)), r.notices.join(" | "));
+});
+
+test("a type entry in the world's group that repeats the note's own type stays in the group, so a save sends it back", () => {
+	const fm = apiDataToFrontmatter({ id: ID, name: "Ireena", x_properties: { type: "Character", mood: "tense" } }, "character", ID);
+	assert.deepEqual(fm.x_properties, { type: "Character" });
+	assert.equal(fm.mood, "tense");
+	assert.equal("type" in fm, false, JSON.stringify(fm));
 });

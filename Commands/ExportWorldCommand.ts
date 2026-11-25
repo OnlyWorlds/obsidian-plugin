@@ -6,7 +6,7 @@ import { Category } from '../enums';
 import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '../client-v2';
-import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
+import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs, unseenKey } from '../vault/change-seq-index';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
@@ -350,7 +350,7 @@ export class ExportWorldCommand {
             const knownSeqs = run.knownSeqs ?? await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
-            for (const id of landed) seqs[id] = null;
+            for (const id of landed) { seqs[id] = null; seqs[unseenKey(id)] = null; }
             const stale: string[] = [];
             let updated = 0;
             const progressEvery = 50;
@@ -358,7 +358,8 @@ export class ExportWorldCommand {
                 const name = item.payload.name ? String(item.payload.name) : item.id;
                 try {
                     const saved = await client.update(item.type, item.id, item.payload, { ifMatch: knownSeqs[item.id] ?? null });
-                    seqs[item.id] = groupUnseen(item.payload, saved) ? null : changeSeqOf(saved);
+                    seqs[item.id] = changeSeqOf(saved);
+                    seqs[unseenKey(item.id)] = groupUnseen(item.payload, saved) ? 1 : null;
                     updated++;
                     if (updated % progressEvery === 0) {
                         new Notice(`Uploading... ${updated}/${toUpdate.length}`);

@@ -5,7 +5,7 @@ import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } fr
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
-import { changeSeqOf, readChangeSeq, recordChangeSeqs } from '../vault/change-seq-index';
+import { changeSeqOf, readChangeSeqIndex, recordChangeSeqs, unseenKey } from '../vault/change-seq-index';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, groupUnseen, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
@@ -468,7 +468,10 @@ export class SaveElementCommand {
         // change is refused (412) instead of reverting it. None recorded (a
         // vault from before 3.8.1, a note never saved): saved as before, once,
         // and the answer's change_seq is recorded for the next save.
-        const knownSeq = await readChangeSeq(this.app, worldName, elementUuid);
+        const seqIndex = await readChangeSeqIndex(this.app, worldName);
+        const knownSeq = seqIndex[elementUuid] ?? null;
+        // A number recorded while the world held a group this note never held guards the note, and never clears that group.
+        const groupNeverHeld = unseenKey(elementUuid) in seqIndex;
         let current: Record<string, unknown> | null = null;
         try {
             current = await client.get(type, elementUuid);
@@ -592,11 +595,11 @@ export class SaveElementCommand {
         // read took off a `###` or fence line (a note from before the escape
         // holds `\### x` as typed) keeps the server's value (the keeper's
         // amendment to items 1 and 3).
-        const changed = keepServerEscapes(diffPayload(withGroupCleared(payload, knownSeq !== null), current ?? {}), current ?? {});
+        const changed = keepServerEscapes(diffPayload(withGroupCleared(payload, knownSeq !== null && !groupNeverHeld), current ?? {}), current ?? {});
         // The note holds what the server holds: it is current at the server's change_seq.
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
-            if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], groupUnseen(payload, current) ? null : serverSeq);
+            if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq, groupUnseen(payload, current));
             await this.refreshServerFields(activeFile, current);
             const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
@@ -635,7 +638,7 @@ export class SaveElementCommand {
                 : changed;
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
-                if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], groupUnseen(payload, current) ? null : serverSeq);
+                if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq, groupUnseen(payload, current));
                 await this.refreshServerFields(activeFile, current);
                 const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
@@ -651,7 +654,7 @@ export class SaveElementCommand {
             const saved = await client.update(type, elementUuid, toSend, { ifMatch: knownSeq });
             // The answer's change_seq guards the next save; an answer without
             // one clears the old number, which is no longer the element's.
-            await this.recordSeqs(worldName, [elementUuid], groupUnseen(payload, saved) ? null : changeSeqOf(saved));
+            await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved), groupUnseen(payload, saved));
             // The note's seven server keys follow the answer; the guard
             // above reads its own record.
             await this.refreshServerFields(activeFile, saved);
@@ -999,10 +1002,11 @@ export class SaveElementCommand {
     }
 
     /** Record `seq` (null clears) as the change_seq of each id's note; a save that landed clears its stale notice. */
-    private async recordSeqs(worldName: string, ids: string[], seq: number | null): Promise<void> {
+    private async recordSeqs(worldName: string, ids: string[], seq: number | null, groupNeverHeld = false): Promise<void> {
         const entries: Record<string, number | null> = {};
         for (const id of ids) {
             entries[id] = seq;
+            entries[unseenKey(id)] = groupNeverHeld && seq !== null ? 1 : null;
             staleShown.delete(id);
         }
         await recordChangeSeqs(this.app, worldName, entries);

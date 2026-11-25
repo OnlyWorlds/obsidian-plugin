@@ -38,6 +38,16 @@ export function changeSeqOf(body: unknown): number | null {
 	return body && typeof body === "object" ? asChangeSeq((body as { change_seq?: unknown }).change_seq) : null;
 }
 
+/**
+ * A flag entry beside an id's number (`<id>~`, 1): that number was recorded while the world held a group the note never held (a save
+ * or an upload that left it in the world). The number still guards the note against a stale write; a save of a note so marked never
+ * clears the group. A Download, which writes the group into the note, a save that sends it, and a delete take the flag away.
+ * An older plugin reads the flag as one more number under an id nobody asks for.
+ */
+export function unseenKey(id: string): string {
+	return `${id}~`;
+}
+
 /** The world's index, or an empty one when absent or unreadable. */
 export async function readChangeSeqIndex(app: App, world: string): Promise<ChangeSeqIndex> {
 	const path = indexPath(world);

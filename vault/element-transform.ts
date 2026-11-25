@@ -1844,7 +1844,10 @@ export function apiDataToFrontmatter(
 	if (ownGroup) {
 		const kept: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(ownGroup)) {
-			if (ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
+			// A `type` that repeats the note's own type is read back as no property of the person's (the reader leaves it out),
+			// so it stays in the group: written as a property it would be gone at the next save, and the group with it.
+			const repeatsType = k === "type" && typeof v === "string" && normalizeCategory(v) === normalizeCategory(category);
+			if (repeatsType || ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
 			else setOwn(content, k, v);
 		}
 		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;
@@ -1944,7 +1947,8 @@ export function parseRawFrontmatterScalars(
 /**
  * The world's element holds a group the note's payload does not carry. A change_seq recorded for the note then claims more than is true: the note
  * has not held that group, and a later save under that number would clear it. So a save or an upload that leaves such a group in the world
- * records no number (the note is saved unguarded once, as a note never saved is), and a Download, which writes the group into the note, does.
+ * records the number with a flag beside it (`unseenKey`): the number still guards the note, and a save of a flagged note never clears the group.
+ * A Download, which writes the group into the note, takes the flag away.
  */
 export function groupUnseen(payload: Record<string, unknown>, server: unknown): boolean {
 	if (hasOwn(payload, OWN_PROPERTIES_KEY) || !isPlainRecord(server)) return false;
