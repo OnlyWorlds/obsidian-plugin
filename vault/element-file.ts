@@ -713,6 +713,21 @@ export async function writeElement(
 // --- helpers -----------------------------------------------------------------
 
 /** Parse a raw `---\n...\n---` YAML block (cache-independent read fallback). */
+/**
+ * What a pull would replace in a note, as one string: its `name` and schema properties, and the text of the `###` sections
+ * that stand for the type's text fields. A person's own properties, headings and prose are the pull's to keep, so they are
+ * not in it. The note mark (note-mark-core.ts) is the hash of this, so a pull keeps a note only for an edit it would lose.
+ */
+export function ownedText(content: string, category: string): string {
+	const cat = normalizeCategory(category);
+	const fm = parseRawFrontmatter(content) ?? {};
+	const schema = getCategorySchema(cat);
+	const picked: Record<string, unknown> = {};
+	for (const k of ["name", ...(schema ? Object.keys(schema) : [])].sort()) if (hasOwn(fm, k)) picked[k] = fm[k];
+	const fields = parseElementBody(splitNote(content).body, cat).fields;
+	return JSON.stringify([picked, Object.entries(fields).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]);
+}
+
 export function parseRawFrontmatter(content: string): Record<string, unknown> | null {
 	if (!content.startsWith("---")) return null;
 	const close = frontmatterClose(content);

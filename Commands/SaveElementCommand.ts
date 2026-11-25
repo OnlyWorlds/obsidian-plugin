@@ -1,11 +1,12 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, ownedText, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
+import { markKey, noteMark } from '../vault/note-mark-core';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, holdsGroup, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
@@ -576,7 +577,7 @@ export class SaveElementCommand {
                     }
                     const created = await client.create(type, { id: elementUuid, ...sendPayload });
                     await this.recordSeqs(worldName, [elementUuid], changeSeqOf(created), holdsGroup(payload));
-                    await this.refreshServerFields(activeFile, created);
+                    await this.refreshServerFields(activeFile, created, content, worldName, elementUuid, category);
                     if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
@@ -600,7 +601,7 @@ export class SaveElementCommand {
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
             if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq, holdsGroup(payload));
-            await this.refreshServerFields(activeFile, current);
+            await this.refreshServerFields(activeFile, current, content, worldName, elementUuid, category);
             const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'unchanged' };
@@ -639,7 +640,7 @@ export class SaveElementCommand {
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
                 if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq, holdsGroup(payload));
-                await this.refreshServerFields(activeFile, current);
+                await this.refreshServerFields(activeFile, current, content, worldName, elementUuid, category);
                 const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
                 return { ok: true, outcome: 'unchanged' };
@@ -657,7 +658,7 @@ export class SaveElementCommand {
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved), holdsGroup(payload));
             // The note's seven server keys follow the answer; the guard
             // above reads its own record.
-            await this.refreshServerFields(activeFile, saved);
+            await this.refreshServerFields(activeFile, saved, content, worldName, elementUuid, category);
             // Sent without the check (no number recorded yet): said once per element.
             if (knownSeq === null && !unguardedShown.has(elementUuid)) {
                 unguardedShown.add(elementUuid);
@@ -1007,6 +1008,7 @@ export class SaveElementCommand {
         for (const id of ids) {
             entries[id] = seq;
             entries[heldKey(id)] = holdsTheGroup && seq !== null ? seq : null;
+            entries[markKey(id)] = null; // the note's mark follows the save (refreshServerFields), never the number's
             staleShown.delete(id);
         }
         await recordChangeSeqs(this.app, worldName, entries);
@@ -1120,14 +1122,17 @@ export class SaveElementCommand {
      * so auto-sync does not save it again. Never fails the save: a write that
      * fails is logged, and the next Download writes them.
      */
-    private async refreshServerFields(file: TFile, body: unknown): Promise<void> {
-        if (!carriesServerFields(body)) return;
+    private async refreshServerFields(file: TFile, body: unknown, sent: string, worldName: string, id: string, category: string): Promise<void> {
         try {
             const content = await this.app.vault.read(file);
-            const next = withServerFieldLines(content, body);
-            if (next === content) return;
-            this.plugin.autoSync?.markSelfWrite(file.path);
-            await this.app.vault.modify(file, next);
+            const next = carriesServerFields(body) ? withServerFieldLines(content, body) : content;
+            if (next !== content) {
+                this.plugin.autoSync?.markSelfWrite(file.path);
+                await this.app.vault.modify(file, next);
+            }
+            // The note's mark (vault/note-mark-core.ts): what this save left, when it is what it sent. A note typed
+            // into while the save ran gets no mark, so the next pull cannot take that text for saved.
+            if (ownedText(content, category) === ownedText(sent, category)) await recordChangeSeqs(this.app, worldName, { [markKey(id)]: noteMark(ownedText(next, category)) });
         } catch (error) {
             console.error(`OnlyWorlds: could not refresh the server fields of ${file.path}`, error);
         }

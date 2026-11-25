@@ -21,10 +21,11 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
-import { asChangeSeq, changeSeqOf, heldKey, recordChangeSeqs } from '../vault/change-seq-index';
+import { asChangeSeq, changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
+import { holdsUnsavedEdits, keptEditedMessage, markKey, noteMark } from '../vault/note-mark-core';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
+import { elementNoteType, noteIdIn, ownedText, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -243,7 +244,9 @@ export class DownloadWorldCommand {
                         seqs[heldKey(id)] = arriving && typeof arriving === 'object' && !Array.isArray(arriving) && Object.keys(arriving).length > 0 ? seqs[id] : null;
                     }
                     for (const change of latest.values()) if (change.op === 'delete') { seqs[change.id] = null; seqs[heldKey(change.id)] = null; }
+                    for (const change of latest.values()) if (change.op === 'delete') seqs[markKey(change.id)] = null;
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
+                    if (knownOf.keptEdited.length > 0) new Notice(keptEditedMessage(knownOf.keptEdited), 20000);
 
                     // The ids the feed reported deleted, old and new: a save never
                     // recreates them as link targets; a later upsert of an id
@@ -556,7 +559,7 @@ export class DownloadWorldCommand {
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[] }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; keptEdited: string[] }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
@@ -681,9 +684,27 @@ export class DownloadWorldCommand {
 
         // Pass 2 — rename and write. `landed`: the ids whose note this pull wrote.
         const landed: string[] = [];
+        // A note that holds edits no pull or save has seen is left as it is, whole: no write, no rename (vault/note-mark-core.ts).
+        const marks = await readChangeSeqIndex(this.app, worldName);
+        const keptEdited: string[] = [];
+        const keptEditedIds = new Set<string>();
+        const markPaths = new Map<string, { path: string; category: string }>();
         for (const plan of plans) {
             const { category, element, existingElementPath } = plan;
             let notePath = plan.notePath;
+
+            if (existingElementPath && !plan.knownOf) {
+                const current = this.app.vault.getAbstractFileByPath(existingElementPath);
+                if (current instanceof TFile) {
+                    try {
+                        if (holdsUnsavedEdits(ownedText(await this.app.vault.read(current), category), marks[markKey(String(element.id))])) {
+                            keptEdited.push(`${category} "${element.name ?? element.id}"`);
+                            keptEditedIds.add(String(element.id));
+                            continue;
+                        }
+                    } catch { /* unreadable: written as any note */ }
+                }
+            }
 
             if (plan.renameFrom) {
                 try {
@@ -745,9 +766,19 @@ export class DownloadWorldCommand {
                         existingPath: existingElementPath ? notePath : null,
                     }
                 );
+                markPaths.set(String(element.id), { path: notePath, category });
             }
         }
-        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed };
+        // The bytes each landed note was left with: the next pull's measure of what a person has typed since.
+        const written: Record<string, number | null> = {};
+        for (const [id, { path, category }] of markPaths) {
+            const file = this.app.vault.getAbstractFileByPath(path);
+            try {
+                written[markKey(id)] = file instanceof TFile ? noteMark(ownedText(await this.app.vault.read(file), category)) : null;
+            } catch { written[markKey(id)] = null; }
+        }
+        await recordChangeSeqs(this.app, worldName, written);
+        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)).filter((id) => !keptEditedIds.has(id)), landed, keptEdited };
     }
 
     /**

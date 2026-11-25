@@ -348,7 +348,9 @@ test("★ Download records each written note's change_seq beside the world, and 
 	keel.put(A, { name: "Alpha", description: "a" }, 3);
 	keel.put(B, { name: "Beta", description: "b" }, 7);
 	await new DownloadWorldCommand(app, plugin.manifest, plugin as never).downloadWithKey("ow_k_test", "");
-	assert.deepEqual(seqIndex(vault), { [A]: 3, [B]: 7 });
+	const index = seqIndex(vault);
+	assert.deepEqual(Object.fromEntries(Object.entries(index).filter(([k]) => !k.endsWith("#"))), { [A]: 3, [B]: 7 });
+	assert.deepEqual(Object.keys(index).filter((k) => k.endsWith("#")).sort(), [`${A}#`, `${B}#`], "each written note has its mark (vault/note-mark-core.ts)");
 	const notePath = [...vault.files.keys()].find((p) => p.startsWith(`${W}/Elements/`) && p.endsWith("/Beta.md"))!;
 	assert.ok(notePath, "no note for Beta");
 	// Since 3.10 the note carries the server's change_seq, read-only:
