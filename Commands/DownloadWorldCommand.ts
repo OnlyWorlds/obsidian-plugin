@@ -21,7 +21,7 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
-import { asChangeSeq, changeSeqOf, recordChangeSeqs, unseenKey } from '../vault/change-seq-index';
+import { asChangeSeq, changeSeqOf, heldKey, recordChangeSeqs } from '../vault/change-seq-index';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
@@ -238,9 +238,11 @@ export class DownloadWorldCommand {
                     for (const id of knownOf.landed) {
                         const row = latest.get(id);
                         seqs[id] = row ? asChangeSeq(row.change_seq) ?? changeSeqOf(row.element) : null;
-                        seqs[unseenKey(id)] = null; // the note now holds the world's group
+                        // the note now shows the world's group, when the element has one
+                        const arriving = row?.element && typeof row.element === 'object' ? (row.element as Record<string, unknown>).x_properties : null;
+                        seqs[heldKey(id)] = arriving && typeof arriving === 'object' && !Array.isArray(arriving) && Object.keys(arriving).length > 0 ? 1 : null;
                     }
-                    for (const change of latest.values()) if (change.op === 'delete') { seqs[change.id] = null; seqs[unseenKey(change.id)] = null; }
+                    for (const change of latest.values()) if (change.op === 'delete') { seqs[change.id] = null; seqs[heldKey(change.id)] = null; }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
 
                     // The ids the feed reported deleted, old and new: a save never

@@ -1944,23 +1944,17 @@ export function parseRawFrontmatterScalars(
 	return out;
 }
 
-/**
- * The world's element holds a group the note's payload does not carry. A change_seq recorded for the note then claims more than is true: the note
- * has not held that group, and a later save under that number would clear it. So a save or an upload that leaves such a group in the world
- * records the number with a flag beside it (`unseenKey`): the number still guards the note, and a save of a flagged note never clears the group.
- * A Download, which writes the group into the note, takes the flag away.
- */
-export function groupUnseen(payload: Record<string, unknown>, server: unknown): boolean {
-	if (hasOwn(payload, OWN_PROPERTIES_KEY) || !isPlainRecord(server)) return false;
-	const group = server[OWN_PROPERTIES_KEY];
+/** The payload carries a group with at least one entry: the world's copy of it is what the note shows. */
+export function holdsGroup(payload: Record<string, unknown>): boolean {
+	const group = payload[OWN_PROPERTIES_KEY];
 	return isPlainRecord(group) && Object.keys(group).length > 0;
 }
 
 /**
  * A note with no own property and no kept entry has no `x_properties` in its payload, and the world's element may still hold the
  * group it held when the note was pulled or last saved: a save then clears it (`null`, which the element route reads back as null).
- * Only a note saved under an If-Match (its change_seq is known): the element has not moved since the note last held what the world
- * holds, so a missing group is the person's deletion and never a group the note did not know. With none known, nothing is added.
+ * Only a note saved under an If-Match (its change_seq is known) and marked as holding the world's group (`heldKey`): the element has not
+ * moved since the note last showed what the world holds, so a missing group is the person's deletion and never a group the note did not know.
  */
 export function withGroupCleared(payload: Record<string, unknown>, guarded: boolean): Record<string, unknown> {
 	if (!guarded || hasOwn(payload, OWN_PROPERTIES_KEY)) return payload;

@@ -39,13 +39,13 @@ export function changeSeqOf(body: unknown): number | null {
 }
 
 /**
- * A flag entry beside an id's number (`<id>~`, 1): that number was recorded while the world held a group the note never held (a save
- * or an upload that left it in the world). The number still guards the note against a stale write; a save of a note so marked never
- * clears the group. A Download, which writes the group into the note, a save that sends it, and a delete take the flag away.
- * An older plugin reads the flag as one more number under an id nobody asks for.
+ * A mark entry beside an id's number (`<id>^`, 1): the note holds the world's group, so deleting every entry of it from the note is the
+ * person's deletion and a save clears the group. Set by a Download of an element that has a group, and by a save or an upload that sends
+ * or finds one equal; taken away by a save that sends none, a bulk create and a delete. A note with a number and no mark (made before
+ * the mark existed, or never shown the group) is never cleared. An older plugin reads the mark as one more number under an id nobody asks for.
  */
-export function unseenKey(id: string): string {
-	return `${id}~`;
+export function heldKey(id: string): string {
+	return `${id}^`;
 }
 
 /** The world's index, or an empty one when absent or unreadable. */
