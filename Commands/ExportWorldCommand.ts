@@ -36,29 +36,34 @@ function notesOfType(listing: ListedNote[], type: string): ListedNote[] {
     return listing.filter((n) => n.type === want);
 }
 
+/** One upload's state, from collection to its summary. A run of its own, so two uploads that overlap on one command never mix their lists. */
+export class UploadRun {
+    /** Link fields omitted from the current sweep because a link couldn't be
+     *  resolved locally (server values preserved) — surfaced in the summary. */
+    skippedLinkFields = 0;
+    /** Generic-link names left out because they match several types (row 2). */
+    ambiguousLinks: string[] = [];
+    /** Notes this sweep does not send whole (an unclosed code fence), each with why (round C, 1). */
+    refusedNotes: string[] = [];
+    /** Notes whose `### Depends on` holds lines a person wrote: kept in the note, never sent, named in the summary. */
+    dependsOnKept: string[] = [];
+    /** The ids of this sweep's stubs: notes of elements hidden by the world's owner, never sent. */
+    stubIds = new Set<string>();
+    /** Each stub's `Type "note name"`, to name a link left out to it. */
+    stubNames = new Map<string, string>();
+    /** The ids of this sweep's known-of notes: never sent. */
+    knownOfIds = new Set<string>();
+    /** Each known-of note's `Type "note name"`, to name a link left out to it. */
+    knownOfNames = new Map<string, string>();
+    /** The world's change_seq index as it stood before this run read any note: the If-Match of each PATCH, so a Save made while the upload waits is refused as stale, never overwritten. */
+    knownSeqs: Record<string, number> | null = null;
+}
+
 export class ExportWorldCommand {
     app: App;
     manifest: PluginManifest;
     worldService: WorldService;
     plugin: OnlyWorldsPlugin | null;
-    /** Link fields omitted from the current sweep because a link couldn't be
-     *  resolved locally (server values preserved) — surfaced in the summary. */
-    private skippedLinkFields = 0;
-    /** Generic-link names left out because they match several types (row 2). */
-    private ambiguousLinks: string[] = [];
-    /** Notes this sweep does not send whole (an unclosed code fence), each with why (round C, 1). */
-    private refusedNotes: string[] = [];
-    /** Notes whose `### Depends on` holds lines a person wrote: kept in the note, never sent, named in the summary. */
-    private dependsOnKept: string[] = [];
-    /** The ids of this sweep's stubs: notes of elements hidden by the world's owner, never sent. */
-    private stubIds = new Set<string>();
-    /** Each stub's `Type "note name"`, to name a link left out to it. */
-    private stubNames = new Map<string, string>();
-    /** The ids of this sweep's known-of notes: never sent. */
-    private knownOfIds = new Set<string>();
-    /** Each known-of note's `Type "note name"`, to name a link left out to it. */
-    private knownOfNames = new Map<string, string>();
-
     constructor(app: App, manifest: PluginManifest, worldService: WorldService, plugin?: OnlyWorldsPlugin) {
         this.app = app;
         this.manifest = manifest;
@@ -123,9 +128,9 @@ export class ExportWorldCommand {
     async executeFor(pin: number, worldFolder: string, opts?: { skipPreview?: boolean }): Promise<void> {
         if (opts?.skipPreview) {
             if (!(await this.validateFor(worldFolder))) return;
-            const worldData = await this.collectWorldData(worldFolder);
+            const { data: worldData, run } = await this.collectRun(worldFolder);
             if (!worldData || Object.keys(worldData).length === 0) return;
-            await this.uploadViaV2(pin, worldFolder, worldData);
+            await this.uploadViaV2(pin, worldFolder, worldData, run);
             return;
         }
         await this.runExport(pin, worldFolder);
@@ -139,9 +144,9 @@ export class ExportWorldCommand {
 
         validationModal.setExportCallback(async () => {
             if (validator.errorCount === 0) {
-                const worldData = await this.collectWorldData(worldFolder);
+                const { data: worldData, run } = await this.collectRun(worldFolder);
                 if (!worldData || Object.keys(worldData).length === 0) return;
-                await this.uploadViaV2(pin, worldFolder, worldData);
+                await this.uploadViaV2(pin, worldFolder, worldData, run);
             }
         });
 
@@ -155,7 +160,7 @@ export class ExportWorldCommand {
      * Elements that exist ONLY on the server are reported, never deleted —
      * the full-replace delete class is gone by design.
      */
-    private async uploadViaV2(pin: number, worldFolder: string, worldData: Record<string, unknown>): Promise<void> {
+    private async uploadViaV2(pin: number, worldFolder: string, worldData: Record<string, unknown>, run: UploadRun): Promise<void> {
         const resolved = await resolveWorldKey(this.app, worldFolder, this.plugin?.settings.apiKey);
         if (resolved.source === 'local-world') {
             new Notice(LOCAL_WORLD_SYNC_MESSAGE, 8000);
@@ -192,15 +197,15 @@ export class ExportWorldCommand {
             // Hidden by the world's owner: a hidden row's id,
             // an id on a hidden list the walk does not show again, and every
             // stub. Never created, never updated, and links to them left out.
-            const hiddenIds = new Set<string>(this.stubIds);
+            const hiddenIds = new Set<string>(run.stubIds);
             for (const change of walk.changes) {
                 if (change.op === 'delete' && change.reason === 'hidden') hiddenIds.add(change.id);
-                else if (!this.stubIds.has(change.id)) hiddenIds.delete(change.id);
+                else if (!run.stubIds.has(change.id)) hiddenIds.delete(change.id);
             }
             for (const list of Object.values(this.plugin?.settings.hiddenOnServer ?? {})) {
                 for (const id of list) if (latestOp.get(id) !== 'upsert') hiddenIds.add(id);
             }
-            let hiddenSkipped = this.stubIds.size;
+            let hiddenSkipped = run.stubIds.size;
             // Kept by a role (or no-reason) reset: keel answers the id 404, and
             // the note is never created again until the feed names it.
             const leftViewIds = new Set<string>();
@@ -262,7 +267,7 @@ export class ExportWorldCommand {
                 }
             }
             for (const id of localIds) guarded.add(id);
-            const serverOnly = [...serverIds].filter(id => !localIds.has(id) && !this.knownOfIds.has(id)).length;
+            const serverOnly = [...serverIds].filter(id => !localIds.has(id) && !run.knownOfIds.has(id)).length;
 
             // Deleted on onlyworlds.com: the walk's own deletes, plus the list a
             // save or Download kept. Their kept notes are never recreated
@@ -282,7 +287,7 @@ export class ExportWorldCommand {
             // A known-of note keel does not serve (out of view, or never on
             // this world's server): a link to it is refused, so it is left out.
             // One keel serves stays linked.
-            const knownOfAbsent = [...this.knownOfIds].filter(id => !serverIds.has(id));
+            const knownOfAbsent = [...run.knownOfIds].filter(id => !serverIds.has(id));
             const stripIds = [...[...leftOut.deleted].filter(id => !leftOut.recreate.has(id)), ...hiddenIds, ...leftViewIds, ...knownOfAbsent];
             if (stripIds.length > 0) {
                 const strip = (type: string, fields: Record<string, unknown>) => {
@@ -298,7 +303,7 @@ export class ExportWorldCommand {
                 for (const item of toCreate) item.element = strip(item.type, item.element);
                 for (const item of toUpdate) item.payload = strip(item.type, item.payload);
             }
-            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? this.stubNames.get(id) ?? this.knownOfNames.get(id) ?? feedName.get(id)
+            const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? run.stubNames.get(id) ?? run.knownOfNames.get(id) ?? feedName.get(id)
                 ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})`
                     : leftViewIds.has(id) ? `an element no longer in your view (${id})` : `an element deleted there (${id})`));
 
@@ -317,7 +322,7 @@ export class ExportWorldCommand {
             let created = 0;
             let replaced = 0;
             const landed: string[] = [];
-            const failures: string[] = [...this.refusedNotes];
+            const failures: string[] = [...run.refusedNotes];
             if (toCreate.length > 0) {
                 const body = await client.bulkCreate(toCreate, { createOnly: true });
                 const results = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
@@ -342,7 +347,7 @@ export class ExportWorldCommand {
             // Each PATCH carries the change_seq its note was last pulled or
             // saved at as If-Match: an element another
             // writer changed since is refused (412), not reverted, and named.
-            const knownSeqs = await readChangeSeqIndex(this.app, worldFolder);
+            const knownSeqs = run.knownSeqs ?? await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
             for (const id of landed) seqs[id] = null;
@@ -396,13 +401,13 @@ export class ExportWorldCommand {
             if (leftViewSkipped > 0) {
                 summary += ` ${leftViewSkipped} note${leftViewSkipped === 1 ? '' : 's'} no longer in your view ${leftViewSkipped === 1 ? 'was' : 'were'} not sent.`;
             }
-            const knownOfSkipped = this.knownOfIds.size + lastKnownSkipped;
+            const knownOfSkipped = run.knownOfIds.size + lastKnownSkipped;
             if (knownOfSkipped > 0) {
                 summary += ` ${knownOfSkipped} known-of note${knownOfSkipped === 1 ? ' was' : 's were'} not sent.`;
             }
-            if (this.dependsOnKept.length > 0) {
-                const n = this.dependsOnKept.length;
-                const shown = this.dependsOnKept.slice(0, 3).join(', ') + (n > 3 ? ` +${n - 3} more` : '');
+            if (run.dependsOnKept.length > 0) {
+                const n = run.dependsOnKept.length;
+                const shown = run.dependsOnKept.slice(0, 3).join(', ') + (n > 3 ? ` +${n - 3} more` : '');
                 summary += ` Your lines under "Depends on" in ${shown} were kept in ${n === 1 ? 'the note' : 'those notes'}, not sent.`;
             }
             new Notice(summary, 8000);
@@ -412,11 +417,11 @@ export class ExportWorldCommand {
             }
             const recreated = landed.filter(id => leftOut.recreate.has(id));
             if (this.plugin && recreated.length > 0) await forgetDeleted(this.plugin, leftOut.worldId, recreated);
-            if (this.skippedLinkFields > 0) {
-                new Notice(`${this.skippedLinkFields} link field${this.skippedLinkFields === 1 ? '' : 's'} skipped (unresolvable links) — server values kept. See console for details.`, 10000);
+            if (run.skippedLinkFields > 0) {
+                new Notice(`${run.skippedLinkFields} link field${run.skippedLinkFields === 1 ? '' : 's'} skipped (unresolvable links) — server values kept. See console for details.`, 10000);
             }
-            if (this.ambiguousLinks.length > 0) {
-                new Notice(ambiguousLinksMessage(this.ambiguousLinks), 15000);
+            if (run.ambiguousLinks.length > 0) {
+                new Notice(ambiguousLinksMessage(run.ambiguousLinks), 15000);
             }
             if (failures.length > 0) {
                 console.error('Upload failures:', failures);
@@ -440,15 +445,21 @@ export class ExportWorldCommand {
     
     
 
+    /** Collects the world's notes into upload data, with the run that holds this upload's state. */
+    async collectRun(worldFolder: string) {
+        const run = new UploadRun();
+        // Read before any note's text: a note saved after this read carries a newer number than the text collected here.
+        run.knownSeqs = await readChangeSeqIndex(this.app, worldFolder);
+        const data = await this.collectInto(worldFolder, run);
+        return { data, run };
+    }
+
+    /** The upload data alone, for callers that need no run. */
     async collectWorldData(worldFolder: string) {
-        this.skippedLinkFields = 0; // fresh count per sweep (incremented in parseTemplate)
-        this.ambiguousLinks = [];
-        this.refusedNotes = [];
-        this.dependsOnKept = [];
-        this.stubIds = new Set();
-        this.stubNames = new Map();
-        this.knownOfIds = new Set();
-        this.knownOfNames = new Map();
+        return (await this.collectRun(worldFolder)).data;
+    }
+
+    private async collectInto(worldFolder: string, run: UploadRun) {
         const fs = this.app.vault.adapter;
         let worldData: Record<string, unknown> = {};
     
@@ -487,7 +498,7 @@ export class ExportWorldCommand {
         }
         const counted = listing.filter((n) => !isKnownOfNote(n.content) && !isStubNote(n.content));
         const oldParsed = new Map<TFile, Record<string, unknown>>();
-        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, listing));
+        for (const n of counted) if (isOldSpanNote(n.content)) oldParsed.set(n.file, await this.parseTemplate(n.content, listing, run));
         const twins = duplicateIds(counted.map((n) => (oldParsed.has(n.file) ? emittedIdKey(oldParsed.get(n.file)?.id) : n.id)));
         const twinRefusal = (category: string, name: unknown, id: string) =>
             `${category} "${String(name ?? id)}" not sent: another note holds the same id. Keep one of them, then try again.`;
@@ -511,8 +522,8 @@ export class ExportWorldCommand {
                         // it are real and travel; it is counted in the summary.
                         const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
                         if (id) {
-                            this.knownOfIds.add(id);
-                            this.knownOfNames.set(id, `${category} "${file.basename}"`);
+                            run.knownOfIds.add(id);
+                            run.knownOfNames.set(id, `${category} "${file.basename}"`);
                         }
                         return {};
                     }
@@ -521,8 +532,8 @@ export class ExportWorldCommand {
                         // of the element, and is never sent.
                         const id = parseRawFrontmatterScalars(splitNote(fileContent).frontmatter, ['id']).id;
                         if (id) {
-                            this.stubIds.add(id);
-                            this.stubNames.set(id, `${category} "${file.basename}"`);
+                            run.stubIds.add(id);
+                            run.stubNames.set(id, `${category} "${file.basename}"`);
                         }
                         return {};
                     }
@@ -537,22 +548,22 @@ export class ExportWorldCommand {
                         // sweep's `if (!id) continue` silently skips every
                         // frontmatter element (gate finding, 2026-07-16).
                         if (parsed && listedId && twins.has(listedId)) {
-                            this.refusedNotes.push(twinRefusal(category, parsed.name, listedId));
+                            run.refusedNotes.push(twinRefusal(category, parsed.name, listedId));
                             return {};
                         }
                         // Never sent cut short (a fence that never closes, a heading twice): named in the summary instead.
                         const refusal = parsed && readRefusal(parsed, `${category} "${parsed.name}"`);
                         if (refusal) {
-                            this.refusedNotes.push(refusal);
+                            run.refusedNotes.push(refusal);
                             return {};
                         }
                         if (parsed?.ownConflicts) {
-                            this.refusedNotes.push(ownConflictMessage(`${category} "${parsed.name}"`, parsed.ownConflicts));
+                            run.refusedNotes.push(ownConflictMessage(`${category} "${parsed.name}"`, parsed.ownConflicts));
                             return {};
                         }
                         if (parsed) {
-                            this.ambiguousLinks.push(...parsed.ambiguousLinks);
-                            if (parsed.dependsOnKept) this.dependsOnKept.push(file.basename);
+                            run.ambiguousLinks.push(...parsed.ambiguousLinks);
+                            if (parsed.dependsOnKept) run.dependsOnKept.push(file.basename);
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
@@ -561,7 +572,7 @@ export class ExportWorldCommand {
                     if (!old) return {};
                     const oldId = emittedIdKey(old.id);
                     if (oldId && twins.has(oldId)) {
-                        this.refusedNotes.push(twinRefusal(category, old.name, oldId));
+                        run.refusedNotes.push(twinRefusal(category, old.name, oldId));
                         return {};
                     }
                     return old;
@@ -779,7 +790,7 @@ export class ExportWorldCommand {
     }
     
     /** An old span note's fields; its [[links]] resolve against this run's listing (`listing`). */
-    async parseTemplate(content: string, listing: ListedNote[]): Promise<Record<string, unknown>> {
+    async parseTemplate(content: string, listing: ListedNote[], run: UploadRun): Promise<Record<string, unknown>> {
         let currentSection: string | null = null;
         const data: Record<string, unknown> = {};
 
@@ -822,7 +833,7 @@ export class ExportWorldCommand {
                     if (ids === null) {
                         // Unresolved link(s) inside the field — OMIT it so the
                         // PATCH can't strip server-side links.
-                        this.skippedLinkFields++;
+                        run.skippedLinkFields++;
                     } else if (lowerTooltip.startsWith('single ')) {
                         data[`${key}_id`] = ids.length > 0 ? ids[0] : null;
                     } else {

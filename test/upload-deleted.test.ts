@@ -71,14 +71,14 @@ async function upload(opts: { answer: boolean; deleted?: string[]; links?: Recor
 		pinCache: { get: async () => null },
 	};
 	const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app), plugin as never);
-	const data = await cmd.collectWorldData("W");
+	const { data, run: uploadRun } = await cmd.collectRun("W");
 	__notices.length = 0;
 	__modals.length = 0;
 	const dialogs: Dialog[] = [];
 	let done = false;
 	try {
-		const run = (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown): Promise<void> })
-			.uploadViaV2(1234, "W", data)
+		const run = (cmd as unknown as { uploadViaV2(pin: number, w: string, d: unknown, r: unknown): Promise<void> })
+			.uploadViaV2(1234, "W", data, uploadRun)
 			.finally(() => (done = true));
 		while (!done) {
 			await new Promise((r) => setImmediate(r));

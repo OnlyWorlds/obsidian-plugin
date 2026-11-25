@@ -566,3 +566,38 @@ test("★ Copy world stops when World.md cannot be read: the clipboard and World
 	assert.match(normal.clipboard[0], new RegExp(C));
 	assert.equal(normal.vault.contentAt(`${W}/World Data File.md`)?.split("\n")[0], COPY_OUTPUT_MARKER);
 });
+
+test("★ Two Upload runs on one command keep their own lists: a note one run refuses is not another's, and the second run's start does not clear the first's", async () => {
+	const { app, vault } = makeApp();
+	const twin1 = `${E}/Character/Twin one.md`;
+	const twin2 = `${E}/Character/Twin two.md`;
+	await seedAll(vault, { [twin1]: CLEAN(C, "Twin one"), [twin2]: CLEAN(C, "Twin two"), [`${E}/Character/Real.md`]: OLD(B, "Real", "A real old note.") });
+	const { ExportWorldCommand } = await import("../Commands/ExportWorldCommand");
+	const cmd = new ExportWorldCommand(app, {} as never, new WorldService(app), { settings: {} } as never);
+	// Run A is held inside its collection after it read the notes (both twins hold C) until run B is done.
+	const c = cmd as unknown as { parseTemplate(...args: unknown[]): Promise<Record<string, unknown>> };
+	const parse = c.parseTemplate.bind(cmd);
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	let held!: () => void;
+	const reached = new Promise<void>((r) => (held = r));
+	let first = true;
+	c.parseTemplate = async (...args: unknown[]) => {
+		if (first) {
+			first = false;
+			held();
+			await gate;
+		}
+		return parse(...args);
+	};
+	const runA = cmd.collectRun("W");
+	await reached;
+	// Run B starts after the second twin was given an id of its own, and finishes whole.
+	await app.vault.modify(app.vault.getAbstractFileByPath(twin2) as TFile, CLEAN(A, "Twin two"));
+	const b = await cmd.collectRun("W");
+	release();
+	const a = await runA;
+	assert.deepEqual(b.run.refusedNotes, [], "run B holds a note only run A refused: " + b.run.refusedNotes.join(" | "));
+	assert.equal(a.run.refusedNotes.filter((f: string) => /another note holds the same id/.test(f)).length, 2, "run A lost or shared its refusals: " + a.run.refusedNotes.join(" | "));
+	assert.notEqual(a.run, b.run);
+});

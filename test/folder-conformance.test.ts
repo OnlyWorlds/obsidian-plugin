@@ -217,6 +217,18 @@ test("row 6: an element made in the vault exports with no timestamp invented (sp
 	assert.equal(body.id, CHAR_ID);
 });
 
+test("§4: a file named M.JSON is no element file: the import reads the file's own name, not the extension Obsidian lowercases", async () => {
+	const { app, vault } = makeApp();
+	const LANTERN = { id: "0199b000-0000-7000-8000-0000000000d1", type: "object", name: "Lantern", description: "Upper case." };
+	await seedFolder(vault, "in/barovia", FULL_WORLD, {
+		"elements/character/ireena--000000c1.json": CHAR_FILE,
+		"elements/object/lantern--000000d1.JSON": LANTERN,
+	});
+	await importDir(app, "in/barovia");
+	const notes = [...vault.files.keys()].filter((p) => p.startsWith("OnlyWorlds/Worlds/Barovia/Elements/") && p.endsWith(".md"));
+	assert.deepEqual(notes.map((p) => p.split("/").pop()), ["Ireena.md"], "the .JSON file became a note, or Ireena did not");
+});
+
 test("row 6: server and sync fields an imported element carried come back out verbatim", async () => {
 	const { app, vault } = makeApp();
 	const carried = {
