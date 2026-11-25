@@ -223,3 +223,30 @@ test("★ every category: a group entry named like a field, a server key or a dr
 	}
 	assert.deepEqual(bad, []);
 });
+
+const upLoc = (seqs: Record<string, number>, fm = "") => import("./support/upload-harness").then(({ harnessUpload }) => harnessUpload({
+	notes: { "Location/Akragas.md": `---\nname: Akragas\nid: ${ID}\n${fm}---\n\n### Description\n\nA city.\n` },
+	changes: [{ op: "upsert", type: "location", id: ID, change_seq: 5, element: { id: ID, name: "x" } }],
+	seqs,
+	answerSeq: () => 9,
+}));
+
+test("★ Upload: a marked note with no own property clears the world's group, and the mark goes", async () => {
+	const r = await upLoc({ [ID]: 5, [heldKey(ID)]: 5 });
+	assert.equal(r.patches[ID].x_properties, null, JSON.stringify(r.patches));
+	assert.equal(heldKey(ID) in r.seqIndex, false, JSON.stringify(r.seqIndex));
+	assert.equal(r.seqIndex[ID], 9);
+});
+
+test("★ Upload: a number with no mark, a mark that is not the number, or no number: no group is sent", async () => {
+	for (const seqs of [{ [ID]: 5 }, { [ID]: 5, [heldKey(ID)]: 4 }, { [heldKey(ID)]: 5 }]) {
+		const r = await upLoc(seqs);
+		assert.equal("x_properties" in r.patches[ID], false, JSON.stringify([seqs, r.patches]));
+	}
+});
+
+test("Upload: a marked note that still holds an own property sends the group, never null, and stays marked", async () => {
+	const r = await upLoc({ [ID]: 5, [heldKey(ID)]: 5 }, "status: done\n");
+	assert.deepEqual(r.patches[ID].x_properties, { status: "done" }, JSON.stringify(r.patches));
+	assert.equal(r.seqIndex[heldKey(ID)], 9);
+});
