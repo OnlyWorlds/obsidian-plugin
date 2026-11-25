@@ -236,6 +236,20 @@ test("★ Upload: a marked note with no own property clears the world's group, a
 	assert.equal(r.patches[ID].x_properties, null, JSON.stringify(r.patches));
 	assert.equal(heldKey(ID) in r.seqIndex, false, JSON.stringify(r.seqIndex));
 	assert.equal(r.seqIndex[ID], 9);
+	assert.deepEqual(r.ifMatch, { [ID]: 5 }, JSON.stringify(r.ifMatch));
+});
+
+test("Upload: a clear refused as stale leaves the note's number and mark as they were", async () => {
+	const { harnessUpload } = await import("./support/upload-harness");
+	const r = await harnessUpload({
+		notes: { "Location/Akragas.md": `---\nname: Akragas\nid: ${ID}\n---\n\n### Description\n\nA city.\n` },
+		changes: [{ op: "upsert", type: "location", id: ID, change_seq: 5, element: { id: ID, name: "x" } }],
+		seqs: { [ID]: 5, [heldKey(ID)]: 5 },
+		stale: [ID],
+	});
+	assert.deepEqual(r.ifMatch, { [ID]: 5 }, JSON.stringify(r.ifMatch));
+	assert.equal(r.seqIndex[ID], 5, JSON.stringify(r.seqIndex));
+	assert.equal(r.seqIndex[heldKey(ID)], 5, JSON.stringify(r.seqIndex));
 });
 
 test("★ Upload: a number with no mark, a mark that is not the number, or no number: no group is sent", async () => {
