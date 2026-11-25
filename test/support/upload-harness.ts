@@ -32,6 +32,8 @@ export interface UploadOpts {
 	stale?: string[];
 	/** The change_seq a PATCH answers with, per id. */
 	answerSeq?: (id: string) => number | undefined;
+	/** The `x_properties` a PATCH answers with, per id (the group the world holds after it). */
+	answerGroup?: (id: string) => unknown;
 	/** Ids keel answers 409 id_conflict for in a create-only /bulk (held there already). */
 	conflict?: string[];
 	/** Runs between the collection and the upload (a Save made while the upload waits). */
@@ -74,7 +76,8 @@ export async function harnessUpload(o: UploadOpts) {
 		if (o.stale?.includes(id)) throw new V2ApiError(412, "precondition_failed", "The element has changed since change_seq 4 (now 5).", null);
 		patches[id] = b;
 		const seq = o.answerSeq?.(id);
-		return seq === undefined ? {} : { id, change_seq: seq };
+		const group = o.answerGroup?.(id);
+		return seq === undefined ? {} : { id, change_seq: seq, ...(group === undefined ? {} : { x_properties: group }) };
 	};
 	proto.patchWorld = async () => (calls.push("patchWorld"), {});
 	const plugin = {

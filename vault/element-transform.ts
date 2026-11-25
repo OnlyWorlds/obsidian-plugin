@@ -1690,7 +1690,7 @@ export function frontmatterToPayloadFields(
 	if (Object.keys(own).length > 0) {
 		const held = out[OWN_PROPERTIES_KEY];
 		const heldGroup = isPlainRecord(held) ? held : {};
-		for (const name of Object.keys(own)) if (name in heldGroup) opts.ownConflicts?.push(name);
+		for (const name of Object.keys(own)) if (hasOwn(heldGroup, name)) opts.ownConflicts?.push(name);
 		out[OWN_PROPERTIES_KEY] = { ...heldGroup, ...own };
 	}
 	return out;
@@ -1790,6 +1790,8 @@ export function apiDataToFrontmatter(
 		if (key === "id" || key === "name") continue;
 		if (key === bodyField) continue; // description/story goes to the body
 		if (key === "world" || key === "world_id") continue;
+		// A group the world has cleared reads back as null: no key in the note, and none kept from before.
+		if (key === OWN_PROPERTIES_KEY && value == null) continue;
 		if (key === OWN_PROPERTIES_KEY && isPlainRecord(value)) {
 			ownGroup = value; // expanded below, once the content's own keys are known
 			continue;
@@ -1842,7 +1844,10 @@ export function apiDataToFrontmatter(
 	if (ownGroup) {
 		const kept: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(ownGroup)) {
-			if (ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
+			// A name the reader leaves out (a `type` that repeats the note's own type, a field the API refuses) stays in the group: written as a
+			// property it would be gone at the next save, and the group with it.
+			const repeatsType = k === "type" && typeof v === "string" && normalizeCategory(v) === normalizeCategory(category);
+			if (repeatsType || isApiDroppedField(category, k) || ownNameIsTaken(k, schema, bodyField, content)) setOwn(kept, k, v);
 			else setOwn(content, k, v);
 		}
 		if (Object.keys(kept).length > 0) content[OWN_PROPERTIES_KEY] = kept;
@@ -1937,6 +1942,23 @@ export function parseRawFrontmatterScalars(
 		if (val) out[m[1]] = val;
 	}
 	return out;
+}
+
+/** The payload carries a group with at least one entry: the world's copy of it is what the note shows. */
+export function holdsGroup(payload: Record<string, unknown>): boolean {
+	const group = payload[OWN_PROPERTIES_KEY];
+	return isPlainRecord(group) && Object.keys(group).length > 0;
+}
+
+/**
+ * A note with no own property and no kept entry has no `x_properties` in its payload, and the world's element may still hold the
+ * group it held when the note was pulled or last saved: a save then clears it (`null`, which the element route reads back as null).
+ * Only a note saved under an If-Match (its change_seq is known) and marked as holding the world's group (`heldKey`): the element has not
+ * moved since the note last showed what the world holds, so a missing group is the person's deletion and never a group the note did not know.
+ */
+export function withGroupCleared(payload: Record<string, unknown>, guarded: boolean): Record<string, unknown> {
+	if (!guarded || hasOwn(payload, OWN_PROPERTIES_KEY)) return payload;
+	return { ...payload, [OWN_PROPERTIES_KEY]: null };
 }
 
 /**
