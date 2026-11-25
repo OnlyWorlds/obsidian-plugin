@@ -99,6 +99,11 @@ const inputs = (el: FakeEl) => el.all().filter((c) => c.tag === "input");
 async function flush(): Promise<void> {
 	for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 }
+/** Wait for a condition the async chain reaches (a fixed count of ticks is too short on a slow runner). */
+async function until(cond: () => unknown, ms = 5000): Promise<void> {
+	const end = Date.now() + ms;
+	while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 5));
+}
 /** Track a modal's close(). */
 function closes(m: unknown): { closed: boolean } {
 	const seen = { closed: false };
@@ -243,10 +248,12 @@ test("a phone sign-in that fails in the dialog clears the parked record, so noth
 	const m = new SignInModal(app as never, { ...host(app, false), browserEnv: () => env } as never);
 	const el = await render(m);
 	byText(el, "button", BROWSER_BUTTON)!.click();
+	await until(() => holder.pendingSignIn);
 	await flush();
 	assert.ok(holder.pendingSignIn, "the obsidian:// path parked the record in the plugin's data");
 	// a return with another state reaches the dialog's wait and the SDK refuses it, keeping the record: the dialog's catch runs
 	receiveSchemeReturn("obsidian://onlyworlds-signin?code=c&state=not-the-parked-one");
+	await until(() => /did not accept that sign-in/.test(el.allText()));
 	await flush();
 	assert.match(el.allText(), /did not accept that sign-in, so nothing was saved/);
 	assert.equal(holder.pendingSignIn, "", "the failure cleared what it parked");
