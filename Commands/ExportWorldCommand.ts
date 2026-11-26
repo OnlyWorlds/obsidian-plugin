@@ -352,7 +352,7 @@ export class ExportWorldCommand {
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
             const knownGroups = groupKeysById(knownSeqs);
-            for (const id of landed) { seqs[id] = null; seqs[heldKey(id)] = null; seqs[markKey(id)] = 0; Object.assign(seqs, groupMarkClears(id, knownGroups)); }
+            for (const id of landed) { seqs[id] = null; seqs[heldKey(id)] = null; seqs[markKey(id)] = null; Object.assign(seqs, groupMarkClears(id, knownGroups)); }
             const stale: string[] = [];
             let updated = 0;
             const progressEvery = 50;
@@ -365,7 +365,7 @@ export class ExportWorldCommand {
                     const saved = await client.update(item.type, item.id, body, { ifMatch: knownSeq });
                     seqs[item.id] = changeSeqOf(saved);
                     seqs[heldKey(item.id)] = holdsGroup(item.payload) ? changeSeqOf(saved) : null;
-                    seqs[markKey(item.id)] = 0; // an upload may leave links out: a mark no note hashes to, so the next pull copies the note before it replaces it
+                    seqs[markKey(item.id)] = null; // an upload does not refresh the note: no claim until the next pull or save (a mark would copy every uploaded note at the next pull)
                     Object.assign(seqs, groupMarkClears(item.id, knownGroups));
                     updated++;
                     if (updated % progressEvery === 0) {

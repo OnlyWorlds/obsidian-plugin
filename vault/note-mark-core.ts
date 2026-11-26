@@ -79,7 +79,7 @@ export function asKeptCopy(text: string): string {
 	const rest = text.slice(open[0].length);
 	const close = /\r?\n---[ \t]*(\r?\n|$)/.exec(rest);
 	const end = close ? close.index : rest.length;
-	return text.slice(0, open[0].length) + rest.slice(0, end).replace(/^id:/m, "kept_from:") + rest.slice(end);
+	return text.slice(0, open[0].length) + rest.slice(0, end).replace(/^(["']?)id\1(\s*):/m, "kept_from$2:") + rest.slice(end);
 }
 
 /** The one notice of a pull that copied notes: `labels` are the notes' labels. */

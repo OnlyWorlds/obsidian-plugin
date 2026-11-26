@@ -66,9 +66,14 @@ export async function readChangeSeqIndex(app: App, world: string): Promise<Chang
 	}
 }
 
-/** True when the world's index file is there and cannot be read: a read that says `{}` then is no claim that nothing was recorded. */
-export async function changeSeqIndexUnreadable(app: App, world: string): Promise<boolean> {
-	const path = indexPath(world);
+/**
+ * The index's own flag: set by the first write that finds the file there and unreadable (the write starts from `{}` and would
+ * otherwise hide that the marks are gone), cleared by a pull that ran to its end. While it stands, a pull copies every note it
+ * replaces.
+ */
+export const UNREADABLE_FLAG = "index-unreadable";
+
+async function fileUnparsable(app: App, path: string): Promise<boolean> {
 	try {
 		if (!(await app.vault.adapter.exists(path))) return false;
 		const parsed: unknown = JSON.parse(await app.vault.adapter.read(path));
@@ -76,6 +81,12 @@ export async function changeSeqIndexUnreadable(app: App, world: string): Promise
 	} catch {
 		return true;
 	}
+}
+
+/** True when the world's index file is there and cannot be read, or an earlier write found it so: a read that says `{}` then is no claim that nothing was recorded. */
+export async function changeSeqIndexUnreadable(app: App, world: string): Promise<boolean> {
+	if (await fileUnparsable(app, indexPath(world))) return true;
+	return (await readChangeSeqIndex(app, world))[UNREADABLE_FLAG] === 1;
 }
 
 /** The change_seq the note of `id` was last pulled or saved at, or null when none is recorded. */
@@ -102,6 +113,7 @@ export function recordChangeSeqs(app: App, world: string, entries: Record<string
 	const next = prev.then(async () => {
 		try {
 			const index = await readChangeSeqIndex(app, world);
+			if (await fileUnparsable(app, indexPath(world))) index[UNREADABLE_FLAG] = 1;
 			for (const [id, seq] of Object.entries(entries)) {
 				if (seq === null) delete index[id];
 				else index[id] = seq;

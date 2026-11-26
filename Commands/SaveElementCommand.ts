@@ -577,7 +577,7 @@ export class SaveElementCommand {
                     }
                     const created = await client.create(type, { id: elementUuid, ...sendPayload });
                     await this.recordSeqs(worldName, [elementUuid], changeSeqOf(created), holdsGroup(payload));
-                    await this.refreshServerFields(activeFile, created, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0);
+                    await this.refreshServerFields(activeFile, created, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0 || (plan.leftOutIds?.length ?? 0) > 0);
                     if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };

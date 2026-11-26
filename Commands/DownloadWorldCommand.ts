@@ -21,7 +21,7 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
-import { asChangeSeq, changeSeqIndexUnreadable, changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
+import { asChangeSeq, changeSeqIndexUnreadable, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, capKeptName, copiedMessage, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
@@ -697,6 +697,7 @@ export class DownloadWorldCommand {
         const written: Record<string, number | null> = {};
         // The marks of the notes this run wrote are recorded and its copies announced even when a later note stops the run:
         // the next pull then starts from what is on disk.
+        let completed = false;
         try {
             for (const plan of plans) {
                 const { category, element, existingElementPath } = plan;
@@ -788,8 +789,9 @@ export class DownloadWorldCommand {
                     } catch { written[markKey(id)] = null; }
                 }
             }
+            completed = true;
         } finally {
-            await recordChangeSeqs(this.app, worldName, written);
+            await recordChangeSeqs(this.app, worldName, completed && marksUnreadable ? { ...written, [UNREADABLE_FLAG]: null } : written);
             if (copied.length > 0) new Notice(copiedMessage(copied), 20000);
         }
         return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied };

@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeApp } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
+import { recordChangeSeqs, UNREADABLE_FLAG } from "../vault/change-seq-index";
 import { asKeptCopy, capKeptName, copiedMessage, holdsUnsavedEdits, keptCopyName, markKey, noteMark } from "../vault/note-mark-core";
 
 const W = "OnlyWorlds/Worlds/W";
@@ -143,6 +144,26 @@ test("★ an index that is there and cannot be read is no claim that nothing was
 	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
 	assert.deepEqual(r.copied, ['Character "Ireena"']);
 	assert.match(vault.contentAt(copies(vault)[0]) ?? "", /A noble, typed into\./);
+});
+
+test("★ an index that went bad stays flagged through the next write, so a later pull still copies; a pull that ran to its end clears the flag", async () => {
+	const { app, vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, el("A noble."), false);
+	await type(app, vault, NOTE, "A noble.", "A noble, typed into.");
+	vault.dotfiles.set(SEQ, '{"half": 1, ');
+	await recordChangeSeqs(app, "W", { [`${OTHER}`]: 7 }); // some save lands first and rewrites the index from nothing
+	assert.equal(index(vault)[UNREADABLE_FLAG], 1, "the write over a bad index hid that the marks are gone: " + JSON.stringify(index(vault)));
+	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
+	assert.deepEqual(r.copied, ['Character "Ireena"']);
+	assert.equal(UNREADABLE_FLAG in index(vault), false, "a pull that ran to its end left the flag standing");
+	await type(app, vault, NOTE, "Changed on the server.", "Typed again.");
+	const again = await dl.generateElementNotes(ELEMENTS, el("Changed once more."), false);
+	assert.deepEqual(again.copied, ['Character "Ireena"'], "after the flag cleared the mark claims again");
+});
+
+test("a copy's id key is renamed when the key is quoted or spaced", () => {
+	assert.equal(asKeptCopy(`---\n"id" : ${ID}\n---\n`), `---\nkept_from : ${ID}\n---\n`);
+	assert.equal(asKeptCopy(`---\n'id': ${ID}\n---\n`), `---\nkept_from: ${ID}\n---\n`);
 });
 
 test("a note deleted by hand while its mark stays is made fresh with no copy: its stub held nothing of a person's", async () => {
