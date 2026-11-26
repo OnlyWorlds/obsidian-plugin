@@ -589,12 +589,14 @@ export async function writeElement(
 		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
 
 	let file = app.vault.getAbstractFileByPath(filePath);
+	let madeNow = false; // a note this write just made held nothing of a person's: its stub is no edit to keep
 	if (!(file instanceof TFile)) {
 		if (!app.vault.getAbstractFileByPath(folder)) {
 			await app.vault.createFolder(folder);
 		}
 		markSelfWrite?.(filePath);
 		file = await app.vault.create(filePath, `---\nid: ${elementId}\n---\n\n`);
+		madeNow = true;
 	}
 	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
@@ -713,7 +715,7 @@ export async function writeElement(
 	if (newContent !== content) {
 		// The bytes about to be replaced, as this write read them: the caller's chance to keep them (the pull's copy of a note
 		// that held edits it had not seen), taken here so nothing typed between its look and this write is lost.
-		await opts.beforeReplace?.(content);
+		if (!madeNow) await opts.beforeReplace?.(content);
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);
 	}

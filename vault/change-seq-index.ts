@@ -66,6 +66,18 @@ export async function readChangeSeqIndex(app: App, world: string): Promise<Chang
 	}
 }
 
+/** True when the world's index file is there and cannot be read: a read that says `{}` then is no claim that nothing was recorded. */
+export async function changeSeqIndexUnreadable(app: App, world: string): Promise<boolean> {
+	const path = indexPath(world);
+	try {
+		if (!(await app.vault.adapter.exists(path))) return false;
+		const parsed: unknown = JSON.parse(await app.vault.adapter.read(path));
+		return !parsed || typeof parsed !== "object" || Array.isArray(parsed);
+	} catch {
+		return true;
+	}
+}
+
 /** The change_seq the note of `id` was last pulled or saved at, or null when none is recorded. */
 export async function readChangeSeq(app: App, world: string, id: string): Promise<number | null> {
 	return (await readChangeSeqIndex(app, world))[id] ?? null;

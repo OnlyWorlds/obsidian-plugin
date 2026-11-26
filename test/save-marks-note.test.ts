@@ -35,6 +35,19 @@ test("a save that finds the note equal to the world marks it too", async () => {
 	assert.equal(seqOf(r)[markKey(ID)], noteMark(bytesOf(r)), JSON.stringify(seqOf(r)));
 });
 
+test("★ a save that left a link out marks the note with a mark no note hashes to, so the next pull copies it; a whole save marks the bytes", async () => {
+	const withLink = (link: string) => `---\nname: Ireena\nid: ${ID}\nfriends:\n  - "${link}"\n---\n\n### Description\n\nA noble, edited.\n`;
+	const left = await harnessSave({
+		notes: { "Character/Ireena.md": withLink("[[Nowhere]]"), "~/.ow-seq.json": JSON.stringify({ [ID]: 5, [markKey(ID)]: 1 }) },
+		save: "Character/Ireena.md",
+		server: { [ID]: { name: "Ireena", description: "A noble.", change_seq: 5 } },
+		answer: { [ID]: { id: ID, change_seq: 6 } },
+	});
+	assert.equal(left.sent.length, 1, left.notices.join(" | "));
+	assert.equal(seqOf(left)[markKey(ID)], 0, "a save that left the link out recorded the note's bytes as saved: " + JSON.stringify(seqOf(left)));
+	assert.notEqual(noteMark(bytesOf(left)), 0);
+});
+
 const GROUP_NOTE = `---\nname: Ireena\nid: ${ID}\nkeepme: one\ndropme: two\n---\n\n### Description\n\nA noble, edited.\n`;
 
 test("★ a save marks each entry of the group the answer holds, at the value the note holds, and clears a mark the answer no longer holds", async () => {

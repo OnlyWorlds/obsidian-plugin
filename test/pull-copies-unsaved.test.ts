@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeApp } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
-import { asKeptCopy, copiedMessage, holdsUnsavedEdits, keptCopyName, markKey, noteMark } from "../vault/note-mark-core";
+import { asKeptCopy, capKeptName, copiedMessage, holdsUnsavedEdits, keptCopyName, markKey, noteMark } from "../vault/note-mark-core";
 
 const W = "OnlyWorlds/Worlds/W";
 const ELEMENTS = `${W}/Elements`;
@@ -123,6 +123,49 @@ test("★ text of the person's own, in any place a pull writes over, is in the c
 	const copy = vault.contentAt(copies(vault)[0]) ?? "";
 	assert.match(copy, /Prose above the first heading\./);
 	assert.match(copy, /### My notes\n\nMy own section\./);
+});
+
+test("a mark that no note hashes to (0: an upload, a save that left a link out) copies the note before the pull replaces it", async () => {
+	const { vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, el("A noble."), false);
+	vault.dotfiles.set(SEQ, JSON.stringify({ [markKey(ID)]: 0 }));
+	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
+	assert.deepEqual(r.copied, ['Character "Ireena"']);
+	assert.equal(copies(vault).length, 1);
+	assert.equal(index(vault)[markKey(ID)], noteMark(vault.contentAt(NOTE) ?? ""), "the pull left the 0 mark in place");
+});
+
+test("★ an index that is there and cannot be read is no claim that nothing was typed: every replaced note is copied", async () => {
+	const { app, vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, el("A noble."), false);
+	await type(app, vault, NOTE, "A noble.", "A noble, typed into.");
+	vault.dotfiles.set(SEQ, '{"half": 1, ');
+	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
+	assert.deepEqual(r.copied, ['Character "Ireena"']);
+	assert.match(vault.contentAt(copies(vault)[0]) ?? "", /A noble, typed into\./);
+});
+
+test("a note deleted by hand while its mark stays is made fresh with no copy: its stub held nothing of a person's", async () => {
+	const { app, vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, el("A noble."), false);
+	await app.vault.delete(app.vault.getAbstractFileByPath(NOTE) as never);
+	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
+	assert.deepEqual(r.copied, []);
+	assert.deepEqual(copies(vault), []);
+	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
+});
+
+test("a name of three-byte characters is cut so the copy's file name stays inside a file system's limit", () => {
+	const long = "森".repeat(77);
+	const capped = capKeptName(long);
+	assert.ok(new TextEncoder().encode(capped).length <= 100);
+	assert.ok(new TextEncoder().encode(keptCopyName(capped, new Date(2026, 10, 26, 20, 6)) + ".md").length < 255);
+	assert.equal(capKeptName("Ireena"), "Ireena");
+	assert.equal(capKeptName("   "), "unnamed");
+});
+
+test("a copy's id key is renamed when the note's front matter follows a byte-order mark", () => {
+	assert.equal(asKeptCopy(`﻿---\nid: ${ID}\n---\n`), `﻿---\nkept_from: ${ID}\n---\n`);
 });
 
 test("a second copy of the same note in the same minute gets its own name; neither is written over", async () => {

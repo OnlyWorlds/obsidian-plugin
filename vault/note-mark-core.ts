@@ -42,6 +42,23 @@ export function holdsUnsavedEdits(text: string, recorded: number | undefined | n
 export const KEPT_FOLDER = "Kept edits";
 
 /**
+ * A name shortened to at most `maxBytes` of UTF-8 (by whole characters), so the copy's file name, which adds the moment and
+ * the extension, stays inside a file system's limit of 255 bytes (a name in Chinese or Japanese is three bytes a character).
+ */
+export function capKeptName(name: string, maxBytes = 100): string {
+	const encoder = new TextEncoder();
+	let out = "";
+	let bytes = 0;
+	for (const ch of name) {
+		const n = encoder.encode(ch).length;
+		if (bytes + n > maxBytes) break;
+		out += ch;
+		bytes += n;
+	}
+	return out.trim() || "unnamed";
+}
+
+/**
  * A copy's file name: the note's name and the moment, never the note's own file name (two notes of one name make a bare
  * link to the element ambiguous). `when` is local time.
  */
@@ -56,7 +73,8 @@ export function keptCopyName(name: string, when: Date): string {
  * the copy is a person's own note.
  */
 export function asKeptCopy(text: string): string {
-	const open = /^---\r?\n/.exec(text);
+	// The block may follow a byte-order mark or blank space, as the readers of an element's id allow.
+	const open = /^[﻿\s]*---\r?\n/.exec(text);
 	if (!open) return text;
 	const rest = text.slice(open[0].length);
 	const close = /\r?\n---[ \t]*(\r?\n|$)/.exec(rest);

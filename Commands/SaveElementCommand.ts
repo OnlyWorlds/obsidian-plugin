@@ -577,7 +577,7 @@ export class SaveElementCommand {
                     }
                     const created = await client.create(type, { id: elementUuid, ...sendPayload });
                     await this.recordSeqs(worldName, [elementUuid], changeSeqOf(created), holdsGroup(payload));
-                    await this.refreshServerFields(activeFile, created, content, worldName, elementUuid, category);
+                    await this.refreshServerFields(activeFile, created, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0);
                     if (recreated) await forgetDeleted(this.plugin, view?.worldId ?? (await worldIdOf(client)), [elementUuid]);
                     new Notice(`${category} created.`);
                     return { ok: true, outcome: 'created' };
@@ -601,7 +601,7 @@ export class SaveElementCommand {
         const serverSeq = changeSeqOf(current);
         if (Object.keys(changed).length === 0) {
             if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq, holdsGroup(payload));
-            await this.refreshServerFields(activeFile, current, content, worldName, elementUuid, category);
+            await this.refreshServerFields(activeFile, current, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0);
             const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
             new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
             return { ok: true, outcome: 'unchanged' };
@@ -640,7 +640,7 @@ export class SaveElementCommand {
             leftOutNotice(plan);
             if (Object.keys(toSend).length === 0) {
                 if (serverSeq !== null) await this.recordSeqs(worldName, [elementUuid], serverSeq, holdsGroup(payload));
-                await this.refreshServerFields(activeFile, current, content, worldName, elementUuid, category);
+                await this.refreshServerFields(activeFile, current, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0 || (plan.leftOutIds?.length ?? 0) > 0);
                 const renameNote = await this.pendingRenameNote(activeFile, worldName, elementUuid, elementData.name, manual);
                 new Notice(`${category} "${label}" already up to date.${renameNote}`, renameNote ? 8000 : undefined);
                 return { ok: true, outcome: 'unchanged' };
@@ -658,7 +658,7 @@ export class SaveElementCommand {
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved), holdsGroup(payload));
             // The note's seven server keys follow the answer; the guard
             // above reads its own record.
-            await this.refreshServerFields(activeFile, saved, content, worldName, elementUuid, category);
+            await this.refreshServerFields(activeFile, saved, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0 || (plan.leftOutIds?.length ?? 0) > 0);
             // Sent without the check (no number recorded yet): said once per element.
             if (knownSeq === null && !unguardedShown.has(elementUuid)) {
                 unguardedShown.add(elementUuid);
@@ -1122,7 +1122,7 @@ export class SaveElementCommand {
      * so auto-sync does not save it again. Never fails the save: a write that
      * fails is logged, and the next Download writes them.
      */
-    private async refreshServerFields(file: TFile, body: unknown, sent: string, worldName: string, id: string, category: string): Promise<void> {
+    private async refreshServerFields(file: TFile, body: unknown, sent: string, worldName: string, id: string, category: string, partial = false): Promise<void> {
         try {
             const content = await this.app.vault.read(file);
             const next = carriesServerFields(body) ? withServerFieldLines(content, body) : content;
@@ -1141,7 +1141,8 @@ export class SaveElementCommand {
             const same = !!group && typeof group === 'object' && !Array.isArray(group)
                 && Object.keys(group).every((k) => !(k in nowProps) || (k in sentProps && valueMark(sentProps[k]) === valueMark(nowProps[k])));
             await recordChangeSeqs(this.app, worldName, {
-                [markKey(id)]: noteMark(expected),
+                // A save that left a link out did not send the note's bytes: the mark is one no note hashes to, so the next pull copies.
+                [markKey(id)]: partial ? 0 : noteMark(expected),
                 ...groupMarkEntries(id, same ? group : null, nowProps, groupKeysById(await readChangeSeqIndex(this.app, worldName))),
             });
         } catch (error) {
