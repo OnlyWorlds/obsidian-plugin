@@ -22,10 +22,10 @@ import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, groupMarkEntries, holdsUnsavedEdits, keptEditedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, copiedMessage, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, ownedText, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
+import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -247,7 +247,7 @@ export class DownloadWorldCommand {
                     const knownGroups = groupKeysById(await readChangeSeqIndex(this.app, uniqueWorldName));
                     for (const change of latest.values()) if (change.op === 'delete') { seqs[markKey(change.id)] = null; Object.assign(seqs, groupMarkClears(change.id, knownGroups)); }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
-                    if (knownOf.keptEdited.length > 0) new Notice(keptEditedMessage(knownOf.keptEdited), 20000);
+                    if (knownOf.copied.length > 0) new Notice(copiedMessage(knownOf.copied), 20000);
 
                     // The ids the feed reported deleted, old and new: a save never
                     // recreates them as link targets; a later upsert of an id
@@ -293,6 +293,8 @@ export class DownloadWorldCommand {
                     });
                     const hiddenCount = await this.stubNotes(hidden.stubHidden, files);
                     const viewCount = await this.stubNotes(hidden.stubView, files);
+                    // A stub is the plugin's own rewrite, not a person's edit: no claim on its bytes, so the note's return in full is no copy.
+                    await recordChangeSeqs(this.app, uniqueWorldName, Object.fromEntries([...hidden.stubHidden, ...hidden.stubView].map((id) => [markKey(id), null])));
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time.
@@ -560,7 +562,7 @@ export class DownloadWorldCommand {
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; keptEdited: string[] }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; copied: string[] }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
@@ -685,10 +687,9 @@ export class DownloadWorldCommand {
 
         // Pass 2 — rename and write. `landed`: the ids whose note this pull wrote.
         const landed: string[] = [];
-        // A note that holds edits no pull or save has seen is left as it is, whole: no write, no rename (vault/note-mark-core.ts).
+        // A note that holds edits no pull or save has seen is copied whole into Kept edits/ just before its write (vault/note-mark-core.ts).
         const marks = await readChangeSeqIndex(this.app, worldName);
-        const keptEdited: string[] = [];
-        const keptEditedIds = new Set<string>();
+        const copied: string[] = [];
         const knownGroups = groupKeysById(marks);
         // The bytes each landed note was left with, read at once after its own write (a later write must not stand for it): the next
         // pull's measure of what a person has typed since.
@@ -696,19 +697,6 @@ export class DownloadWorldCommand {
         for (const plan of plans) {
             const { category, element, existingElementPath } = plan;
             let notePath = plan.notePath;
-
-            if (existingElementPath && !plan.knownOf) {
-                const current = this.app.vault.getAbstractFileByPath(existingElementPath);
-                if (current instanceof TFile) {
-                    try {
-                        if (holdsUnsavedEdits(ownedText(await this.app.vault.read(current), category), marks[markKey(String(element.id))])) {
-                            keptEdited.push(`${category} "${element.name ?? element.id}"`);
-                            keptEditedIds.add(String(element.id));
-                            continue;
-                        }
-                    } catch { /* unreadable: written as any note */ }
-                }
-            }
 
             if (plan.renameFrom) {
                 try {
@@ -774,20 +762,41 @@ export class DownloadWorldCommand {
                         // The note the plan found, so the write makes no scan of the world's notes for each element.
                         existingPath: existingElementPath ? notePath : null,
                         dropKeys,
+                        beforeReplace: plan.knownOf ? undefined : async (text) => {
+                            if (!holdsUnsavedEdits(text, marks[markKey(String(element.id))])) return;
+                            await this.keepCopy(worldName, String(element.name ?? element.id), text);
+                            copied.push(`${category} "${element.name ?? element.id}"`);
+                        },
                     }
                 );
                 const id = String(element.id);
                 const file = this.app.vault.getAbstractFileByPath(notePath);
                 try {
                     const text = file instanceof TFile ? await this.app.vault.read(file) : null;
-                    written[markKey(id)] = text === null ? null : noteMark(ownedText(text, category));
+                    written[markKey(id)] = text === null ? null : noteMark(text);
                     // And the group's entries the note now holds as the world's, each at the value it holds.
                     Object.assign(written, groupMarkEntries(id, plan.knownOf ? null : (element as { x_properties?: unknown }).x_properties, text === null ? {} : parseRawFrontmatter(text) ?? {}, knownGroups));
                 } catch { written[markKey(id)] = null; }
             }
         }
         await recordChangeSeqs(this.app, worldName, written);
-        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)).filter((id) => !keptEditedIds.has(id)), landed, keptEdited };
+        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied };
+    }
+
+    /**
+     * The note as it was, whole, in the world's Kept edits/ folder, under a name with the moment in it; the copy's `id` key is
+     * `kept_from`, so it is a person's own note and no reader takes it for the element. A copy that cannot be written stops the
+     * pull before the note is replaced: nothing is lost silently.
+     */
+    private async keepCopy(worldName: string, name: string, text: string): Promise<void> {
+        const folder = `OnlyWorlds/Worlds/${worldName}/${KEPT_FOLDER}`;
+        const adapter = this.app.vault.adapter;
+        if (!(await adapter.exists(folder))) await this.app.vault.createFolder(folder);
+        const base = keptCopyName(sanitizeFileName(name), new Date());
+        let path = normalizePath(`${folder}/${base}.md`);
+        for (let n = 2; await adapter.exists(path); n++) path = normalizePath(`${folder}/${base} ${n}.md`);
+        this.plugin?.autoSync?.markSelfWrite(path);
+        await this.app.vault.create(path, asKeptCopy(text));
     }
 
     /**

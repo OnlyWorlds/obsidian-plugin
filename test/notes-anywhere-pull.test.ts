@@ -25,7 +25,7 @@ async function world() {
 	return { app, vault, dl: new DownloadWorldCommand(app, {}) };
 }
 
-const mdPaths = (vault: { files: Map<string, unknown> }) => [...vault.files.keys()].filter((p) => p.endsWith(".md") && !p.endsWith("World.md")).sort();
+const mdPaths = (vault: { files: Map<string, unknown> }) => [...vault.files.keys()].filter((p) => p.endsWith(".md") && !p.endsWith("World.md") && !p.includes("/Kept edits/")).sort(); // the pull's copy of a typed note is no element note
 
 /** Move the element's note out of its type folder; `typed` gives it a `type` property, as a person would. */
 async function moveOut(app: ReturnType<typeof makeApp>["app"], vault: ReturnType<typeof makeApp>["vault"], to: string, typed: boolean) {

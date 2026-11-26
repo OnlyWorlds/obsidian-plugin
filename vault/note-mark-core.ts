@@ -1,16 +1,17 @@
 /**
  * The note mark: PURE logic, NO Obsidian imports (unit-tested under `npm test`).
  *
- * A pull replaces the fields of a changed element's note, so a person's edit that was never
- * saved would go with them. To tell such a note, the change_seq index (`.ow-seq.json`) keeps one
- * more number beside an id's change_seq and its `^` mark: `<id>#`, a hash of the note's bytes as
- * the last pull or save left them. A note whose bytes no longer hash to it holds edits that were
- * not saved, and a pull leaves it as it is and says so. No entry (a vault from before, a note an
- * upload just sent, a save that could not tell) means no claim either way: the pull writes it as
- * it always did.
+ * A pull replaces a changed element's note, so a person's edit that was never saved would go
+ * with it. To tell such a note, the change_seq index (`.ow-seq.json`) keeps one more number beside
+ * an id's change_seq and its `^` mark: `<id>#`, a hash of the note's whole bytes as the last pull
+ * or save left them. A note whose bytes no longer hash to it holds edits that pull or save has
+ * not seen: the pull copies it whole into `Kept edits/` before it writes the world's copy, and
+ * says so. No entry (a vault from before, a note an upload just sent, a save that could not
+ * tell) means no claim either way: the pull writes it as it always did. Nothing here measures
+ * what a pull would lose: any difference is reason enough for a copy, and a copy costs a file.
  *
  * The hash is cyrb53 (a non-cryptographic 53-bit hash): the index holds whole numbers only, and
- * a collision costs one note written over, which is today's behaviour.
+ * a collision costs one copy not made, which is today's behaviour.
  */
 
 /** The index key of an id's note mark. */
@@ -37,13 +38,39 @@ export function holdsUnsavedEdits(text: string, recorded: number | undefined | n
 	return typeof recorded === "number" && noteMark(text) !== recorded;
 }
 
-/** The one notice of a pull that left notes alone. `names` are the notes' labels. */
-export function keptEditedMessage(names: string[]): string {
-	const shown = names.slice(0, 3).join(", ");
-	const more = names.length > 3 ? ` +${names.length - 3} more` : "";
-	const one = names.length === 1;
-	return `Download kept ${names.length} note${one ? "" : "s"} with unsaved edits as ${one ? "it is" : "they are"}: ${shown}${more}. ` +
-		`The world changed them too, so Save would be refused: copy the edits out and delete ${one ? "the note" : "the notes"}, then Download world again brings the world's copy.`;
+/** The folder of the copies, under the world's folder. A person's own notes live there: it holds no element note. */
+export const KEPT_FOLDER = "Kept edits";
+
+/**
+ * A copy's file name: the note's name and the moment, never the note's own file name (two notes of one name make a bare
+ * link to the element ambiguous). `when` is local time.
+ */
+export function keptCopyName(name: string, when: Date): string {
+	const p = (n: number) => String(n).padStart(2, "0");
+	return `${name} (kept ${when.getFullYear()}-${p(when.getMonth() + 1)}-${p(when.getDate())} ${p(when.getHours())}${p(when.getMinutes())})`;
+}
+
+/**
+ * The note as a copy holds it: every byte as it was, but the front matter's `id` key renamed `kept_from`, so no reader takes
+ * the copy for the element (a note whose `id` is a UUID is an element note wherever it sits). `kept_from` is no element key:
+ * the copy is a person's own note.
+ */
+export function asKeptCopy(text: string): string {
+	const open = /^---\r?\n/.exec(text);
+	if (!open) return text;
+	const rest = text.slice(open[0].length);
+	const close = /\r?\n---[ \t]*(\r?\n|$)/.exec(rest);
+	const end = close ? close.index : rest.length;
+	return text.slice(0, open[0].length) + rest.slice(0, end).replace(/^id:/m, "kept_from:") + rest.slice(end);
+}
+
+/** The one notice of a pull that copied notes: `labels` are the notes' labels. */
+export function copiedMessage(labels: string[]): string {
+	const shown = labels.slice(0, 3).join(", ");
+	const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
+	const one = labels.length === 1;
+	return `Download wrote the world's copy over ${labels.length} note${one ? "" : "s"} that held edits it had not seen: ${shown}${more}. ` +
+		`${one ? "The note" : "Each note"} as it was is kept whole in ${KEPT_FOLDER}/ in the world's folder.`;
 }
 
 /**

@@ -521,6 +521,8 @@ export interface WriteElementOpts {
 	 * note-mark-core.ts): they leave the note with the write, where every other property of a person's stays.
 	 */
 	dropKeys?: string[];
+	/** Called with the note's bytes just before the write replaces them (not called when the write changes nothing). */
+	beforeReplace?: (content: string) => Promise<void>;
 }
 
 export async function writeElement(
@@ -709,6 +711,9 @@ export async function writeElement(
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {
+		// The bytes about to be replaced, as this write read them: the caller's chance to keep them (the pull's copy of a note
+		// that held edits it had not seen), taken here so nothing typed between its look and this write is lost.
+		await opts.beforeReplace?.(content);
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);
 	}
@@ -719,21 +724,6 @@ export async function writeElement(
 // --- helpers -----------------------------------------------------------------
 
 /** Parse a raw `---\n...\n---` YAML block (cache-independent read fallback). */
-/**
- * What a pull would replace in a note, as one string: its `name` and schema properties, and the text of the `###` sections
- * that stand for the type's text fields. A person's own properties, headings and prose are the pull's to keep, so they are
- * not in it. The note mark (note-mark-core.ts) is the hash of this, so a pull keeps a note only for an edit it would lose.
- */
-export function ownedText(content: string, category: string): string {
-	const cat = normalizeCategory(category);
-	const fm = parseRawFrontmatter(content) ?? {};
-	const schema = getCategorySchema(cat);
-	const picked: Record<string, unknown> = {};
-	for (const k of ["name", ...(schema ? Object.keys(schema) : [])].sort()) if (hasOwn(fm, k)) picked[k] = fm[k];
-	const fields = parseElementBody(splitNote(content).body, cat).fields;
-	return JSON.stringify([picked, Object.entries(fields).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]);
-}
-
 export function parseRawFrontmatter(content: string): Record<string, unknown> | null {
 	if (!content.startsWith("---")) return null;
 	const close = frontmatterClose(content);

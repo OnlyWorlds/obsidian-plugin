@@ -7,7 +7,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { harnessSave } from "./support/save-harness";
 import { groupMarkKey, markKey, noteMark, valueMark } from "../vault/note-mark-core";
-import { ownedText } from "../vault/element-file";
 
 const ID = "0199c000-0000-7000-8000-0000000000b2";
 const NOTE = `---\nname: Ireena\nid: ${ID}\n---\n\n### Description\n\nA noble, edited.\n`;
@@ -23,7 +22,7 @@ test("★ a save that sends the edit marks the note at the bytes it holds now", 
 		answer: { [ID]: { id: ID, change_seq: 6 } },
 	});
 	assert.equal(r.sent.length, 1, r.notices.join(" | "));
-	assert.equal(seqOf(r)[markKey(ID)], noteMark(ownedText(bytesOf(r), "Character")), "the mark is not the saved note's: " + JSON.stringify(seqOf(r)));
+	assert.equal(seqOf(r)[markKey(ID)], noteMark(bytesOf(r)), "the mark is not the saved note's: " + JSON.stringify(seqOf(r)));
 });
 
 test("a save that finds the note equal to the world marks it too", async () => {
@@ -33,7 +32,7 @@ test("a save that finds the note equal to the world marks it too", async () => {
 		server: { [ID]: { name: "Ireena", description: "A noble, edited.", change_seq: 5 } },
 	});
 	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
-	assert.equal(seqOf(r)[markKey(ID)], noteMark(ownedText(bytesOf(r), "Character")), JSON.stringify(seqOf(r)));
+	assert.equal(seqOf(r)[markKey(ID)], noteMark(bytesOf(r)), JSON.stringify(seqOf(r)));
 });
 
 const GROUP_NOTE = `---\nname: Ireena\nid: ${ID}\nkeepme: one\ndropme: two\n---\n\n### Description\n\nA noble, edited.\n`;
