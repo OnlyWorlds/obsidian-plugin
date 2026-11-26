@@ -67,13 +67,34 @@ function isGroup(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** The keys of a note's own properties the world's group held at the last pull or save and no longer holds, unchanged since. */
+/** The index's group marks by id: built once per run, never searched per id. */
+export type GroupKeysById = Map<string, string[]>;
+
+export function groupKeysById(index: Record<string, number>): GroupKeysById {
+	const out: GroupKeysById = new Map();
+	for (const entry of Object.keys(index)) {
+		const at = entry.indexOf("~");
+		if (at <= 0) continue;
+		const id = entry.slice(0, at);
+		const list = out.get(id);
+		if (list) list.push(entry.slice(at + 1));
+		else out.set(id, [entry.slice(at + 1)]);
+	}
+	return out;
+}
+
+/**
+ * The keys of a note's own properties the world's group held at the last pull or save and no longer holds, unchanged since.
+ * Only an element that arrives with its group (an object) or with it cleared (null) says anything: no `x_properties` key at
+ * all is no news, as the writer reads it.
+ */
 export function removedGroupKeys(
 	id: string,
 	serverGroup: unknown,
 	noteProps: Record<string, unknown>,
 	index: Record<string, number>,
 ): string[] {
+	if (serverGroup !== null && !isGroup(serverGroup)) return [];
 	const arriving = isGroup(serverGroup) ? serverGroup : {};
 	const out: string[] = [];
 	for (const key of Object.keys(noteProps)) {
@@ -87,32 +108,34 @@ export function removedGroupKeys(
 /**
  * The index entries that follow a note's write: a mark for each key of the group the note now holds as the world's, and a
  * clear for every key of the id the index still marks and the note no longer holds that way. `noteProps` is the note's
- * front matter read back after the write.
+ * front matter read back after the write. A key the writer kept inside the note's own `x_properties` (a name the note's
+ * profile keys already hold: `tags`, a tool's key) is not a property of the note's: the property of that name is the
+ * person's, and gets no mark.
  */
 export function groupMarkEntries(
 	id: string,
 	serverGroup: unknown,
 	noteProps: Record<string, unknown>,
-	index: Record<string, number>,
+	known: GroupKeysById,
 ): Record<string, number | null> {
 	const out: Record<string, number | null> = {};
 	const held = new Set<string>();
+	const kept = isGroup(noteProps.x_properties) ? noteProps.x_properties : {};
 	if (isGroup(serverGroup)) {
 		for (const key of Object.keys(serverGroup)) {
 			if (!Object.prototype.hasOwnProperty.call(noteProps, key)) continue;
+			if (Object.prototype.hasOwnProperty.call(kept, key)) continue;
 			out[groupMarkKey(id, key)] = valueMark(noteProps[key]);
 			held.add(key);
 		}
 	}
-	const prefix = `${id}~`;
-	for (const entry of Object.keys(index)) if (entry.startsWith(prefix) && !held.has(entry.slice(prefix.length))) out[entry] = null;
+	for (const key of known.get(id) ?? []) if (!held.has(key)) out[groupMarkKey(id, key)] = null;
 	return out;
 }
 
 /** Clears for every group mark an id has in the index (an upload that holds no note's bytes, a delete). */
-export function groupMarkClears(id: string, index: Record<string, number>): Record<string, null> {
+export function groupMarkClears(id: string, known: GroupKeysById): Record<string, null> {
 	const out: Record<string, null> = {};
-	const prefix = `${id}~`;
-	for (const entry of Object.keys(index)) if (entry.startsWith(prefix)) out[entry] = null;
+	for (const key of known.get(id) ?? []) out[groupMarkKey(id, key)] = null;
 	return out;
 }

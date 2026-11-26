@@ -7,7 +7,7 @@ import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupMarkClears, markKey } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, markKey } from '../vault/note-mark-core';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
@@ -351,7 +351,8 @@ export class ExportWorldCommand {
             const knownSeqs = run.knownSeqs ?? await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
-            for (const id of landed) { seqs[id] = null; seqs[heldKey(id)] = null; seqs[markKey(id)] = null; Object.assign(seqs, groupMarkClears(id, knownSeqs)); }
+            const knownGroups = groupKeysById(knownSeqs);
+            for (const id of landed) { seqs[id] = null; seqs[heldKey(id)] = null; seqs[markKey(id)] = null; Object.assign(seqs, groupMarkClears(id, knownGroups)); }
             const stale: string[] = [];
             let updated = 0;
             const progressEvery = 50;
@@ -365,7 +366,7 @@ export class ExportWorldCommand {
                     seqs[item.id] = changeSeqOf(saved);
                     seqs[heldKey(item.id)] = holdsGroup(item.payload) ? changeSeqOf(saved) : null;
                     seqs[markKey(item.id)] = null; // an upload does not hold the note's bytes: no claim until the next pull or save
-                    Object.assign(seqs, groupMarkClears(item.id, knownSeqs));
+                    Object.assign(seqs, groupMarkClears(item.id, knownGroups));
                     updated++;
                     if (updated % progressEvery === 0) {
                         new Notice(`Uploading... ${updated}/${toUpdate.length}`);

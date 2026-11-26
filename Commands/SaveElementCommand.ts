@@ -6,7 +6,7 @@ import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from 
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupMarkEntries, markKey, noteMark, valueMark } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, groupMarkEntries, markKey, noteMark, valueMark } from '../vault/note-mark-core';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, holdsGroup, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
@@ -1142,8 +1142,11 @@ export class SaveElementCommand {
                     && Object.keys(group).every((k) => !(k in nowProps) || (k in sentProps && valueMark(sentProps[k]) === valueMark(nowProps[k])));
                 await recordChangeSeqs(this.app, worldName, {
                     [markKey(id)]: noteMark(ownedText(next, category)),
-                    ...groupMarkEntries(id, same ? group : null, nowProps, await readChangeSeqIndex(this.app, worldName)),
+                    ...groupMarkEntries(id, same ? group : null, nowProps, groupKeysById(await readChangeSeqIndex(this.app, worldName))),
                 });
+            } else {
+                // Typed into while the save ran: no claim on any entry (a stale mark would take a later retyped value for the world's).
+                await recordChangeSeqs(this.app, worldName, groupMarkClears(id, groupKeysById(await readChangeSeqIndex(this.app, worldName))));
             }
         } catch (error) {
             console.error(`OnlyWorlds: could not refresh the server fields of ${file.path}`, error);

@@ -22,7 +22,7 @@ import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupMarkClears, groupMarkEntries, holdsUnsavedEdits, keptEditedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, groupMarkEntries, holdsUnsavedEdits, keptEditedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { elementNoteType, noteIdIn, ownedText, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
@@ -244,8 +244,8 @@ export class DownloadWorldCommand {
                         seqs[heldKey(id)] = arriving && typeof arriving === 'object' && !Array.isArray(arriving) && Object.keys(arriving).length > 0 ? seqs[id] : null;
                     }
                     for (const change of latest.values()) if (change.op === 'delete') { seqs[change.id] = null; seqs[heldKey(change.id)] = null; }
-                    const indexNow = await readChangeSeqIndex(this.app, uniqueWorldName);
-                    for (const change of latest.values()) if (change.op === 'delete') { seqs[markKey(change.id)] = null; Object.assign(seqs, groupMarkClears(change.id, indexNow)); }
+                    const knownGroups = groupKeysById(await readChangeSeqIndex(this.app, uniqueWorldName));
+                    for (const change of latest.values()) if (change.op === 'delete') { seqs[markKey(change.id)] = null; Object.assign(seqs, groupMarkClears(change.id, knownGroups)); }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
                     if (knownOf.keptEdited.length > 0) new Notice(keptEditedMessage(knownOf.keptEdited), 20000);
 
@@ -689,7 +689,10 @@ export class DownloadWorldCommand {
         const marks = await readChangeSeqIndex(this.app, worldName);
         const keptEdited: string[] = [];
         const keptEditedIds = new Set<string>();
-        const markPaths = new Map<string, { path: string; category: string; group: unknown }>();
+        const knownGroups = groupKeysById(marks);
+        // The bytes each landed note was left with, read at once after its own write (a later write must not stand for it): the next
+        // pull's measure of what a person has typed since.
+        const written: Record<string, number | null> = {};
         for (const plan of plans) {
             const { category, element, existingElementPath } = plan;
             let notePath = plan.notePath;
@@ -773,19 +776,15 @@ export class DownloadWorldCommand {
                         dropKeys,
                     }
                 );
-                markPaths.set(String(element.id), { path: notePath, category, group: plan.knownOf ? null : (element as { x_properties?: unknown }).x_properties });
+                const id = String(element.id);
+                const file = this.app.vault.getAbstractFileByPath(notePath);
+                try {
+                    const text = file instanceof TFile ? await this.app.vault.read(file) : null;
+                    written[markKey(id)] = text === null ? null : noteMark(ownedText(text, category));
+                    // And the group's entries the note now holds as the world's, each at the value it holds.
+                    Object.assign(written, groupMarkEntries(id, plan.knownOf ? null : (element as { x_properties?: unknown }).x_properties, text === null ? {} : parseRawFrontmatter(text) ?? {}, knownGroups));
+                } catch { written[markKey(id)] = null; }
             }
-        }
-        // The bytes each landed note was left with: the next pull's measure of what a person has typed since.
-        const written: Record<string, number | null> = {};
-        for (const [id, { path, category, group }] of markPaths) {
-            const file = this.app.vault.getAbstractFileByPath(path);
-            try {
-                const text = file instanceof TFile ? await this.app.vault.read(file) : null;
-                written[markKey(id)] = text === null ? null : noteMark(ownedText(text, category));
-                // And the group's entries the note now holds as the world's, each at the value it holds.
-                Object.assign(written, groupMarkEntries(id, group, text === null ? {} : parseRawFrontmatter(text) ?? {}, marks));
-            } catch { written[markKey(id)] = null; }
         }
         await recordChangeSeqs(this.app, worldName, written);
         return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)).filter((id) => !keptEditedIds.has(id)), landed, keptEdited };

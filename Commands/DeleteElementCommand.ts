@@ -4,7 +4,7 @@ import { elementNoteType, readElement, readFrontmatter } from '../vault/element-
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { isStaleWrite, V2ApiError } from '../client-v2';
 import { readChangeSeq, readChangeSeqIndex, heldKey, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupMarkClears, markKey } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, markKey } from '../vault/note-mark-core';
 import { staleDeleteMessage } from '../sync/stale-save';
 
 /** What removing a known-of note says. */
@@ -111,7 +111,7 @@ export class DeleteElementCommand {
                 // sends it: a delete is guarded the same way.
                 const ifMatch = await readChangeSeq(this.app, worldName, elementId);
                 await client.deleteElement(category.toLowerCase(), elementId, { ifMatch });
-                await recordChangeSeqs(this.app, worldName, { [elementId]: null, [heldKey(elementId)]: null, [markKey(elementId)]: null, ...groupMarkClears(elementId, await readChangeSeqIndex(this.app, worldName)) });
+                await recordChangeSeqs(this.app, worldName, { [elementId]: null, [heldKey(elementId)]: null, [markKey(elementId)]: null, ...groupMarkClears(elementId, groupKeysById(await readChangeSeqIndex(this.app, worldName))) });
                 new Notice(`${category} "${elementName}" deleted from onlyworlds.com.`);
             } catch (error) {
                 // Changed on the server since the note was pulled: nothing was

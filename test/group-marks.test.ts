@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeApp } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
-import { groupMarkClears, groupMarkEntries, groupMarkKey, removedGroupKeys, valueMark } from "../vault/note-mark-core";
+import { groupKeysById, groupMarkClears, groupMarkEntries, groupMarkKey, removedGroupKeys, valueMark } from "../vault/note-mark-core";
 
 const W = "OnlyWorlds/Worlds/W";
 const ELEMENTS = `${W}/Elements`;
@@ -36,19 +36,24 @@ test("the core: a removed, unchanged, marked key is named; typed, changed and un
 	const idx = { [groupMarkKey(ID, "a")]: valueMark("one"), [groupMarkKey(ID, "b")]: valueMark("two") };
 	assert.deepEqual(removedGroupKeys(ID, { b: "two" }, { a: "one", b: "two", c: "mine" }, idx), ["a"]);
 	assert.deepEqual(removedGroupKeys(ID, { b: "two" }, { a: "one edited", b: "two" }, idx), [], "a value the person changed is theirs");
-	assert.deepEqual(removedGroupKeys(ID, undefined, { a: "one", b: "two" }, idx), ["a", "b"], "an arriving element with no group removed both");
+	assert.deepEqual(removedGroupKeys(ID, null, { a: "one", b: "two" }, idx), ["a", "b"], "an element whose group was cleared removed both");
+	assert.deepEqual(removedGroupKeys(ID, undefined, { a: "one", b: "two" }, idx), [], "no x_properties key at all is no news");
 	assert.deepEqual(removedGroupKeys(ID, { a: "one" }, { a: "one" }, {}), [], "no mark, no claim");
 	assert.deepEqual(removedGroupKeys("other-id", {}, { a: "one" }, idx), [], "another id's marks are not this note's");
 });
 
 test("the core: marks follow the group the note holds, and clear what it no longer holds", () => {
 	const idx = { [groupMarkKey(ID, "gone")]: 5, [groupMarkKey("x", "k")]: 7 };
-	const out = groupMarkEntries(ID, { a: "one", missing: "x" }, { a: "one" }, idx);
+	const known = groupKeysById(idx);
+	const out = groupMarkEntries(ID, { a: "one", missing: "x" }, { a: "one" }, known);
 	assert.equal(out[groupMarkKey(ID, "a")], valueMark("one"));
 	assert.equal(out[groupMarkKey(ID, "gone")], null);
 	assert.ok(!(groupMarkKey(ID, "missing") in out), "a key the note does not hold gets no mark");
 	assert.ok(!(groupMarkKey("x", "k") in out), "another id's mark is left alone");
-	assert.deepEqual(groupMarkClears(ID, idx), { [groupMarkKey(ID, "gone")]: null });
+	assert.deepEqual(groupMarkClears(ID, known), { [groupMarkKey(ID, "gone")]: null });
+	// a key the writer kept inside the note's own x_properties (the person's own `tags` stays theirs) gets no mark
+	const taken = groupMarkEntries(ID, { tags: "world" }, { tags: ["npc"], x_properties: { tags: "world" } }, new Map());
+	assert.deepEqual(taken, {});
 });
 
 test("★ a group entry another client removed leaves the note at the pull, and the next pull keeps the others", async () => {
@@ -66,7 +71,7 @@ test("★ a group entry another client removed leaves the note at the pull, and 
 test("a group removed whole leaves the note too", async () => {
 	const { vault, dl } = await world();
 	await dl.generateElementNotes(ELEMENTS, el({ a: "1", b: "2" }), false);
-	await dl.generateElementNotes(ELEMENTS, el(undefined, "Changed."), false);
+	await dl.generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "Changed.", x_properties: null }] }, false);
 	const after = vault.contentAt(NOTE) ?? "";
 	assert.match(after, /Changed\./);
 	assert.doesNotMatch(after, /^a: /m);
@@ -100,4 +105,21 @@ test("a number or a list value is marked and dropped by what the note holds, not
 	assert.doesNotMatch(after, /^n: 7$/m);
 	assert.doesNotMatch(after, /^l:/m);
 	assert.match(after, /keep: k/);
+});
+
+test("an element that arrives with no x_properties key at all is no news: the entries stay", async () => {
+	const { vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, el({ a: "1" }), false);
+	await dl.generateElementNotes(ELEMENTS, el(undefined, "Changed."), false);
+	assert.match(vault.contentAt(NOTE) ?? "", /^a: /m);
+});
+
+test("a property the person owns under a name the group also uses is never marked, so a removal never takes it", async () => {
+	const { app, vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, el(undefined), false);
+	await edit(app, vault, "\n---\n", "\ntags:\n  - npc\n---\n");
+	await dl.generateElementNotes(ELEMENTS, el({ tags: "world" }, "Changed."), false);
+	assert.equal(groupMarkKey(ID, "tags") in index(vault), false, "the person's own tags was marked as the world's");
+	await dl.generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "Changed.", x_properties: null }] }, false);
+	assert.match(vault.contentAt(NOTE) ?? "", /npc/);
 });
