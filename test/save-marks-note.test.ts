@@ -6,7 +6,7 @@ import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the m
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { harnessSave } from "./support/save-harness";
-import { markKey, noteMark } from "../vault/note-mark-core";
+import { groupMarkKey, markKey, noteMark, valueMark } from "../vault/note-mark-core";
 import { ownedText } from "../vault/element-file";
 
 const ID = "0199c000-0000-7000-8000-0000000000b2";
@@ -34,4 +34,20 @@ test("a save that finds the note equal to the world marks it too", async () => {
 	});
 	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));
 	assert.equal(seqOf(r)[markKey(ID)], noteMark(ownedText(bytesOf(r), "Character")), JSON.stringify(seqOf(r)));
+});
+
+const GROUP_NOTE = `---\nname: Ireena\nid: ${ID}\nkeepme: one\ndropme: two\n---\n\n### Description\n\nA noble, edited.\n`;
+
+test("★ a save marks each entry of the group the answer holds, at the value the note holds, and clears a mark the answer no longer holds", async () => {
+	const r = await harnessSave({
+		notes: { "Character/Ireena.md": GROUP_NOTE, "~/.ow-seq.json": JSON.stringify({ [ID]: 5, [groupMarkKey(ID, "old")]: 9 }) },
+		save: "Character/Ireena.md",
+		server: { [ID]: { name: "Ireena", description: "A noble.", change_seq: 5 } },
+		answer: { [ID]: { id: ID, change_seq: 6, x_properties: { keepme: "one", dropme: "two" } } },
+	});
+	assert.equal(r.sent.length, 1, r.notices.join(" | "));
+	const idx = seqOf(r);
+	assert.equal(idx[groupMarkKey(ID, "keepme")], valueMark("one"), JSON.stringify(idx));
+	assert.equal(idx[groupMarkKey(ID, "dropme")], valueMark("two"), JSON.stringify(idx));
+	assert.ok(!(groupMarkKey(ID, "old") in idx), "a mark for an entry the answer no longer holds stayed: " + JSON.stringify(idx));
 });

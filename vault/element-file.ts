@@ -516,6 +516,11 @@ export interface WriteElementOpts {
 	 * world's notes. `null`: the plan found none. Absent: the writer looks by id.
 	 */
 	existingPath?: string | null;
+	/**
+	 * Properties of the note the world's group held and no longer holds, unchanged since (removedGroupKeys,
+	 * note-mark-core.ts): they leave the note with the write, where every other property of a person's stays.
+	 */
+	dropKeys?: string[];
 }
 
 export async function writeElement(
@@ -653,6 +658,7 @@ export async function writeElement(
 	for (const [k, v] of Object.entries(existingFm)) {
 		if (replacesWhole && isExtensionKey(k)) continue;
 		if (written?.includes(k)) continue;
+		if (opts.dropKeys?.includes(k)) continue;
 		if (!ownedKeys.has(k)) preserved[k] = v;
 	}
 	const merged: Record<string, unknown> = { ...fm };

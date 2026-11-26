@@ -6,7 +6,7 @@ import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from 
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { markKey, noteMark } from '../vault/note-mark-core';
+import { groupMarkEntries, markKey, noteMark, valueMark } from '../vault/note-mark-core';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, holdsGroup, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
@@ -1132,7 +1132,19 @@ export class SaveElementCommand {
             }
             // The note's mark (vault/note-mark-core.ts): what this save left, when it is what it sent. A note typed
             // into while the save ran gets no mark, so the next pull cannot take that text for saved.
-            if (ownedText(content, category) === ownedText(sent, category)) await recordChangeSeqs(this.app, worldName, { [markKey(id)]: noteMark(ownedText(next, category)) });
+            if (ownedText(content, category) === ownedText(sent, category)) {
+                // The group's entries the note holds as the world's (the group marks): only for a note whose entries are
+                // still what the save sent, so a value typed while it ran is never taken for the world's.
+                const group = body && typeof body === 'object' ? (body as { x_properties?: unknown }).x_properties : null;
+                const sentProps = parseRawFrontmatter(sent) ?? {};
+                const nowProps = parseRawFrontmatter(next) ?? {};
+                const same = !!group && typeof group === 'object' && !Array.isArray(group)
+                    && Object.keys(group).every((k) => !(k in nowProps) || (k in sentProps && valueMark(sentProps[k]) === valueMark(nowProps[k])));
+                await recordChangeSeqs(this.app, worldName, {
+                    [markKey(id)]: noteMark(ownedText(next, category)),
+                    ...groupMarkEntries(id, same ? group : null, nowProps, await readChangeSeqIndex(this.app, worldName)),
+                });
+            }
         } catch (error) {
             console.error(`OnlyWorlds: could not refresh the server fields of ${file.path}`, error);
         }

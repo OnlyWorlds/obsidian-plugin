@@ -45,3 +45,74 @@ export function keptEditedMessage(names: string[]): string {
 	return `Download kept ${names.length} note${one ? "" : "s"} with unsaved edits as ${one ? "it is" : "they are"}: ${shown}${more}. ` +
 		`The world changed them too, so Save would be refused: copy the edits out and delete ${one ? "the note" : "the notes"}, then Download world again brings the world's copy.`;
 }
+
+/**
+ * The group marks: which entries of the world's group (`x_properties`) the note holds because the world showed them, so a
+ * pull can tell an entry another client removed from one a person typed. Beside an id's number, the index keeps one entry
+ * per group key the last pull or save wrote: `<id>~<key>`, the hash of the value the note held for it then. At a pull, a
+ * note property that has such a mark, whose value still hashes to it, and that the arriving group no longer holds, is the
+ * world's entry that left: it leaves the note. A value the person changed since keeps its note (the next save sends it);
+ * a key with no mark (typed by hand, a vault from before) is never dropped.
+ */
+export function groupMarkKey(id: string, key: string): string {
+	return `${id}~${key}`;
+}
+
+/** The mark of one property value, as the note holds it once read back. */
+export function valueMark(value: unknown): number {
+	return noteMark(JSON.stringify(value === undefined ? null : value));
+}
+
+function isGroup(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** The keys of a note's own properties the world's group held at the last pull or save and no longer holds, unchanged since. */
+export function removedGroupKeys(
+	id: string,
+	serverGroup: unknown,
+	noteProps: Record<string, unknown>,
+	index: Record<string, number>,
+): string[] {
+	const arriving = isGroup(serverGroup) ? serverGroup : {};
+	const out: string[] = [];
+	for (const key of Object.keys(noteProps)) {
+		if (Object.prototype.hasOwnProperty.call(arriving, key)) continue;
+		const recorded = index[groupMarkKey(id, key)];
+		if (typeof recorded === "number" && valueMark(noteProps[key]) === recorded) out.push(key);
+	}
+	return out;
+}
+
+/**
+ * The index entries that follow a note's write: a mark for each key of the group the note now holds as the world's, and a
+ * clear for every key of the id the index still marks and the note no longer holds that way. `noteProps` is the note's
+ * front matter read back after the write.
+ */
+export function groupMarkEntries(
+	id: string,
+	serverGroup: unknown,
+	noteProps: Record<string, unknown>,
+	index: Record<string, number>,
+): Record<string, number | null> {
+	const out: Record<string, number | null> = {};
+	const held = new Set<string>();
+	if (isGroup(serverGroup)) {
+		for (const key of Object.keys(serverGroup)) {
+			if (!Object.prototype.hasOwnProperty.call(noteProps, key)) continue;
+			out[groupMarkKey(id, key)] = valueMark(noteProps[key]);
+			held.add(key);
+		}
+	}
+	const prefix = `${id}~`;
+	for (const entry of Object.keys(index)) if (entry.startsWith(prefix) && !held.has(entry.slice(prefix.length))) out[entry] = null;
+	return out;
+}
+
+/** Clears for every group mark an id has in the index (an upload that holds no note's bytes, a delete). */
+export function groupMarkClears(id: string, index: Record<string, number>): Record<string, null> {
+	const out: Record<string, null> = {};
+	const prefix = `${id}~`;
+	for (const entry of Object.keys(index)) if (entry.startsWith(prefix)) out[entry] = null;
+	return out;
+}
