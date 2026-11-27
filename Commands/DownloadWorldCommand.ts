@@ -834,10 +834,9 @@ export class DownloadWorldCommand {
             if (copies.copied.length > 0) new Notice(copiedMessage(copies.copied), 20000);
             if (left.length > 0) new Notice(leftAsTypedMessage(left), 20000);
         }
-        const halt = stopped as KeptCopyFailed | null;
         return {
             became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied: copies.copied, left,
-            stopped: halt ? copyStoppedMessage(halt.label, halt.reason) : null,
+            stopped: stopped ? copyStoppedMessage(stopped.label, stopped.reason) : null,
         };
     }
 

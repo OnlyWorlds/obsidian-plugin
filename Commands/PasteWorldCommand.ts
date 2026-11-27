@@ -217,8 +217,7 @@ export class PasteWorldCommand {
             if (copies.copied.length > 0) new Notice(copiedMessage(copies.copied, 'Paste world'), 20000);
             if (left.length > 0) new Notice(leftAsTypedMessage(left, 'Paste world'), 20000);
         }
-        const halt = stopped as KeptCopyFailed | null;
-        return { copied: copies.copied, left, stopped: halt ? copyStoppedMessage(halt.label, halt.reason, 'Paste world') : null };
+        return { copied: copies.copied, left, stopped: stopped ? copyStoppedMessage(stopped.label, stopped.reason, 'Paste world') : null };
     }
 
     /** True when the note at `path` is a hidden element's stub. */
