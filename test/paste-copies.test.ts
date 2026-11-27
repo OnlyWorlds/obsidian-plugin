@@ -9,7 +9,7 @@ import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the m
 import "./support/bare-paths";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeApp, __notices } from "./support/obsidian-mock";
+import { makeApp, __notices, __modals } from "./support/obsidian-mock";
 import type { MockVault } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
@@ -110,6 +110,29 @@ test("★ a copy Paste world cannot write stops it before that note: the note is
 	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
 	assert.match(r.stopped ?? "", /^Paste world stopped at Character "Kolyan"/, r.stopped ?? "no stop");
 	assert.match(r.stopped ?? "", /not changed/);
+});
+
+test("★ a write Paste world cannot make (not a copy) is said in a notice, not lost in an unawaited rejection", async () => {
+	const { app, vault, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "A noble." }, { id: OTHER, name: "Kolyan", description: "A priest." }] }, false);
+	const v = app.vault as unknown as { process(f: unknown, fn: (d: string) => string): Promise<string> };
+	const process = v.process.bind(v);
+	v.process = async (f, fn) => {
+		if ((f as { path: string }).path === OTHER_NOTE) throw new Error("the disk is full");
+		return process(f, fn);
+	};
+	__modals.length = 0;
+	__notices.length = 0;
+	await new PasteWorldCommand(app, {} as never).execute();
+	const modal = __modals[__modals.length - 1] as unknown as { onSubmit(json: unknown): unknown };
+	await Promise.resolve(modal.onSubmit({
+		World: { api_key: "ow_k_test", name: "W" },
+		Character: [{ id: ID, name: "Ireena", description: "Pasted." }, { id: OTHER, name: "Kolyan", description: "Pasted too." }],
+	}));
+	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
+	assert.match(vault.contentAt(OTHER_NOTE) ?? "", /A priest\./);
+	const said = __notices.find((n) => n.includes('Character "Kolyan"')) ?? "";
+	assert.match(said, /^Paste world stopped at Character "Kolyan": the note could not be written \(the disk is full\)/, __notices.join(" | "));
 });
 
 const CAST = `${W}/Cast/Ireena.md`;

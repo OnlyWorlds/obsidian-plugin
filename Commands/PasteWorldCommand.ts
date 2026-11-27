@@ -7,8 +7,8 @@ import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { flushOpenEditors, pickNoteForId, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
-import { KeptCopies, KeptCopyFailed } from '../vault/kept-copy';
-import { copiedMessage, copyStoppedMessage, leftAsTypedMessage } from '../vault/note-mark-core';
+import { KeptCopies, stoppedMessage } from '../vault/kept-copy';
+import { copiedMessage, leftAsTypedMessage } from '../vault/note-mark-core';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { knownOfKeptText, knownOfWrite, noteStateOf } from '../sync/known-of';
 
@@ -115,7 +115,8 @@ export class PasteWorldCommand {
      * Write the pasted elements' notes. A note it is about to replace and cannot prove unchanged since the plugin last wrote or
      * saved it is copied whole into Kept edits/ first, as Download does (vault/kept-copy.ts). It records no mark: a mark says
      * the world holds a note's bytes, and a pasted note was never sent, so the next pull copies it before it replaces it. Returns the labels of the notes copied, of the notes left as the person has
-     * them (each changed under every try of its write), and the notice of a copy that could not be written, which stopped it.
+     * them (each changed under every try of its write), and the notice of a note it could not write (its copy, or the write
+     * itself), which stopped it there.
      */
     async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean): Promise<{ copied: string[]; left: string[]; stopped: string | null }> {
         // Extract the world name from the elements folder path.
@@ -135,7 +136,7 @@ export class PasteWorldCommand {
         // Each element's note wherever it sits in the world, found as Download finds it.
         const worldIds = await worldNoteIds(this.app, worldName);
         const left: string[] = [];
-        let stopped: KeptCopyFailed | null = null;
+        let stopped: { label: string; error: unknown } | null = null;
         try {
             notes: for (const category in Category) {
                 if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
@@ -202,9 +203,10 @@ export class PasteWorldCommand {
                             }
                         );
                     } catch (error) {
-                        // A copy that could not be written stops the paste before its note, which is not changed.
-                        if (error instanceof KeptCopyFailed) { stopped = error; break notes; }
-                        throw error;
+                        // A note it could not write (its copy, or the write itself) stops the paste there, the note not
+                        // changed, and the person is told: the dialog's callback is not awaited, so a throw would be heard by no one.
+                        stopped = { label, error };
+                        break notes;
                     }
                     if (wrote.text === null) { left.push(label); continue; }
                     copy.landed();
@@ -214,7 +216,7 @@ export class PasteWorldCommand {
             if (copies.copied.length > 0) new Notice(copiedMessage(copies.copied, 'Paste world'), 20000);
             if (left.length > 0) new Notice(leftAsTypedMessage(left, 'Paste world'), 20000);
         }
-        return { copied: copies.copied, left, stopped: stopped ? copyStoppedMessage(stopped.label, stopped.reason, 'Paste world') : null };
+        return { copied: copies.copied, left, stopped: stopped ? stoppedMessage(stopped.label, stopped.error, 'Paste world') : null };
     }
 
     /** True when the note at `path` is a hidden element's stub. */
