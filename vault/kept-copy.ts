@@ -3,7 +3,7 @@ import { sanitizeFileName } from "../Scripts/WorldService";
 import { worldNotePath } from "./category-folder";
 import { changeSeqIndexUnreadable, readChangeSeqIndex, type ChangeSeqIndex } from "./change-seq-index";
 import { ownFrontmatterId } from "./element-file";
-import { asKeptCopy, capKeptName, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey } from "./note-mark-core";
+import { asKeptCopy, capKeptName, copyStoppedMessage, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey, writeStoppedMessage, type KeptWriter } from "./note-mark-core";
 
 /**
  * The copy before replace, the Obsidian-facing half (the pure half is note-mark-core.ts): a note a writer is about to replace
@@ -13,6 +13,12 @@ import { asKeptCopy, capKeptName, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, ke
 /** True when the note lies in a world's Kept edits/ folder: a copy, a person's own note, never an element's. */
 export function inKeptFolder(path: string): boolean {
 	return worldNotePath(path)?.folders[0] === KEPT_FOLDER;
+}
+
+/** The notice of a run that stopped at the note `label`: a copy it could not keep (KeptCopyFailed), or a write that threw. */
+export function stoppedMessage(label: string, error: unknown, writer: KeptWriter = "Download"): string {
+	if (error instanceof KeptCopyFailed) return copyStoppedMessage(error.label, error.reason, writer);
+	return writeStoppedMessage(label, error instanceof Error ? error.message : String(error), writer);
 }
 
 /** A copy that could not be written: the note it was for is not replaced, and the run that met it stops there. */

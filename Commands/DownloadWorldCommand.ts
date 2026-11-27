@@ -22,8 +22,8 @@ import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, copyStoppedMessage, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
-import { inKeptFolder, KeptCopies, KeptCopyFailed } from '../vault/kept-copy';
+import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { inKeptFolder, KeptCopies, stoppedMessage } from '../vault/kept-copy';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
 import { elementNoteType, parseElementPath, parseRawFrontmatter, pickNoteForId, replaceNote, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
@@ -252,9 +252,10 @@ export class DownloadWorldCommand {
                         Object.assign(seqs, groupMarkClears(change.id, knownGroups));
                     }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
-                    // A copy that could not be written stopped the run: what it wrote is recorded above, the
-                    // cursor stays where it was (the next Download brings the same changes), and the notice says
-                    // which note was not changed. The world's folder holds what landed, its key in World.md.
+                    // A note the run could not write (a copy it could not keep, or a write that threw) stopped it:
+                    // what it wrote is recorded above, the cursor stays where it was (the next Download brings the
+                    // same changes), and the notice says which note was not changed. The world's folder holds what
+                    // landed, its key in World.md.
                     if (knownOf.stopped) {
                         new Notice(knownOf.stopped, 20000);
                         return uniqueWorldName;
@@ -307,20 +308,15 @@ export class DownloadWorldCommand {
                     const stubs = await KeptCopies.open(this.app, uniqueWorldName, (p) => this.plugin?.autoSync?.markSelfWrite(p));
                     const stubMarks: Record<string, number> = {};
                     const stubLeft: string[] = [];
-                    let hiddenCount = 0;
-                    let viewCount = 0;
-                    let stubStopped: string | null = null;
-                    try {
-                        hiddenCount = await this.stubNotes(hidden.stubHidden, files, stubs, stubMarks, stubLeft);
-                        viewCount = await this.stubNotes(hidden.stubView, files, stubs, stubMarks, stubLeft);
-                    } catch (error) {
-                        if (!(error instanceof KeptCopyFailed)) throw error;
-                        stubStopped = copyStoppedMessage(error.label, error.reason);
-                    } finally {
-                        await recordChangeSeqs(this.app, uniqueWorldName, stubMarks);
-                        if (stubs.copied.length > 0) new Notice(copiedMessage(stubs.copied), 20000);
-                        if (stubLeft.length > 0) new Notice(leftAsTypedMessage(stubLeft), 20000);
-                    }
+                    const stubbedHidden = await this.stubNotes(hidden.stubHidden, files, stubs, stubMarks, stubLeft);
+                    const stubbedView = stubbedHidden.stopped ? { n: 0, stopped: null } : await this.stubNotes(hidden.stubView, files, stubs, stubMarks, stubLeft);
+                    const hiddenCount = stubbedHidden.n;
+                    const viewCount = stubbedView.n;
+                    await recordChangeSeqs(this.app, uniqueWorldName, stubMarks);
+                    if (stubs.copied.length > 0) new Notice(copiedMessage(stubs.copied), 20000);
+                    if (stubLeft.length > 0) new Notice(leftAsTypedMessage(stubLeft), 20000);
+                    // A stub the pass could not write stops the pull as a note of the element pass does.
+                    const stubStopped = stubbedHidden.stopped ?? stubbedView.stopped;
                     if (stubStopped) {
                         new Notice(stubStopped, 20000);
                         return uniqueWorldName;
@@ -722,8 +718,8 @@ export class DownloadWorldCommand {
         const copies = await KeptCopies.open(this.app, worldName, (p) => this.plugin?.autoSync?.markSelfWrite(p));
         const marks = copies.marks;
         const knownGroups = groupKeysById(marks);
-        // The copy that could not be written, which stopped the run before its note.
-        let stopped: KeptCopyFailed | null = null;
+        // The note the run could not write (a copy it could not keep, or a write that threw), which stopped it there.
+        let stopped: { label: string; error: unknown } | null = null;
         // The mark of the bytes each landed note's write put there: the next pull's measure of what a person has typed since.
         const written: Record<string, number | null> = {};
         // The notes that changed each time their write came to them, left as the person has them.
@@ -807,10 +803,10 @@ export class DownloadWorldCommand {
                             }
                         );
                     } catch (error) {
-                        // A copy that could not be written stops the run before its note: that note is not changed, the
-                        // notes after it are not written, and what the run did write is recorded below.
-                        if (error instanceof KeptCopyFailed) { stopped = error; break; }
-                        throw error;
+                        // A note the run could not write (its copy, or the write itself) stops the run there: that note
+                        // is not changed, the notes after it are not written, and what the run did write is recorded.
+                        stopped = { label, error };
+                        break;
                     }
                     const id = String(element.id);
                     if (wrote.text === null) {
@@ -836,7 +832,7 @@ export class DownloadWorldCommand {
         }
         return {
             became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied: copies.copied, left,
-            stopped: stopped ? copyStoppedMessage(stopped.label, stopped.reason) : null,
+            stopped: stopped ? stoppedMessage(stopped.label, stopped.error) : null,
         };
     }
 
@@ -927,14 +923,16 @@ export class DownloadWorldCommand {
      * note copied first by `copies`' rule. A note already a stub, or with no
      * frontmatter id (a legacy span note), is left as it is. The mark of each
      * stub's bytes goes into `marks`; a note that changed under each try of its
-     * write goes into `left`. A copy that cannot be written throws
-     * KeptCopyFailed, its note unchanged. Returns how many notes changed.
+     * write goes into `left`. A note it cannot copy or write stops the pass
+     * there, its note unchanged. Returns how many notes changed, and the
+     * notice of a stop.
      */
-    private async stubNotes(ids: string[], files: Map<string, TFile>, copies: KeptCopies, marks: Record<string, number>, left: string[]): Promise<number> {
+    private async stubNotes(ids: string[], files: Map<string, TFile>, copies: KeptCopies, marks: Record<string, number>, left: string[]): Promise<{ n: number; stopped: string | null }> {
         let n = 0;
         for (const id of ids) {
             const file = files.get(id);
             if (!file) continue;
+            let label = file.basename;
             try {
                 const content = await this.app.vault.read(file);
                 // The note's type by its place, else by its `type` property: a hidden element's note outside the type folders is stubbed too.
@@ -944,24 +942,26 @@ export class DownloadWorldCommand {
                 const next = stubNote(content, category);
                 if (next === content) continue;
                 const name = fm.name || file.basename;
-                const copy = copies.forNote(id, name, `${category} "${name}"`);
+                label = `${category} "${name}"`;
+                const copy = copies.forNote(id, name, label);
                 const wrote = await replaceNote(this.app, file, content, next, {
                     beforeReplace: copy.beforeReplace,
                     markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
                 });
                 if (wrote === null) {
-                    left.push(`${category} "${name}"`);
+                    left.push(label);
                     continue;
                 }
                 copy.landed();
                 marks[markKey(id)] = noteMark(wrote);
                 n++;
             } catch (error) {
-                if (error instanceof KeptCopyFailed) throw error;
+                // The note keeps its fields; the pull holds its cursor, so the next Download stubs it.
                 console.error(`OnlyWorlds: could not stub the hidden element's note ${file.path}`, error);
+                return { n, stopped: stoppedMessage(label, error) };
             }
         }
-        return n;
+        return { n, stopped: null };
     }
 
     /** The element ids this world's notes carry, read from disk (the cache is cold mid-download):

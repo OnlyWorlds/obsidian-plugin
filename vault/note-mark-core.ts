@@ -126,6 +126,12 @@ export function copyStoppedMessage(label: string, reason: string, writer: KeptWr
 		`Check that the world's folder can take a new file, then ${WRITES[writer].again}.`;
 }
 
+/** The notice of a run stopped by a note it could not write: which note was not changed, and that the notes after it were not written. */
+export function writeStoppedMessage(label: string, reason: string, writer: KeptWriter = "Download"): string {
+	return `${writer} stopped at ${label}: the note could not be written (${reason}), so it was not changed and the notes after it were not written. ` +
+		`Check that the note can be changed, then ${WRITES[writer].again}.`;
+}
+
 /** The one notice of a run that left notes as the person has them: each changed every time its write came to it. */
 export function leftAsTypedMessage(labels: string[], writer: KeptWriter = "Download"): string {
 	const one = labels.length === 1;
