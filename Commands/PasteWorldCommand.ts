@@ -186,7 +186,7 @@ export class PasteWorldCommand {
                     // Marked before each write as Download marks it, so auto-sync
                     // does not take the pasted content for an edit and save it.
                     const label = `${category} "${element.name ?? element.id}"`;
-                    const copy = copies.forNote(element.id, String(element.name ?? element.id), label);
+                    const copy = copies.forNote(element.id, String(element.name ?? element.id), label, write === 'stub');
                     let wrote: WrittenNote;
                     try {
                         wrote = await writeElementNote(

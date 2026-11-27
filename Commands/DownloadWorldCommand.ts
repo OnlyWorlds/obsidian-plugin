@@ -26,7 +26,7 @@ import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, copySt
 import { inKeptFolder, KeptCopies, KeptCopyFailed } from '../vault/kept-copy';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElementNote, type WrittenNote } from '../vault/element-file';
+import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, replaceNote, writeElementNote, type WrittenNote } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -246,7 +246,11 @@ export class DownloadWorldCommand {
                     }
                     for (const change of latest.values()) if (change.op === 'delete') { seqs[change.id] = null; seqs[heldKey(change.id)] = null; }
                     const knownGroups = groupKeysById(await readChangeSeqIndex(this.app, uniqueWorldName));
-                    for (const change of latest.values()) if (change.op === 'delete') { seqs[markKey(change.id)] = null; Object.assign(seqs, groupMarkClears(change.id, knownGroups)); }
+                    // A hidden row keeps its note's mark: the stub below copies the note by it first, then records the stub's.
+                    for (const change of latest.values()) if (change.op === 'delete') {
+                        if (change.reason !== 'hidden') seqs[markKey(change.id)] = null;
+                        Object.assign(seqs, groupMarkClears(change.id, knownGroups));
+                    }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
                     // A copy that could not be written stopped the run: what it wrote is recorded above, the
                     // cursor stays where it was (the next Download brings the same changes), and the notice says
@@ -298,15 +302,34 @@ export class DownloadWorldCommand {
                         resync,
                         ownIds: own,
                     });
-                    const hiddenCount = await this.stubNotes(hidden.stubHidden, files);
-                    const viewCount = await this.stubNotes(hidden.stubView, files);
-                    // A stub is the plugin's own rewrite, not a person's edit: no claim on its bytes, so the note's return in full is no copy.
-                    await recordChangeSeqs(this.app, uniqueWorldName, Object.fromEntries([...hidden.stubHidden, ...hidden.stubView].map((id) => [markKey(id), null])));
+                    // A stub empties the note's fields: a whole note it cannot prove unedited is copied first, by the rule
+                    // every write of this pull keeps, and the mark of each stub's bytes is recorded as every write's is.
+                    const stubs = await KeptCopies.open(this.app, uniqueWorldName, (p) => this.plugin?.autoSync?.markSelfWrite(p));
+                    const stubMarks: Record<string, number> = {};
+                    const stubLeft: string[] = [];
+                    let hiddenCount = 0;
+                    let viewCount = 0;
+                    let stubStopped: string | null = null;
+                    try {
+                        hiddenCount = await this.stubNotes(hidden.stubHidden, files, stubs, stubMarks, stubLeft);
+                        viewCount = await this.stubNotes(hidden.stubView, files, stubs, stubMarks, stubLeft);
+                    } catch (error) {
+                        if (!(error instanceof KeptCopyFailed)) throw error;
+                        stubStopped = copyStoppedMessage(error.label, error.reason);
+                    } finally {
+                        await recordChangeSeqs(this.app, uniqueWorldName, stubMarks);
+                        if (stubs.copied.length > 0) new Notice(copiedMessage(stubs.copied), 20000);
+                        if (stubLeft.length > 0) new Notice(leftAsTypedMessage(stubLeft), 20000);
+                    }
+                    if (stubStopped) {
+                        new Notice(stubStopped, 20000);
+                        return uniqueWorldName;
+                    }
 
                     // Persist the watermark only after every note landed — a
                     // failed run must re-pull the same changes next time, and so
                     // must a run that left a note as the person had it.
-                    if (this.plugin && walk.cursor && knownOf.left.length === 0) {
+                    if (this.plugin && walk.cursor && knownOf.left.length === 0 && stubLeft.length === 0) {
                         this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
@@ -752,7 +775,7 @@ export class DownloadWorldCommand {
                     // description (or story for Narrative). The raw v2 element body
                     // (bare link ids, extension namespaces intact) goes straight in.
                     const label = `${category} "${element.name ?? element.id}"`;
-                    const copy = copies.forNote(String(element.id), String(element.name ?? element.id), label);
+                    const copy = copies.forNote(String(element.id), String(element.name ?? element.id), label, plan.knownOf);
                     let wrote: WrittenNote;
                     try {
                         wrote = await writeElementNote(
@@ -780,7 +803,7 @@ export class DownloadWorldCommand {
                                 // The note the plan found, so the write makes no scan of the world's notes for each element.
                                 existingPath: existingElementPath ? notePath : null,
                                 dropKeys,
-                                beforeReplace: plan.knownOf ? undefined : copy.beforeReplace,
+                                beforeReplace: copy.beforeReplace,
                             }
                         );
                     } catch (error) {
@@ -901,11 +924,14 @@ export class DownloadWorldCommand {
 
     /**
      * Each note's stub (sync/hidden-on-server.ts), written through the one
-     * write (one read, one vault.modify, the frontmatter at byte 0). A note
-     * already a stub, or with no frontmatter id (a legacy span note), is left
-     * as it is. Returns how many notes changed.
+     * write (one read, one atomic replace, the frontmatter at byte 0), a whole
+     * note copied first by `copies`' rule. A note already a stub, or with no
+     * frontmatter id (a legacy span note), is left as it is. The mark of each
+     * stub's bytes goes into `marks`; a note that changed under each try of its
+     * write goes into `left`. A copy that cannot be written throws
+     * KeptCopyFailed, its note unchanged. Returns how many notes changed.
      */
-    private async stubNotes(ids: string[], files: Map<string, TFile>): Promise<number> {
+    private async stubNotes(ids: string[], files: Map<string, TFile>, copies: KeptCopies, marks: Record<string, number>, left: string[]): Promise<number> {
         let n = 0;
         for (const id of ids) {
             const file = files.get(id);
@@ -913,14 +939,26 @@ export class DownloadWorldCommand {
             try {
                 const content = await this.app.vault.read(file);
                 // The note's type by its place, else by its `type` property: a hidden element's note outside the type folders is stubbed too.
-                const category = elementNoteType(file.path, parseRawFrontmatterScalars(content, ['id', 'type']))?.category;
+                const fm = parseRawFrontmatterScalars(content, ['id', 'type', 'name']);
+                const category = elementNoteType(file.path, fm)?.category;
                 if (!category) continue;
                 const next = stubNote(content, category);
                 if (next === content) continue;
-                this.plugin?.autoSync?.markSelfWrite(file.path);
-                await this.app.vault.modify(file, next);
+                const name = fm.name || file.basename;
+                const copy = copies.forNote(id, name, `${category} "${name}"`, true);
+                const wrote = await replaceNote(this.app, file, content, next, {
+                    beforeReplace: copy.beforeReplace,
+                    markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
+                });
+                if (wrote === null) {
+                    left.push(`${category} "${name}"`);
+                    continue;
+                }
+                copy.landed();
+                marks[markKey(id)] = noteMark(wrote);
                 n++;
             } catch (error) {
+                if (error instanceof KeptCopyFailed) throw error;
                 console.error(`OnlyWorlds: could not stub the hidden element's note ${file.path}`, error);
             }
         }

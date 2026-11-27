@@ -1,5 +1,6 @@
 import { App, normalizePath } from "obsidian";
 import { sanitizeFileName } from "../Scripts/WorldService";
+import { noteStateOf } from "../sync/known-of";
 import { worldNotePath } from "./category-folder";
 import { changeSeqIndexUnreadable, readChangeSeqIndex, type ChangeSeqIndex } from "./change-seq-index";
 import { ownFrontmatterId } from "./element-file";
@@ -47,12 +48,15 @@ export class KeptCopies {
 	/**
 	 * One note's write: `beforeReplace` for the writer (it copies the bytes it is handed unless they hash to the id's mark, and
 	 * throws KeptCopyFailed when the copy cannot be written), and `landed`, called once the write went through, which names the
-	 * note in the run's notice if it was copied. `name` names the copy's file, `label` the note in a notice.
+	 * note in the run's notice if it was copied. `name` names the copy's file, `label` the note in a notice. `writesStub`: the
+	 * write makes the note a stub (known of, or hidden by the world's owner); a note that is a stub already needs no copy, since
+	 * what a person writes on a stub (above its fields, under a heading of their own) stays in the note when it is rewritten.
 	 */
-	forNote(id: string, name: string, label: string): { beforeReplace: (text: string) => Promise<void>; landed: () => void } {
+	forNote(id: string, name: string, label: string, writesStub = false): { beforeReplace: (text: string) => Promise<void>; landed: () => void } {
 		let made = false;
 		return {
 			beforeReplace: async (text) => {
+				if (writesStub && noteStateOf(text) !== "whole") return;
 				if (!this.unreadable && !holdsUnsavedEdits(text, this.marks[markKey(id)])) return;
 				try {
 					await keepCopy(this.app, this.worldName, name, text, this.markSelfWrite);
