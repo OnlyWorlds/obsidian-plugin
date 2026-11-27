@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeApp } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
+import { KeptCopies } from "../vault/kept-copy";
 
 const W = "OnlyWorlds/Worlds/W";
 const ELEMENTS = `${W}/Elements`;
@@ -113,10 +114,12 @@ test("a hidden element's note outside the type folders is stubbed by the pull to
 	const { app, vault, dl } = await world();
 	await app.vault.createFolder(`${W}/Cast`);
 	await app.vault.create(`${W}/Cast/Ireena.md`, `---\nname: Ireena\nid: ${ID}\ntype: character\n---\n\n### Description\n\nSecret backstory.\n`);
-	const stub = await (dl as unknown as { stubNotes(ids: string[], files: Map<string, unknown>): Promise<number> }).stubNotes(
+	const stub = await (dl as unknown as { stubNotes(ids: string[], files: Map<string, unknown>, copies: KeptCopies, out: { marks: Record<string, number>; left: string[]; failed: unknown[] }): Promise<{ n: number }> }).stubNotes(
 		[ID],
-		new Map([[ID, app.vault.getAbstractFileByPath(`${W}/Cast/Ireena.md`)!]])
+		new Map([[ID, app.vault.getAbstractFileByPath(`${W}/Cast/Ireena.md`)!]]),
+		await KeptCopies.open(app, "W"),
+		{ marks: {}, left: [], failed: [] }
 	);
-	assert.equal(stub, 1);
+	assert.equal(stub.n, 1);
 	assert.doesNotMatch(vault.contentAt(`${W}/Cast/Ireena.md`) ?? "", /Secret backstory/);
 });

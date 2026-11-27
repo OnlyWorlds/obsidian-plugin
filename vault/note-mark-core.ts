@@ -99,13 +99,58 @@ export function fencedCopy(text: string): string {
 	return `---\nkept_from: a copy whose id key the plugin could not rename, kept inside the block below\n---\n\n${fence}markdown\n${text}${text.endsWith("\n") ? "" : "\n"}${fence}\n`;
 }
 
-/** The one notice of a pull that copied notes: `labels` are the notes' labels. */
-export function copiedMessage(labels: string[]): string {
-	const shown = labels.slice(0, 3).join(", ");
-	const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
+/** The commands that write a world's elements over its notes, and so copy a note first: each notice names its own. */
+export type KeptWriter = "Download" | "Paste world";
+
+/** What each writer writes over a note, and how it is run again. */
+const WRITES: Record<KeptWriter, { copy: string; since: string; again: string }> = {
+	Download: { copy: "the world's copy", since: "since its last write", again: "download again" },
+	"Paste world": { copy: "the pasted copy", since: "since the plugin last wrote them", again: "paste the world again" },
+};
+
+function listed(labels: string[]): string {
+	return labels.slice(0, 3).join(", ") + (labels.length > 3 ? ` +${labels.length - 3} more` : "");
+}
+
+/** The one notice of a run that copied notes: `labels` are the notes' labels. */
+export function copiedMessage(labels: string[], writer: KeptWriter = "Download"): string {
 	const one = labels.length === 1;
-	return `Download wrote the world's copy over ${labels.length} note${one ? "" : "s"} that it could not tell were unedited since its last write: ${shown}${more}. ` +
+	const w = WRITES[writer];
+	return `${writer} wrote ${w.copy} over ${labels.length} note${one ? "" : "s"} that it could not tell were unedited ${w.since}: ${listed(labels)}. ` +
 		`${one ? "The note" : "Each note"} as it was is kept whole in ${KEPT_FOLDER}/ in the world's folder.`;
+}
+
+/** The notice of a run stopped by a copy it could not write: which note was not changed, and that the notes after it were not written. */
+export function copyStoppedMessage(label: string, reason: string, writer: KeptWriter = "Download"): string {
+	return `${writer} stopped at ${label}: no copy of the note could be kept in ${KEPT_FOLDER}/ (${reason}), so the note was not changed and the notes after it were not written. ` +
+		`Check that the world's folder can take a new file, then ${WRITES[writer].again}.`;
+}
+
+/** The notice of a run stopped by a note it could not write: which note was not changed, and that the notes after it were not written. */
+export function writeStoppedMessage(label: string, reason: string, writer: KeptWriter = "Download"): string {
+	return `${writer} stopped at ${label}: the note could not be written (${reason}), so it was not changed and the notes after it were not written. ` +
+		`Check that the note can be changed, then ${WRITES[writer].again}.`;
+}
+
+/**
+ * The one notice of a run that went on past notes it could not write (a write that threw, not a failed copy): each with its
+ * reason, each not changed (a new one not made), the other notes written.
+ */
+export function notWrittenMessage(entries: { label: string; reason: string }[], writer: KeptWriter = "Download"): string {
+	const one = entries.length === 1;
+	const shown = entries.slice(0, 3).map((e) => `${e.label} (${e.reason})`).join(", ") + (entries.length > 3 ? ` +${entries.length - 3} more` : "");
+	return `${writer} could not write ${entries.length} note${one ? "" : "s"}: ${shown}. ` +
+		`${one ? "It was" : "They were"} not changed (a note not there yet was not made), and the other notes were written. ` +
+		`Fix what the reason names, then ${WRITES[writer].again}.`;
+}
+
+/** The one notice of a run that left notes as the person has them: each changed every time its write came to it. */
+export function leftAsTypedMessage(labels: string[], writer: KeptWriter = "Download"): string {
+	const one = labels.length === 1;
+	const w = WRITES[writer];
+	return `${writer} did not write ${w.copy} over ${labels.length} note${one ? "" : "s"}: ${listed(labels)}. ` +
+		`${one ? "The note" : "Each note"} changed each time the write came to it, so ${one ? "it is" : "they are"} left as you have ${one ? "it" : "them"}. ` +
+		`To bring ${w.copy}, ${w.again}.`;
 }
 
 /**

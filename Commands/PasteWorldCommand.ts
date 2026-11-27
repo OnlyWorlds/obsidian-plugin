@@ -6,7 +6,9 @@ import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { noteIdIn, writeElement } from '../vault/element-file';
+import { pickNoteForId, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
+import { KeptCopies, stoppedMessage } from '../vault/kept-copy';
+import { copiedMessage, leftAsTypedMessage } from '../vault/note-mark-core';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
 import { knownOfKeptText, knownOfWrite, noteStateOf } from '../sync/known-of';
 
@@ -64,7 +66,11 @@ export class PasteWorldCommand {
             await createCoreFilesCommand.execute();
 
             // Generate element notes in the correct category folders under Elements
-            await this.generateElementNotes(elementsFolderPath, worldDataJson, false);
+            const pasted = await this.generateElementNotes(elementsFolderPath, worldDataJson, false);
+            if (pasted.stopped) {
+                new Notice(pasted.stopped, 20000);
+                return;
+            }
 
             if (existingWorldName) {
                 new Notice(`Updated existing world: ${targetWorldName}`);
@@ -105,7 +111,14 @@ export class PasteWorldCommand {
         await fs.write(worldFilePath, worldContent); 
     }
 
-    async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean) {
+    /**
+     * Write the pasted elements' notes. A note it is about to replace and cannot prove unchanged since the plugin last wrote or
+     * saved it is copied whole into Kept edits/ first, as Download does (vault/kept-copy.ts). It records no mark: a mark says
+     * the world holds a note's bytes, and a pasted note was never sent, so the next pull copies it before it replaces it. Returns the labels of the notes copied, of the notes left as the person has
+     * them (each changed under every try of its write), and the notice of a note it could not write (its copy, or the write
+     * itself), which stopped it there.
+     */
+    async generateElementNotes(worldFolderPath: string, data: any, overwrite: boolean): Promise<{ copied: string[]; left: string[]; stopped: string | null }> {
         // Extract the world name from the elements folder path.
         const pathParts = worldFolderPath.split('/');
         const worldsIndex = pathParts.findIndex(part => part === 'Worlds');
@@ -119,67 +132,92 @@ export class PasteWorldCommand {
         const idToName = this.buildIdToNameMap(data);
         const idToRealName = this.buildIdToRealNameMap(data);
 
-        for (const category in Category) {
-            if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
+        const copies = await KeptCopies.open(this.app, worldName, (p) => this.markSelfWrite?.(p));
+        // Each element's note wherever it sits in the world, found as Download finds it.
+        const worldIds = await worldNoteIds(this.app, worldName);
+        const left: string[] = [];
+        let stopped: { label: string; error: unknown } | null = null;
+        try {
+            notes: for (const category in Category) {
+                if (!isNaN(Number(category)) || !Array.isArray(data[category])) continue;
 
-            const elements = data[category];
-            // The type's folders, plain first (an older vault may hold a counted
-            // one too): a new note goes in the first, a note
-            // this element has is found in any of them and written where it is.
-            const typeFolders = await this.worldService.findCategoryFolders(worldName, category);
-            const categoryDirectory = typeFolders.length > 0
-                ? typeFolders[0].path
-                : normalizePath(`${worldFolderPath}/${category}`);
-            if (typeFolders.length === 0) await this.createFolderIfNeeded(categoryDirectory);
-            const searchFolders = typeFolders.length > 0 ? typeFolders.map((f) => f.path) : [categoryDirectory];
+                const elements = data[category];
+                // The type's folders, plain first (an older vault may hold a counted
+                // one too): a new note goes in the first, a note
+                // this element has is found in any of them and written where it is.
+                const typeFolders = await this.worldService.findCategoryFolders(worldName, category);
+                const categoryDirectory = typeFolders.length > 0
+                    ? typeFolders[0].path
+                    : normalizePath(`${worldFolderPath}/${category}`);
+                if (typeFolders.length === 0) await this.createFolderIfNeeded(categoryDirectory);
 
-            for (const element of elements) {
-                if (!element || typeof element.id !== 'string') continue;
-                // Hidden by the world's owner: an id on a
-                // hidden list is never written, and a stub never overwritten
-                // by an old copy of the element.
-                if (this.host && isHiddenId(this.host.settings, element.id)) continue;
+                for (const element of elements) {
+                    if (!element || typeof element.id !== 'string') continue;
+                    // Hidden by the world's owner: an id on a
+                    // hidden list is never written, and a stub never overwritten
+                    // by an old copy of the element.
+                    if (this.host && isHiddenId(this.host.settings, element.id)) continue;
 
-                // Reuse an existing note for this id, else mint a unique filename.
-                let existingElementPath: string | null = null;
-                for (const folder of searchFolders) {
-                    existingElementPath = await this.findElementByIdInCategory(folder, element.id);
-                    if (existingElementPath) break;
-                }
-                if (existingElementPath && (await this.isStub(existingElementPath))) continue;
-                // A known-of stub (the folder spec §4.4) is
-                // written as one, never over a whole note (no reset brought it:
-                // the whole copy is kept); the person's writing a known-of note
-                // holds stays above its fields.
-                const existing = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
-                const current = existing instanceof TFile ? await this.app.vault.read(existing) : null;
-                const write = knownOfWrite(element, noteStateOf(current), null);
-                if (write === 'keep') continue;
-                const keepAbove = current === null ? '' : knownOfKeptText(current);
-                const fileName = existingElementPath
-                    ? existingElementPath.split('/').pop()
-                    : await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
+                    // Reuse the note this id has anywhere in the world, else mint a unique filename.
+                    const existingElementPath = pickNoteForId(worldIds.get(element.id) ?? [], worldName, category);
+                    const label = `${category} "${element.name ?? element.id}"`;
+                    if (existingElementPath && (await this.isStub(existingElementPath))) continue;
+                    // A known-of stub (the folder spec §4.4) is
+                    // written as one, never over a whole note (no reset brought it:
+                    // the whole copy is kept); the person's writing a known-of note
+                    // holds stays above its fields.
+                    const existing = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
+                    const current = existing instanceof TFile ? await this.app.vault.read(existing) : null;
+                    const write = knownOfWrite(element, noteStateOf(current), null);
+                    if (write === 'keep') continue;
+                    const keepAbove = current === null ? '' : knownOfKeptText(current);
+                    const fileName = existingElementPath
+                        ? existingElementPath.split('/').pop()
+                        : await this.worldService.generateUniqueFileName(categoryDirectory, element.name, element.id);
 
-                // Same frontmatter writer as Download (Phase B). writeElement owns
-                // placement (re-finds by embedded id), preserves extension fields,
-                // renders link ids as [[Name]] wikilinks, maps body to
-                // description/story. No Handlebars templates, no span format.
-                // Marked before each write as Download marks it, so auto-sync
-                // does not take the pasted content for an edit and save it.
-                await writeElement(
-                    this.app,
-                    worldName,
-                    category,
-                    element.id,
-                    element,
-                    {
-                        folderPath: existingElementPath ? existingElementPath.slice(0, existingElementPath.lastIndexOf('/')) : categoryDirectory,
-                        fileName, idToName, idToRealName, keepAbove, knownOf: write === 'stub',
-                        markSelfWrite: (p) => this.markSelfWrite?.(p),
+                    // Same frontmatter writer as Download (Phase B). writeElement owns
+                    // placement (re-finds by embedded id), preserves extension fields,
+                    // renders link ids as [[Name]] wikilinks, maps body to
+                    // description/story. No Handlebars templates, no span format.
+                    // Marked before each write as Download marks it, so auto-sync
+                    // does not take the pasted content for an edit and save it.
+                    const copy = copies.forNote(element.id, String(element.name ?? element.id), label);
+                    let wrote: WrittenNote;
+                    try {
+                        wrote = await writeElementNote(
+                            this.app,
+                            worldName,
+                            category,
+                            element.id,
+                            element,
+                            {
+                                folderPath: existingElementPath ? existingElementPath.slice(0, existingElementPath.lastIndexOf('/')) : categoryDirectory,
+                                fileName, idToName, idToRealName, keepAbove, knownOf: write === 'stub',
+                                markSelfWrite: (p) => this.markSelfWrite?.(p),
+                                // The note found above, so the writer makes no second search.
+                                existingPath: existingElementPath,
+                                // The bytes on disk are copied before the write. Open editors are not saved first (no
+                                // flushEditors): their save's modify event would let auto-sync send the pasted bytes, which
+                                // the server does not hold. Text typed and not yet saved under a note this replaces is the
+                                // known limit: it is in no copy.
+                                beforeReplace: copy.beforeReplace,
+                            }
+                        );
+                    } catch (error) {
+                        // A note it could not write (its copy, or the write itself) stops the paste there, the note not
+                        // changed, and the person is told: the dialog's callback is not awaited, so a throw would be heard by no one.
+                        stopped = { label, error };
+                        break notes;
                     }
-                );
+                    if (wrote.text === null) { left.push(label); continue; }
+                    copy.landed();
+                }
             }
+        } finally {
+            if (copies.copied.length > 0) new Notice(copiedMessage(copies.copied, 'Paste world'), 20000);
+            if (left.length > 0) new Notice(leftAsTypedMessage(left, 'Paste world'), 20000);
         }
+        return { copied: copies.copied, left, stopped: stopped ? stoppedMessage(stopped.label, stopped.error, 'Paste world') : null };
     }
 
     /** True when the note at `path` is a hidden element's stub. */
@@ -252,34 +290,6 @@ export class PasteWorldCommand {
                     } catch (error) {
                         console.error(`Error reading world file: ${worldFilePath}`, error);
                     }
-                }
-            }
-        }
-        
-        return null;
-    }
-
-    async findElementByIdInCategory(categoryDirectory: string, elementId: string): Promise<string | null> {
-        const categoryFolder = this.app.vault.getAbstractFileByPath(categoryDirectory);
-        
-        if (!(categoryFolder instanceof TFolder)) {
-            return null;
-        }
-
-        for (const child of categoryFolder.children) {
-            if (child instanceof TFile && child.extension === 'md') {
-                try {
-                    const content = await this.app.vault.read(child);
-                //    console.log(`[PasteWorldCommand] Checking file: ${child.path}`);
-                //    console.log(`[PasteWorldCommand] File content preview (first 200 chars): ${content.substring(0, 200)}`);
-                    
-                    // The id as the writer reads it (noteIdIn): the front matter's,
-                    // else an old span note's Id line. A line of the person's
-                    // writing that looks like an id (`- **ID:** …`, which no plugin
-                    // version wrote into an element note) is never taken for one.
-                    if (noteIdIn(content) === elementId) return child.path;
-                } catch (error) {
-                    console.error(`Error reading element file: ${child.path}`, error);
                 }
             }
         }

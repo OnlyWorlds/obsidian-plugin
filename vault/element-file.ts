@@ -521,18 +521,117 @@ export interface WriteElementOpts {
 	 * note-mark-core.ts): they leave the note with the write, where every other property of a person's stays.
 	 */
 	dropKeys?: string[];
-	/** Called with the note's bytes just before the write replaces them (not called when the write changes nothing). */
+	/**
+	 * Called with the note's bytes just before the write replaces them (not called when the write changes nothing). The write
+	 * then replaces exactly those bytes or none: a note that changed after this call is handed to it again (replaceNote).
+	 */
 	beforeReplace?: (content: string) => Promise<void>;
+	/**
+	 * Save the note's open editors before the write reads it and before each try (flushOpenEditors). Download only: a pull
+	 * writes the server's bytes, so the save auto-sync schedules from the flush's modify event finds nothing to send. A writer
+	 * of bytes the server does not hold (Paste world) must not flush: that save would send them.
+	 */
+	flushEditors?: boolean;
 }
 
-export async function writeElement(
+/**
+ * The note a write left: its file, and the bytes the writer put there (or found and left, when nothing needed to change), the
+ * measure of what a person types after it. `text` is null when the note changed under each try and was left as the person has it.
+ */
+export interface WrittenNote {
+	file: TFile;
+	text: string | null;
+}
+
+/**
+ * Save every open editor of `file` to disk. Obsidian writes an editor's text about two seconds after the last key, and
+ * `vault.read` and `vault.process` see the disk only: typing not yet saved would be in no copy, and the write's reload of the
+ * editor would end it. Saved first, it is on disk, no longer hashes to the note's mark, and the copy rule keeps it.
+ *
+ * Only a dirty view of this file is saved: one whose text (`getViewData`) differs from the file's, line endings aside (an
+ * editor that holds `\n` where the file holds `\r\n` has nothing unsaved). A clean view, a view with no `save` or no text, and
+ * a workspace that lists no leaves are passed over. The save is a plain one, the person's own, with no self-write mark: its
+ * modify event schedules auto-sync's save as any edit does. Only a pull flushes (WriteElementOpts.flushEditors): it writes the
+ * server's bytes, so that save then finds nothing to send; with no write after it, the typing is sent as any edit is.
+ *
+ * A save that does not return within FLUSH_SAVE_TIMEOUT.ms throws, so the writer leaves that note as it was and says so; a
+ * save that completes later is the person's own. Nothing here swallows an error.
+ */
+export async function flushOpenEditors(app: App, file: TFile): Promise<void> {
+	const workspace = app.workspace as { getLeavesOfType?: (type: string) => { view: unknown }[] } | undefined;
+	if (typeof workspace?.getLeavesOfType !== "function") return;
+	for (const leaf of workspace.getLeavesOfType("markdown")) {
+		const view = leaf.view as { file?: TFile | null; save?: () => Promise<void>; getViewData?: () => unknown } | undefined;
+		if (view?.file?.path !== file.path || typeof view.save !== "function") continue;
+		const held = typeof view.getViewData === "function" ? view.getViewData() : null;
+		if (typeof held !== "string") continue;
+		if (held.replace(/\r\n/g, "\n") === (await app.vault.read(file)).replace(/\r\n/g, "\n")) continue;
+		await savedWithin(view.save(), FLUSH_SAVE_TIMEOUT.ms);
+	}
+}
+
+/** How long the flush waits for an editor's save (a test may shorten it). */
+export const FLUSH_SAVE_TIMEOUT = { ms: 5000 };
+
+function savedWithin(save: Promise<void>, ms: number): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`the open editor did not save its text within ${Math.round(ms / 100) / 10} s`)), ms);
+	});
+	return Promise.race([save, late]).finally(() => clearTimeout(timer));
+}
+
+/** How many times a write meets a note changed since it last read it before it leaves the note as the person has it. */
+export const REPLACE_TRIES = 3;
+
+/**
+ * Replace the bytes `seen` of a note with `next` in one atomic read-modify-write (`vault.process`): the write goes through only
+ * when the note still holds the bytes last handed to `beforeReplace`, so text a person types after that (while a copy of the note
+ * is written, or before the write) is in the copy or stays in the note, never in neither. A note found changed is handed to
+ * `beforeReplace` again, then tried again, up to REPLACE_TRIES times. `ownBytes` are bytes the writer itself just put there
+ * (a note it made): no one's edit, so they are not handed over. The self-write mark is taken inside the write, only when the
+ * write happens. Returns `next`, or null when the note was left as the person has it.
+ */
+export async function replaceNote(
+	app: App,
+	file: TFile,
+	seen: string,
+	next: string,
+	opts: { beforeReplace?: (content: string) => Promise<void>; markSelfWrite?: (path: string) => void; ownBytes?: string; flushEditors?: boolean } = {}
+): Promise<string | null> {
+	let expected = seen;
+	for (let i = 0; i < REPLACE_TRIES; i++) {
+		// An editor's unsaved text reaches the disk first; the write then finds the note changed and copies it.
+		if (opts.flushEditors) await flushOpenEditors(app, file);
+		if (expected === next) return next;
+		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
+		// And again right before the write: typing in the editor while the copy was written reaches the disk, the comparison
+		// below sees it, and the try repeats with a fresh copy.
+		if (opts.flushEditors) await flushOpenEditors(app, file);
+		const found: { text: string | null } = { text: null };
+		await app.vault.process(file, (current) => {
+			if (current !== expected) {
+				found.text = current;
+				return current;
+			}
+			opts.markSelfWrite?.(file.path);
+			return next;
+		});
+		if (found.text === null) return next;
+		expected = found.text;
+	}
+	return null;
+}
+
+/** writeElement, and the bytes the write left (WrittenNote): the caller's mark of the note is the hash of those, never a later read. */
+export async function writeElementNote(
 	app: App,
 	worldName: string,
 	category: string,
 	elementId: string,
 	data: Record<string, unknown>,
 	optsOrMark?: WriteElementOpts | ((path: string) => void)
-): Promise<TFile> {
+): Promise<WrittenNote> {
 	// Back-compat: a bare function arg is markSelfWrite.
 	const opts: WriteElementOpts =
 		typeof optsOrMark === "function" ? { markSelfWrite: optsOrMark } : optsOrMark ?? {};
@@ -589,14 +688,14 @@ export async function writeElement(
 		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
 
 	let file = app.vault.getAbstractFileByPath(filePath);
-	let madeNow = false; // a note this write just made held nothing of a person's: its stub is no edit to keep
+	let made: string | undefined; // the bytes of a note this write just made: no one's edit, so no copy is asked for them
 	if (!(file instanceof TFile)) {
 		if (!app.vault.getAbstractFileByPath(folder)) {
 			await app.vault.createFolder(folder);
 		}
 		markSelfWrite?.(filePath);
-		file = await app.vault.create(filePath, `---\nid: ${elementId}\n---\n\n`);
-		madeNow = true;
+		made = `---\nid: ${elementId}\n---\n\n`;
+		file = await app.vault.create(filePath, made);
 	}
 	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
@@ -637,6 +736,8 @@ export async function writeElement(
 	// blank line. We also keep any frontmatter key we do not own (extension
 	// namespaces, the user's own additions), which is what processFrontMatter
 	// was buying us.
+	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it (a pull's writes only).
+	if (opts.flushEditors) await flushOpenEditors(app, file);
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
@@ -712,16 +813,64 @@ export async function writeElement(
 	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId, ownDepends, opts.idToRealName);
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
-	if (newContent !== content) {
-		// The bytes about to be replaced, as this write read them: the caller's chance to keep them (the pull's copy of a note
-		// that held edits it had not seen). Text typed after this read, while the copy is being written, is not in the copy (the
-		// window is the copy's own write, milliseconds).
-		if (!madeNow) await opts.beforeReplace?.(content);
-		markSelfWrite?.(file.path);
-		await app.vault.modify(file, newContent);
-	}
+	// The bytes about to be replaced, as this write read them, go to the caller first (the pull's copy of a note that held edits
+	// it had not seen); the write then replaces those bytes or none (replaceNote).
+	const text = await replaceNote(app, file, content, newContent, { beforeReplace: opts.beforeReplace, markSelfWrite, ownBytes: made, flushEditors: opts.flushEditors });
+	return { file, text };
+}
 
-	return file;
+/**
+ * Write/update an element note (writeElementNote), returning its file. A note that changed under every try of the write is left
+ * as the person has it, and this throws, saying so.
+ */
+export async function writeElement(
+	app: App,
+	worldName: string,
+	category: string,
+	elementId: string,
+	data: Record<string, unknown>,
+	optsOrMark?: WriteElementOpts | ((path: string) => void)
+): Promise<TFile> {
+	const wrote = await writeElementNote(app, worldName, category, elementId, data, optsOrMark);
+	if (wrote.text === null) throw new Error(`${wrote.file.path} was not written: it changed each time it was about to be, so it was left as it is`);
+	return wrote.file;
+}
+
+/**
+ * The id of every element note in the world's folder, to its path, read
+ * from disk (the cache is cold mid-download): Download's and Paste world's one
+ * lookup of "does this element have a note", wherever the note sits. The
+ * frontmatter `id:` is read first, then an old span note's Id line under
+ * Elements/ (noteIdIn). Only an element note counts (the rule Save uses): a
+ * person's own note, or a copy with no type outside the type folders, is never
+ * a note they write to. All the notes holding an id are kept; the caller picks
+ * one by `pickNoteForId`, the same rule the writer uses.
+ */
+export async function worldNoteIds(app: App, worldName: string): Promise<Map<string, string[]>> {
+	const index = new Map<string, string[]>();
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(file.path, worldName)) continue;
+		try {
+			const content = await app.vault.read(file);
+			let id: string | undefined;
+			// The note's own YAML, as Save reads it, so the plan and Save cannot disagree about a note (a comment on the
+			// id line, flow style, a quoted key); the line scan only where the YAML is not readable.
+			const yaml = parseRawFrontmatter(content);
+			const fm = yaml && typeof yaml.id === "string" ? yaml : parseRawFrontmatterScalars(content, ["id", "type"]);
+			if (typeof fm.id === "string" && fm.id) {
+				if (elementNoteType(file.path, fm)) id = fm.id;
+			} else if (isUnderElements(file.path) && typeOfPlace(file.path)) {
+				// The plugin's own folders: an old span note's Id line, read as the writer reads it (noteIdIn:
+				// a note in the old layout and nothing else). A line of a person's writing that looks like an
+				// id (`- **ID:** …`, which no plugin version wrote into an element note) is never taken for one.
+				id = noteIdIn(content) ?? undefined;
+			}
+			if (id) index.set(id, [...(index.get(id) ?? []), file.path]);
+		} catch (error) {
+			console.error(`Error reading element file: ${file.path}`, error);
+		}
+	}
+	return index;
 }
 
 // --- helpers -----------------------------------------------------------------

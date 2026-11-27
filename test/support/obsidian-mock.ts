@@ -7,7 +7,7 @@
  * from here directly for `makeApp` and the parser switch.
  *
  * What is emulated, and how faithfully:
- *   - Vault: a path -> content map. create / modify / read / createFolder /
+ *   - Vault: a path -> content map. create / modify / process / read / createFolder /
  *     delete (a file, or an empty folder only; recorded in `deletes`),
  *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write,list},
  *     and adapter.{readBinary,writeBinary,mkdir}: bytes written as bytes read
@@ -29,6 +29,10 @@
  *     Obsidian's does: a status of 400 or more throws unless `throw: false`.
  *   - adapter.write to a path with no dot-segment writes a real note (Obsidian
  *     creates a file the vault then lists); a dot-path stays a hidden file.
+ *   - Open editors: app.openEditor(path, text) puts a markdown view on a note
+ *     holding unsaved text (workspace.getLeavesOfType("markdown") lists it);
+ *     its save() writes that text. The editor's reload after another writer
+ *     changes the file is not modelled.
  *   - vault.getName() is "Test Vault"; workspace.getLeaf().openFile records the
  *     path in `opened`; fileManager.renameFile and
  *     workspace.openLinkText only record or do nothing (fileManager.trashFile
@@ -295,6 +299,21 @@ export class MockVault {
 		this.binaries.delete(file.path);
 		e.content = String(content);
 	}
+	/**
+	 * Obsidian's atomic read-modify-write: `fn` gets the note's bytes as they are at this moment and returns the new ones, with
+	 * nothing in between. The write goes through `modify` (so a test that watches modify sees it), and only when the bytes
+	 * change (what Obsidian does with an unchanged return is not modelled). `beforeProcess`, when a test sets it, runs first:
+	 * the moment between a writer's own read and its process call, where a person's typing lands.
+	 */
+	beforeProcess: ((file: TFile) => Promise<void> | void) | null = null;
+	async process(file: TFile, fn: (data: string) => string): Promise<string> {
+		if (this.beforeProcess) await this.beforeProcess(file);
+		const e = this.files.get(file.path);
+		if (!e) throw new Error("process: no such file " + file.path);
+		const next = fn(e.content);
+		if (next !== e.content) await this.modify(file, next);
+		return next;
+	}
 	async read(file: TFile): Promise<string> {
 		const e = this.files.get(file.path);
 		if (!e) throw new Error("read: no such file " + file.path);
@@ -429,8 +448,40 @@ export class App {
 	metadataCache = new MockMetadataCache(this.vault);
 	/** Paths opened through workspace.getLeaf().openFile, in order. */
 	opened: string[] = [];
+	/** Open markdown views (openEditor): what workspace.getLeavesOfType("markdown") lists. */
+	leaves: { view: { file: TFile | null; save?: () => Promise<void>; getViewData?: () => string } }[] = [];
+	/**
+	 * Test helper: an editor open on the note at `path` holding `text` it has not saved yet (null: nothing unsaved), as
+	 * Obsidian's editor holds typing for about two seconds before it writes the file. `getViewData()` gives the editor's text
+	 * (the held text, else the file's); a test may change `pending` at any moment, as typing does. Its `save()` counts the call,
+	 * pushes `save <path>` onto `opts.log`, runs `opts.onSave` when given (a save that hangs or throws), then writes the held text
+	 * through vault.modify (once). `opts.withSave: false` makes a view with no save method.
+	 */
+	openEditor(path: string, text: string | null, opts: { withSave?: boolean; log?: string[]; onSave?: () => Promise<void> } = {}): { saves: number; pending: string | null } {
+		const withSave = opts.withSave !== false;
+		const log = opts.log;
+		const file = this.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) throw new Error("openEditor: no note at " + path);
+		const state = { saves: 0, pending: text };
+		const view: { file: TFile | null; save?: () => Promise<void>; getViewData?: () => string } = {
+			file,
+			getViewData: () => state.pending ?? this.vault.contentAt(file.path) ?? "",
+		};
+		if (withSave) {
+			view.save = async () => {
+				state.saves++;
+				log?.push(`save ${path}`);
+				if (opts.onSave) await opts.onSave();
+				if (state.pending !== null && view.file) await this.vault.modify(view.file, state.pending);
+				state.pending = null;
+			};
+		}
+		this.leaves.push({ view });
+		return state;
+	}
 	workspace = {
 		getActiveFile: (): TFile | null => null,
+		getLeavesOfType: (type: string) => (type === "markdown" ? this.leaves : []),
 		openLinkText: async (): Promise<void> => {},
 		getLeaf: () => ({
 			openFile: async (f: TFile): Promise<void> => {
@@ -461,7 +512,7 @@ export class App {
  * A fresh mock app, typed as Obsidian's App for the code under test, plus
  * typed handles on the mock's own vault and cache for the test to drive.
  */
-export function makeApp(): { app: ObsidianApp; vault: MockVault; cache: MockMetadataCache } {
+export function makeApp(): { app: ObsidianApp; vault: MockVault; cache: MockMetadataCache; mock: App } {
 	const a = new App();
-	return { app: a as unknown as ObsidianApp, vault: a.vault, cache: a.metadataCache };
+	return { app: a as unknown as ObsidianApp, vault: a.vault, cache: a.metadataCache, mock: a };
 }
