@@ -516,6 +516,13 @@ export interface WriteElementOpts {
 	 * world's notes. `null`: the plan found none. Absent: the writer looks by id.
 	 */
 	existingPath?: string | null;
+	/**
+	 * Properties of the note the world's group held and no longer holds, unchanged since (removedGroupKeys,
+	 * note-mark-core.ts): they leave the note with the write, where every other property of a person's stays.
+	 */
+	dropKeys?: string[];
+	/** Called with the note's bytes just before the write replaces them (not called when the write changes nothing). */
+	beforeReplace?: (content: string) => Promise<void>;
 }
 
 export async function writeElement(
@@ -582,12 +589,14 @@ export async function writeElement(
 		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
 
 	let file = app.vault.getAbstractFileByPath(filePath);
+	let madeNow = false; // a note this write just made held nothing of a person's: its stub is no edit to keep
 	if (!(file instanceof TFile)) {
 		if (!app.vault.getAbstractFileByPath(folder)) {
 			await app.vault.createFolder(folder);
 		}
 		markSelfWrite?.(filePath);
 		file = await app.vault.create(filePath, `---\nid: ${elementId}\n---\n\n`);
+		madeNow = true;
 	}
 	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
@@ -653,6 +662,7 @@ export async function writeElement(
 	for (const [k, v] of Object.entries(existingFm)) {
 		if (replacesWhole && isExtensionKey(k)) continue;
 		if (written?.includes(k)) continue;
+		if (opts.dropKeys?.includes(k)) continue;
 		if (!ownedKeys.has(k)) preserved[k] = v;
 	}
 	const merged: Record<string, unknown> = { ...fm };
@@ -703,6 +713,10 @@ export async function writeElement(
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {
+		// The bytes about to be replaced, as this write read them: the caller's chance to keep them (the pull's copy of a note
+		// that held edits it had not seen). Text typed after this read, while the copy is being written, is not in the copy (the
+		// window is the copy's own write, milliseconds).
+		if (!madeNow) await opts.beforeReplace?.(content);
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);
 	}
