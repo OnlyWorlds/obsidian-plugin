@@ -242,6 +242,32 @@ test("★ text typed above a known-of note's fields and not yet saved stays in t
 	assert.ok((vault.contentAt(NOTE) ?? "").includes(GATE), `the unsaved line left the note (only in a copy): ${vault.contentAt(NOTE)}`);
 });
 
+test("★ text typed in the editor while the note's copy is being written ends in a copy or the note, never in neither", async () => {
+	const { app, vault, mock, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	// Saved typing: the note no longer matches its mark, so the pull copies it first.
+	const e = vault.files.get(NOTE);
+	assert.ok(e);
+	e.content = e.content.replace("A noble.", "A noble, typed and saved.");
+	const editor = mock.openEditor(NOTE, null);
+	const DURING = "Typed in the editor during the copy.";
+	const v = app.vault as unknown as { create(p: string, c: string): Promise<unknown> };
+	const create = v.create.bind(v);
+	let once = false;
+	v.create = async (p, c) => {
+		if (p.startsWith(KEPT) && !once) {
+			once = true;
+			editor.pending = (vault.contentAt(NOTE) ?? "").replace("### Description\n\n", `### Description\n\n${DURING} `);
+		}
+		return create(p, c);
+	};
+	await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest."), false);
+	assert.ok(once, "no copy was written");
+	assert.ok(inACopy(vault, DURING) || (vault.contentAt(NOTE) ?? "").includes(DURING),
+		"text typed in the editor during the copy is in neither a copy nor the note");
+	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
+});
+
 test("a workspace with no getLeavesOfType (an older stand-in) writes as before", async () => {
 	const { app, vault, dl } = await world();
 	(app.workspace as unknown as { getLeavesOfType?: unknown }).getLeavesOfType = undefined;

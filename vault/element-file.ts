@@ -599,6 +599,9 @@ export async function replaceNote(
 		await flushOpenEditors(app, file);
 		if (expected === next) return next;
 		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
+		// And again right before the write: typing in the editor while the copy was written reaches the disk, the comparison
+		// below sees it, and the try repeats with a fresh copy.
+		await flushOpenEditors(app, file);
 		const found: { text: string | null } = { text: null };
 		await app.vault.process(file, (current) => {
 			if (current !== expected) {
