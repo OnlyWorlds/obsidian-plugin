@@ -785,6 +785,43 @@ export async function writeElement(
 	return wrote.file;
 }
 
+/**
+ * The id of every element note in the world's folder, to its path, read
+ * from disk (the cache is cold mid-download): Download's and Paste world's one
+ * lookup of "does this element have a note", wherever the note sits. The
+ * frontmatter `id:` is read first, then an old span note's Id line under
+ * Elements/ (noteIdIn). Only an element note counts (the rule Save uses): a
+ * person's own note, or a copy with no type outside the type folders, is never
+ * a note they write to. All the notes holding an id are kept; the caller picks
+ * one by `pickNoteForId`, the same rule the writer uses.
+ */
+export async function worldNoteIds(app: App, worldName: string): Promise<Map<string, string[]>> {
+	const index = new Map<string, string[]>();
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (!mayBeElementNote(file.path, worldName)) continue;
+		try {
+			const content = await app.vault.read(file);
+			let id: string | undefined;
+			// The note's own YAML, as Save reads it, so the plan and Save cannot disagree about a note (a comment on the
+			// id line, flow style, a quoted key); the line scan only where the YAML is not readable.
+			const yaml = parseRawFrontmatter(content);
+			const fm = yaml && typeof yaml.id === "string" ? yaml : parseRawFrontmatterScalars(content, ["id", "type"]);
+			if (typeof fm.id === "string" && fm.id) {
+				if (elementNoteType(file.path, fm)) id = fm.id;
+			} else if (isUnderElements(file.path) && typeOfPlace(file.path)) {
+				// The plugin's own folders: an old span note's Id line, read as the writer reads it (noteIdIn:
+				// a note in the old layout and nothing else). A line of a person's writing that looks like an
+				// id (`- **ID:** …`, which no plugin version wrote into an element note) is never taken for one.
+				id = noteIdIn(content) ?? undefined;
+			}
+			if (id) index.set(id, [...(index.get(id) ?? []), file.path]);
+		} catch (error) {
+			console.error(`Error reading element file: ${file.path}`, error);
+		}
+	}
+	return index;
+}
+
 // --- helpers -----------------------------------------------------------------
 
 /** Parse a raw `---\n...\n---` YAML block (cache-independent read fallback). */
