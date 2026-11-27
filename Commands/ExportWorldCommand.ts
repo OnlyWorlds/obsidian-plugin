@@ -286,6 +286,7 @@ export class ExportWorldCommand {
             // deleted on onlyworlds.com and not being created again, whether a
             // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
+            const strippedIds = new Set<string>();
             const strippedTargets = new Set<string>();
             // A known-of note keel does not serve (out of view, or never on
             // this world's server): a link to it is refused, so it is left out.
@@ -304,7 +305,13 @@ export class ExportWorldCommand {
                     return out;
                 };
                 for (const item of toCreate) item.element = strip(item.type, item.element);
-                for (const item of toUpdate) item.payload = strip(item.type, item.payload);
+                for (const item of toUpdate) {
+                    const before = item.payload;
+                    item.payload = strip(item.type, item.payload);
+                    // A PATCH of a stripped payload replaces the field: the world loses a link the note still holds, so the note's mark goes
+                    // (before any request, so a write that lands and then fails to answer clears it too).
+                    if (item.payload !== before) strippedIds.add(item.id);
+                }
             }
             const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? run.stubNames.get(id) ?? run.knownOfNames.get(id) ?? feedName.get(id)
                 ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})`
@@ -353,6 +360,7 @@ export class ExportWorldCommand {
             const knownSeqs = run.knownSeqs ?? await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
+            for (const id of strippedIds) seqs[markKey(id)] = null;
             const knownGroups = groupKeysById(knownSeqs);
             for (const id of landed) { seqs[id] = null; seqs[heldKey(id)] = null; seqs[markKey(id)] = null; Object.assign(seqs, groupMarkClears(id, knownGroups)); }
             // An upload claims nothing about the bytes it sent: what it sends can leave out a value the note holds (a link that
@@ -362,7 +370,7 @@ export class ExportWorldCommand {
             const keptMark = (id: string): number | null => {
                 const bytes = run.sentBytes.get(id);
                 const held = knownSeqs[markKey(id)];
-                return bytes !== undefined && typeof held === 'number' && !holdsUnsavedEdits(bytes, held) ? held : null;
+                return bytes !== undefined && !strippedIds.has(id) && typeof held === 'number' && !holdsUnsavedEdits(bytes, held) ? held : null;
             };
             const stale: string[] = [];
             let updated = 0;

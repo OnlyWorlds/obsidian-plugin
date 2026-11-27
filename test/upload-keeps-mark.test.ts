@@ -12,7 +12,7 @@ import { markKey, noteMark } from "../vault/note-mark-core";
 const A = "019f0000-0000-7000-8000-0000000000a1";
 const B = "019f0000-0000-7000-8000-0000000000a2";
 const C = "019f0000-0000-7000-8000-0000000000a3";
-const D = "019f0000-0000-7000-8000-0000000000a4";
+const HIDDEN = "019f0000-0000-7000-8000-0000000000a4";
 const note = (id: string, name: string, extra = "") => `---\nname: ${name}\nid: ${id}\n${extra}---\n\n### Description\n\nA city.\n`;
 const up = (id: string, seq: number) => ({ op: "upsert", type: "location", id, change_seq: seq, element: { id, name: "x" } });
 
@@ -57,5 +57,20 @@ test("a note with no mark, a created note and a note a stale write refused claim
 	assert.equal(markKey(A) in r.seqIndex, false, "a note with no mark was marked: " + JSON.stringify(r.seqIndex));
 	assert.equal(markKey(B) in r.seqIndex, false, "a created note was marked: " + JSON.stringify(r.seqIndex));
 	assert.equal(r.seqIndex[markKey(C)], 777, "a refused write changed the mark it had: " + JSON.stringify(r.seqIndex));
-	void D;
+});
+
+test("★ a note whose upload stripped a link (to an element hidden by the world's owner) loses its mark though nobody typed: the world loses the link, so the pull must copy", async () => {
+	const linked = note(A, "Akragas", `parent_location: ${HIDDEN}\n`);
+	const plain = note(B, "Gela");
+	const r = await harnessUpload({
+		notes: { "Location/Akragas.md": linked, "Location/Gela.md": plain },
+		changes: [up(A, 4), up(B, 5)],
+		hidden: [HIDDEN],
+		seqs: { [A]: 4, [B]: 5, [markKey(A)]: noteMark(linked), [markKey(B)]: noteMark(plain) },
+		answerSeq: () => 10,
+	});
+	assert.ok(r.patches[A] && r.patches[B], JSON.stringify(r.calls) + r.notices.join(" | "));
+	assert.equal("parent_location" in r.patches[A], false, "the hidden link was sent: " + JSON.stringify(r.patches[A]));
+	assert.equal(markKey(A) in r.seqIndex, false, "a note whose link the upload took out kept its mark: " + JSON.stringify(r.seqIndex));
+	assert.equal(r.seqIndex[markKey(B)], noteMark(plain), "the whole note beside it lost its mark: " + JSON.stringify(r.seqIndex));
 });
