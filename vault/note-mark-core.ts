@@ -99,29 +99,40 @@ export function fencedCopy(text: string): string {
 	return `---\nkept_from: a copy whose id key the plugin could not rename, kept inside the block below\n---\n\n${fence}markdown\n${text}${text.endsWith("\n") ? "" : "\n"}${fence}\n`;
 }
 
-/** The one notice of a pull that copied notes: `labels` are the notes' labels. */
-export function copiedMessage(labels: string[]): string {
-	const shown = labels.slice(0, 3).join(", ");
-	const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
+/** The commands that write a world's elements over its notes, and so copy a note first: each notice names its own. */
+export type KeptWriter = "Download" | "Paste world";
+
+/** What each writer writes over a note, and how it is run again. */
+const WRITES: Record<KeptWriter, { copy: string; since: string; again: string }> = {
+	Download: { copy: "the world's copy", since: "since its last write", again: "download again" },
+	"Paste world": { copy: "the pasted copy", since: "since the plugin last wrote them", again: "paste the world again" },
+};
+
+function listed(labels: string[]): string {
+	return labels.slice(0, 3).join(", ") + (labels.length > 3 ? ` +${labels.length - 3} more` : "");
+}
+
+/** The one notice of a run that copied notes: `labels` are the notes' labels. */
+export function copiedMessage(labels: string[], writer: KeptWriter = "Download"): string {
 	const one = labels.length === 1;
-	return `Download wrote the world's copy over ${labels.length} note${one ? "" : "s"} that it could not tell were unedited since its last write: ${shown}${more}. ` +
+	const w = WRITES[writer];
+	return `${writer} wrote ${w.copy} over ${labels.length} note${one ? "" : "s"} that it could not tell were unedited ${w.since}: ${listed(labels)}. ` +
 		`${one ? "The note" : "Each note"} as it was is kept whole in ${KEPT_FOLDER}/ in the world's folder.`;
 }
 
-/** The notice of a pull stopped by a copy it could not write: which note was not changed, and that the notes after it were not written. */
-export function copyStoppedMessage(label: string, reason: string): string {
-	return `Download stopped at ${label}: no copy of the note could be kept in ${KEPT_FOLDER}/ (${reason}), so the note was not changed and the notes after it were not written. ` +
-		`Check that the world's folder can take a new file, then download again.`;
+/** The notice of a run stopped by a copy it could not write: which note was not changed, and that the notes after it were not written. */
+export function copyStoppedMessage(label: string, reason: string, writer: KeptWriter = "Download"): string {
+	return `${writer} stopped at ${label}: no copy of the note could be kept in ${KEPT_FOLDER}/ (${reason}), so the note was not changed and the notes after it were not written. ` +
+		`Check that the world's folder can take a new file, then ${WRITES[writer].again}.`;
 }
 
 /** The one notice of a run that left notes as the person has them: each changed every time its write came to it. */
-export function leftAsTypedMessage(labels: string[]): string {
-	const shown = labels.slice(0, 3).join(", ");
-	const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
+export function leftAsTypedMessage(labels: string[], writer: KeptWriter = "Download"): string {
 	const one = labels.length === 1;
-	return `Download did not write the world's copy over ${labels.length} note${one ? "" : "s"}: ${shown}${more}. ` +
+	const w = WRITES[writer];
+	return `${writer} did not write ${w.copy} over ${labels.length} note${one ? "" : "s"}: ${listed(labels)}. ` +
 		`${one ? "The note" : "Each note"} changed each time the write came to it, so ${one ? "it is" : "they are"} left as you have ${one ? "it" : "them"}. ` +
-		`Download again to bring the world's copy.`;
+		`To bring ${w.copy}, ${w.again}.`;
 }
 
 /**
