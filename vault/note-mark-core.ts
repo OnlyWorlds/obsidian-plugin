@@ -43,6 +43,34 @@ export function holdsUnsavedEdits(text: string, recorded: number | undefined | n
 	return !(typeof recorded === "number" && noteMark(text) === recorded);
 }
 
+/** The note's front matter block (its `---` lines included) and what follows, line endings as `\n`; null for a note with no block at byte 0. */
+function blockAndBody(text: string): { block: string; body: string } | null {
+	const open = /^---\n/.exec(text);
+	if (!open) return null;
+	const close = /\n---[ \t]*(\n|$)/.exec(text.slice(open[0].length - 1));
+	if (!close) return null;
+	const end = open[0].length - 1 + close.index + close[0].length;
+	return { block: text.slice(0, end), body: text.slice(end) };
+}
+
+/**
+ * True when the two notes are one but for layout: the same front matter lines (line endings aside), and a body that differs only in
+ * blank lines, trailing spaces and line endings. Meaning can hide in that whitespace (a hard break, a blank line in a code block):
+ * the caller allows it only for a note that holds what the save read, never for one typed into since. A render that differs from a note in nothing else holds every character the note holds, so a
+ * note typed into the natural way (text on the blank line under an empty heading) is still the world's copy once saved. Never true
+ * for a difference in a front matter line, in a non-blank body line or in the order of lines.
+ */
+export function sameUpToLayout(a: string, b: string): boolean {
+	const x = a.replace(/\r\n/g, "\n");
+	const y = b.replace(/\r\n/g, "\n");
+	if (x === y) return true;
+	const px = blockAndBody(x);
+	const py = blockAndBody(y);
+	if (!px || !py || px.block !== py.block) return false;
+	const lines = (s: string) => s.split("\n").map((l) => l.replace(/[ \t]+$/, "")).filter((l) => l !== "").join("\n");
+	return lines(px.body) === lines(py.body);
+}
+
 /** The folder of the copies, under the world's folder. A person's own notes live there: it holds no element note. */
 export const KEPT_FOLDER = "Kept edits";
 
