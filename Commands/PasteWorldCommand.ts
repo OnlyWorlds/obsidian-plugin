@@ -6,7 +6,7 @@ import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { pickNoteForId, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
+import { flushOpenEditors, pickNoteForId, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
 import { KeptCopies, KeptCopyFailed } from '../vault/kept-copy';
 import { copiedMessage, copyStoppedMessage, leftAsTypedMessage } from '../vault/note-mark-core';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
@@ -159,6 +159,9 @@ export class PasteWorldCommand {
 
                     // Reuse the note this id has anywhere in the world, else mint a unique filename.
                     const existingElementPath = pickNoteForId(worldIds.get(element.id) ?? [], worldName, category);
+                    // An open editor's unsaved text first, so the note is read as the person has it.
+                    const found = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
+                    if (found instanceof TFile) await flushOpenEditors(this.app, found, (p) => this.markSelfWrite?.(p));
                     if (existingElementPath && (await this.isStub(existingElementPath))) continue;
                     // A known-of stub (the folder spec §4.4) is
                     // written as one, never over a whole note (no reset brought it:

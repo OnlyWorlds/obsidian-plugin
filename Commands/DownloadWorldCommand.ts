@@ -26,7 +26,7 @@ import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, leftAs
 import { inKeptFolder, KeptCopies, stoppedMessage } from '../vault/kept-copy';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, parseElementPath, parseRawFrontmatter, pickNoteForId, replaceNote, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
+import { elementNoteType, parseElementPath, parseRawFrontmatter, pickNoteForId, flushOpenEditors, replaceNote, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
 import { isInCategoryFolder, mayBeElementNote } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -759,6 +759,8 @@ export class DownloadWorldCommand {
                         const current = this.app.vault.getAbstractFileByPath(notePath);
                         if (current instanceof TFile) {
                             try {
+                                // An open editor's unsaved text first, so what the write keeps of the note is the person's latest.
+                                await flushOpenEditors(this.app, current, (p) => this.plugin?.autoSync?.markSelfWrite(p));
                                 const text = await this.app.vault.read(current);
                                 keepAbove = knownOfKeptText(text);
                                 if (!plan.knownOf) dropKeys = removedGroupKeys(String(element.id), (element as { x_properties?: unknown }).x_properties, parseRawFrontmatter(text) ?? {}, marks);
@@ -934,6 +936,8 @@ export class DownloadWorldCommand {
             if (!file) continue;
             let label = file.basename;
             try {
+                // An open editor's unsaved text first, so the stub keeps what the person wrote outside the fields.
+                await flushOpenEditors(this.app, file, (p) => this.plugin?.autoSync?.markSelfWrite(p));
                 const content = await this.app.vault.read(file);
                 // The note's type by its place, else by its `type` property: a hidden element's note outside the type folders is stubbed too.
                 const fm = parseRawFrontmatterScalars(content, ['id', 'type', 'name']);

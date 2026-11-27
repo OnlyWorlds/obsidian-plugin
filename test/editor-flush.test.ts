@@ -154,6 +154,60 @@ test("★ Paste world's flush of a dirty editor leaves auto-sync nothing to send
 	for (const t of timers.values()) clearTimeout(t);
 });
 
+/** A Download over the feed `rows` at `head`, through downloadWithKey. */
+function feed(app: ReturnType<typeof makeApp>["app"], plugin: unknown) {
+	const WID = "019e0000-0000-7000-8000-0000000008ee";
+	return async (rows: unknown[], head: number) => {
+		setRequestUrl((r) => {
+			const path = new URL(r.url).pathname.replace(/^\/api\/v2/, "").replace(/\/$/, "");
+			if (path === "/world") return { status: 200, json: { id: WID, name: "W", description: "" } };
+			if (path === "/changes") return { status: 200, json: { cursor: `c${head}`, has_more: false, head, changes: rows } };
+			return { status: 404, json: {} };
+		});
+		__notices.length = 0;
+		await new DownloadWorldCommand(app, { version: "t" }, plugin as never).downloadWithKey("ow_k_test", "1234");
+	};
+}
+const upsertRow = (seq: number, extra: Record<string, unknown> = {}) =>
+	({ op: "upsert", type: "character", id: ID, change_seq: seq, updated_at: "x", element: { type: "character", id: ID, name: "Ireena", description: "A noble.", ...extra } });
+const hiddenRow = (seq: number) => ({ op: "delete", type: "character", id: ID, change_seq: seq, updated_at: "x", reason: "hidden" });
+const GATE = "Met her at the gate, not yet saved.";
+
+test("★ text typed on a hidden stub and not yet saved stays in the note when the element comes back whole", async () => {
+	const { app, vault, mock } = await world();
+	const pull = feed(app, { settings: { syncCursors: {} }, saveSettings: async () => {} });
+	await pull([upsertRow(1)], 1);
+	await pull([hiddenRow(2)], 2);
+	const stub = vault.contentAt(NOTE) ?? "";
+	assert.ok(stub.includes("Hidden by the world's owner."), stub);
+	mock.openEditor(NOTE, stub.replace("Hidden by the world's owner.\n", `Hidden by the world's owner.\n\n${GATE}\n`));
+	await pull([upsertRow(3, { description: "A noble, back in view." })], 3);
+	assert.match(vault.contentAt(NOTE) ?? "", /A noble, back in view\./);
+	assert.ok((vault.contentAt(NOTE) ?? "").includes(GATE), `the unsaved line left the returning note (only in a copy): ${vault.contentAt(NOTE)}`);
+});
+
+test("★ a line typed outside the fields of a whole note and not yet saved stays in the hidden stub made of it", async () => {
+	const { app, vault, mock } = await world();
+	const pull = feed(app, { settings: { syncCursors: {} }, saveSettings: async () => {} });
+	await pull([upsertRow(1)], 1);
+	const whole = vault.contentAt(NOTE) ?? "";
+	mock.openEditor(NOTE, whole.replace("\n---\n\n", `\n---\n\n${GATE}\n\n`));
+	await pull([hiddenRow(2)], 2);
+	const stub = vault.contentAt(NOTE) ?? "";
+	assert.ok(stub.includes("Hidden by the world's owner."), stub);
+	assert.ok(stub.includes(GATE), `the unsaved line left the stub (only in a copy): ${stub}`);
+});
+
+test("★ text typed above a known-of note's fields and not yet saved stays in the note Paste world rewrites", async () => {
+	const { app, vault, mock } = await world();
+	const known = `---\nname: Ireena\nid: ${ID}\nknown_of: true\n---\n\nKnown of: you know of this element, not all of it. A field not shown here is unknown, not empty.\n\n### Description\n\nA noble.\n`;
+	await vault.seed(NOTE, known);
+	mock.openEditor(NOTE, known.replace("not empty.\n\n", `not empty.\n\n${GATE}\n\n`));
+	await new PasteWorldCommand(app, {} as never).generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "A noble, pasted.", known_of: true }] }, false);
+	assert.match(vault.contentAt(NOTE) ?? "", /A noble, pasted\./);
+	assert.ok((vault.contentAt(NOTE) ?? "").includes(GATE), `the unsaved line left the note (only in a copy): ${vault.contentAt(NOTE)}`);
+});
+
 test("a workspace with no getLeavesOfType (an older stand-in) writes as before", async () => {
 	const { app, vault, dl } = await world();
 	(app.workspace as unknown as { getLeavesOfType?: unknown }).getLeavesOfType = undefined;
