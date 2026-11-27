@@ -759,6 +759,7 @@ export class DownloadWorldCommand {
                 }
 
                 if (overwrite || existingElementPath || !await fs.exists(notePath)) {
+                    const label = `${category} "${element.name ?? element.id}"`;
                     // A stub written in full again (an unhide, or back in view)
                     // keeps the person's writing it held, above the first field, byte
                     // for byte; so does a known-of note,
@@ -770,9 +771,15 @@ export class DownloadWorldCommand {
                     if (existingElementPath) {
                         const current = this.app.vault.getAbstractFileByPath(notePath);
                         if (current instanceof TFile) {
+                            // An open editor's unsaved text first, so what the write keeps of the note is the person's latest. A
+                            // flush that fails is this note's write failing: it is left as it was, named, and the pull goes on.
                             try {
-                                // An open editor's unsaved text first, so what the write keeps of the note is the person's latest.
                                 await flushOpenEditors(this.app, current);
+                            } catch (error) {
+                                failed.push({ label, reason: error instanceof Error ? error.message : String(error) });
+                                continue;
+                            }
+                            try {
                                 const text = await this.app.vault.read(current);
                                 keepAbove = knownOfKeptText(text);
                                 if (!plan.knownOf) dropKeys = removedGroupKeys(String(element.id), (element as { x_properties?: unknown }).x_properties, parseRawFrontmatter(text) ?? {}, marks);
@@ -784,7 +791,6 @@ export class DownloadWorldCommand {
                     // fields verbatim, normalizes link ids, and maps the body to
                     // description (or story for Narrative). The raw v2 element body
                     // (bare link ids, extension namespaces intact) goes straight in.
-                    const label = `${category} "${element.name ?? element.id}"`;
                     const copy = copies.forNote(String(element.id), String(element.name ?? element.id), label);
                     let wrote: WrittenNote;
                     try {

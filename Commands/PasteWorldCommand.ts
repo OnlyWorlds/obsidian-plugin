@@ -160,9 +160,16 @@ export class PasteWorldCommand {
 
                     // Reuse the note this id has anywhere in the world, else mint a unique filename.
                     const existingElementPath = pickNoteForId(worldIds.get(element.id) ?? [], worldName, category);
-                    // An open editor's unsaved text first, so the note is read as the person has it.
+                    const label = `${category} "${element.name ?? element.id}"`;
+                    // An open editor's unsaved text first, so the note is read as the person has it. A flush that fails stops
+                    // the paste there, as a failed write does, and says so.
                     const found = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
-                    if (found instanceof TFile) await flushOpenEditors(this.app, found);
+                    try {
+                        if (found instanceof TFile) await flushOpenEditors(this.app, found);
+                    } catch (error) {
+                        stopped = { label, error };
+                        break notes;
+                    }
                     if (existingElementPath && (await this.isStub(existingElementPath))) continue;
                     // A known-of stub (the folder spec §4.4) is
                     // written as one, never over a whole note (no reset brought it:
@@ -183,7 +190,6 @@ export class PasteWorldCommand {
                     // description/story. No Handlebars templates, no span format.
                     // Marked before each write as Download marks it, so auto-sync
                     // does not take the pasted content for an edit and save it.
-                    const label = `${category} "${element.name ?? element.id}"`;
                     const copy = copies.forNote(element.id, String(element.name ?? element.id), label);
                     let wrote: WrittenNote;
                     try {

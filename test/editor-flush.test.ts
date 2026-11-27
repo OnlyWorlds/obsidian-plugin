@@ -9,7 +9,7 @@ import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the m
 import "./support/bare-paths";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
+import { makeApp, setRequestUrl, __notices, __modals } from "./support/obsidian-mock";
 import type { MockVault } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
@@ -266,6 +266,48 @@ test("★ text typed in the editor while the note's copy is being written ends i
 	assert.ok(inACopy(vault, DURING) || (vault.contentAt(NOTE) ?? "").includes(DURING),
 		"text typed in the editor during the copy is in neither a copy nor the note");
 	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
+});
+
+const KOL_ID = OTHER;
+const ISM_ID = "019a0000-0000-7000-8000-0000000002f3";
+const ISM_NOTE = `${ELEMENTS}/Character/Ismark.md`;
+const row = (id: string, name: string, seq: number, description: string) =>
+	({ op: "upsert", type: "character", id, change_seq: seq, updated_at: "x", element: { type: "character", id, name, description } });
+
+test("★ a flush that throws before the pull reads a note leaves that note as it was and named; the other two land", async () => {
+	const { app, vault, mock } = await world();
+	const pull = feed(app, { settings: { syncCursors: {} }, saveSettings: async () => {} });
+	await pull([row(ID, "Ireena", 1, "A noble."), row(KOL_ID, "Kolyan", 2, "A priest."), row(ISM_ID, "Ismark", 3, "A brother.")], 3);
+	await pull([hiddenRow(4)], 4);
+	const stub = (vault.contentAt(NOTE) ?? "").replace("Hidden by the world's owner.\n", `Hidden by the world's owner.\n\nMy line on the stub.\n`);
+	vault.files.get(NOTE)!.content = stub;
+	let saves = 0;
+	mock.openEditor(NOTE, stub.replace("My line on the stub.", `My line on the stub. ${TYPED}`), {
+		onSave: async () => { if (++saves === 1) throw new Error("the editor could not save"); },
+	});
+	await pull([row(ID, "Ireena", 5, "Back in view."), row(KOL_ID, "Kolyan", 6, "Priest, changed."), row(ISM_ID, "Ismark", 7, "Brother, changed.")], 7);
+	assert.equal(vault.contentAt(NOTE), stub, "the note whose flush failed was written (its kept line taken from a read the flush never saved into)");
+	assert.match(vault.contentAt(OTHER_NOTE) ?? "", /Priest, changed\./);
+	assert.match(vault.contentAt(ISM_NOTE) ?? "", /Brother, changed\./);
+	assert.ok(__notices.some((n) => n.includes('Character "Ireena"') && /could not save/.test(n)), __notices.join(" | "));
+});
+
+test("★ a flush that throws in Paste world is said in a notice, not lost in an unawaited rejection", async () => {
+	const { app, vault, mock, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	const before = vault.contentAt(OTHER_NOTE);
+	mock.openEditor(OTHER_NOTE, typedOver(vault, OTHER_NOTE), { onSave: async () => { throw new Error("the editor could not save"); } });
+	__modals.length = 0;
+	__notices.length = 0;
+	await new PasteWorldCommand(app, {} as never).execute();
+	const modal = __modals[__modals.length - 1] as unknown as { onSubmit(json: unknown): unknown };
+	await Promise.resolve(modal.onSubmit({
+		World: { api_key: "ow_k_test", name: "W" },
+		Character: [{ id: ID, name: "Ireena", description: "Pasted." }, { id: OTHER, name: "Kolyan", description: "Pasted too." }, { id: ISM_ID, name: "Ismark", description: "Pasted new." }],
+	}));
+	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
+	assert.equal(vault.contentAt(OTHER_NOTE), before, "the note whose flush failed was changed");
+	assert.ok(__notices.some((n) => /^Paste world stopped at Character "Kolyan"/.test(n) && /could not save/.test(n)), __notices.join(" | "));
 });
 
 test("a workspace with no getLeavesOfType (an older stand-in) writes as before", async () => {
