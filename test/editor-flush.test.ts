@@ -89,6 +89,15 @@ test("★ only the open views of the note being written are saved, and a view wi
 	assert.doesNotMatch(vault.contentAt(OTHER_NOTE) ?? "", new RegExp(TYPED.replace(/[.,]/g, "\\$&")));
 });
 
+test("★ the write is built from the saved editor text: a property typed in the editor and not yet saved stays in the note", async () => {
+	const { vault, mock, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	mock.openEditor(NOTE, (vault.contentAt(NOTE) ?? "").replace(`id: ${ID}\n`, `id: ${ID}\nmood: grim\n`));
+	await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest."), false);
+	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
+	assert.match(vault.contentAt(NOTE) ?? "", /^mood: grim$/m, "the person's property, typed and not yet saved, left the note (it is only in a copy)");
+});
+
 test("a workspace with no getLeavesOfType (an older stand-in) writes as before", async () => {
 	const { app, vault, dl } = await world();
 	(app.workspace as unknown as { getLeavesOfType?: unknown }).getLeavesOfType = undefined;
