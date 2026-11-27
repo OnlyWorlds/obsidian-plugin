@@ -79,6 +79,25 @@ test("★ an edit schedules a save; a pull then writes the note, and the save is
 	h.stop();
 });
 
+test("★ a plugin write that lands while the edit's element check is still reading the note drops the save the check would schedule", async () => {
+	const h = await harness(40);
+	// A note outside the type folders, not indexed yet: the listener reads it from disk to tell whether it is an element's.
+	const CAST = `${W}/Cast/Ismark.md`;
+	await h.vault.seed(CAST, `---\nname: Ismark\nid: 019a0000-0000-7000-8000-0000000003f3\ntype: character\n---\n\n### Description\n\nA brother.\n`);
+	(h.app.metadataCache as unknown as { coldCache: boolean }).coldCache = true;
+	const v = h.app.vault as unknown as { read(f: TFile): Promise<string> };
+	const read = v.read.bind(v);
+	v.read = async (f) => {
+		if (f.path === CAST) await new Promise((r) => setTimeout(r, 15)); // the disk is slow
+		return read(f);
+	};
+	await h.app.vault.modify(h.app.vault.getAbstractFileByPath(CAST) as TFile, (h.vault.contentAt(CAST) ?? "").replace("A brother.", "A brother, typed."));
+	h.engine.markSelfWrite(CAST); // the plugin's write comes while that read is under way
+	await new Promise((r) => setTimeout(r, 40));
+	assert.deepEqual(h.pending(), [], "the save was scheduled after the plugin's mark: it would send the plugin's bytes");
+	h.stop();
+});
+
 test("the cancel is exact: a plugin write of one note leaves another note's scheduled save in place", async () => {
 	const h = await harness(10_000);
 	await h.edit(NOTE, "My edit.");

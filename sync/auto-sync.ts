@@ -29,6 +29,8 @@ export class AutoSyncEngine {
 	private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 	/** Path -> when it was marked (now()); one mark swallows one modify event. */
 	private selfWritePaths: Map<string, number> = new Map();
+	/** Path -> how many plugin writes it has had: an edit's save is scheduled only when none came while its element check ran. */
+	private pluginWrites: Map<string, number> = new Map();
 	private now: () => number;
 	/** Saves running at once: a replace-all over many notes fired one timer each, all at the same moment, every save carrying the PIN. */
 	static readonly MAX_PARALLEL_SAVES = 3;
@@ -69,7 +71,11 @@ export class AutoSyncEngine {
 				}
 				if (!this.plugin.settings.autoSync) return;
 				// Whether the note is an element's is read from the note (its place, its id and `type`), so a person's own note says nothing.
-				void this.isElementFile(file).then((is) => { if (is) this.scheduleSync(file); });
+				// A plugin write that comes while that read runs replaces what this edit would send: no save is scheduled for it.
+				const writes = this.pluginWrites.get(file.path) ?? 0;
+				void this.isElementFile(file).then((is) => {
+					if (is && (this.pluginWrites.get(file.path) ?? 0) === writes) this.scheduleSync(file);
+				});
 			})
 		);
 	}
@@ -178,13 +184,15 @@ export class AutoSyncEngine {
 	 * SELF_WRITE_TTL_MS; marking a marked path again renews it, still one event.
 	 *
 	 * It also drops the save already scheduled for this path (its timer, or its
-	 * place in the queue for a free slot): the note is about to hold the
-	 * plugin's bytes, and a person's earlier edit sent after that would send
-	 * those instead (Paste world's pasted ones, under an unchanged If-Match).
-	 * Only this path's save goes. A save already running is not stopped.
+	 * place in the queue for a free slot, or the save an edit's element check
+	 * is about to schedule): the note is about to hold the plugin's bytes, and
+	 * a person's earlier edit sent after that would send those instead (Paste
+	 * world's pasted ones, under an unchanged If-Match). Only this path's save
+	 * goes. A save already running is not stopped.
 	 */
 	markSelfWrite(path: string): void {
 		this.selfWritePaths.set(path, this.now());
+		this.pluginWrites.set(path, (this.pluginWrites.get(path) ?? 0) + 1);
 		const timer = this.timers.get(path);
 		if (timer !== undefined) {
 			clearTimeout(timer);
