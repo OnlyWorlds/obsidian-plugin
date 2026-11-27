@@ -1,9 +1,9 @@
 /**
- * A stub written over a whole note replaces the person's text in the note's fields, so it copies the note first, by the rule
- * every pull write keeps: a known-of stub (after a view reset) and a hidden-by-owner stub copy a note whose bytes do not hash
- * to its mark, or that has none, into Kept edits/. A note that is already a stub, rewritten as a stub, needs no copy: what
- * the person writes on a stub (above its fields, or under a heading of their own) stays in the note. A stub's write records
- * the mark of the bytes it wrote, as every pull write does, so an untouched stub that comes back whole is no copy.
+ * A stub written over a note replaces the person's text in the note's fields, so it copies the note first, by the rule every
+ * pull write keeps: a known-of stub (after a view reset) and a hidden-by-owner stub copy a note whose bytes do not hash to its
+ * mark, or that has none, into Kept edits/. A note that is a stub already is no exception: a heading of the person's on a
+ * known-of note reads as a custom field, which the hidden stub empties. A stub's write records the mark of the bytes it
+ * wrote, as every pull write does, so an untouched stub is not copied again, and one that comes back whole is no copy.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import "./support/bare-paths";
@@ -102,20 +102,32 @@ test("an untouched whole note turned into a stub, known of or hidden, is replace
 	}
 });
 
-test("a stub rewritten as a stub needs no copy: what the person wrote on it stays in the note", async () => {
-	// Known of, then known of again, with the person's line above its fields.
+test("★ a stub rewritten as a stub is copied first when the person typed on it, by the same rule; an untouched one is not", async () => {
 	const s = await wholeZel();
 	await download(s.app, s.plugin, [upsert(stubOf(ZEL, "Zelraun", 5, { description: "A knight." }), 5), whole(IRE, "Ireena", 2)], 5, VIEW);
-	typeInto(s.vault, `${KNOWN_OF_LINE}\n\n`, `${KNOWN_OF_LINE}\n\nMet him at the gate.\n\n`);
+	// Untouched: known of again, no copy (the stub's write recorded its mark).
 	await download(s.app, s.plugin, [upsert(stubOf(ZEL, "Zelraun", 6, { description: "A knight, older." }), 6)], 6);
-	assert.match(s.vault.contentAt(ZEL_NOTE) ?? "", /Met him at the gate\.[\s\S]*A knight, older\./);
-	assert.deepEqual(copies(s.vault), [], "a known-of note rewritten as known of was copied");
-	// And that known-of note hidden: a stub to a stub.
-	typeInto(s.vault, "Met him at the gate.", "Met him at the gate, twice.");
-	await download(s.app, s.plugin, [hidden(ZEL, 7)], 7);
-	assert.match(s.vault.contentAt(ZEL_NOTE) ?? "", new RegExp(HIDDEN_STUB_LINE.replace(/[.']/g, "\\$&")));
-	assert.match(s.vault.contentAt(ZEL_NOTE) ?? "", /Met him at the gate, twice\./);
-	assert.deepEqual(copies(s.vault), [], "a known-of note hidden was copied");
+	assert.deepEqual(copies(s.vault), [], "an untouched known-of note rewritten as known of was copied");
+	// Typed on: known of again, copied first.
+	typeInto(s.vault, `${KNOWN_OF_LINE}\n\n`, `${KNOWN_OF_LINE}\n\nMet him at the gate.\n\n`);
+	await download(s.app, s.plugin, [upsert(stubOf(ZEL, "Zelraun", 7, { description: "A knight, older still." }), 7)], 7);
+	assert.match(s.vault.contentAt(ZEL_NOTE) ?? "", /Met him at the gate\.[\s\S]*A knight, older still\./);
+	assert.equal(copies(s.vault).length, 1, "a known-of note typed on was rewritten with no copy");
+	assert.match(s.vault.contentAt(copies(s.vault)[0]) ?? "", /Met him at the gate\./);
+});
+
+test("★ a known-of note with a section of the person's, hidden by the world's owner, is copied first: the stub empties that section", async () => {
+	const s = await wholeZel();
+	await download(s.app, s.plugin, [upsert(stubOf(ZEL, "Zelraun", 5, { description: "A knight." }), 5), whole(IRE, "Ireena", 2)], 5, VIEW);
+	const e = s.vault.files.get(ZEL_NOTE);
+	assert.ok(e);
+	e.content = `${e.content}\n### My notes\n\nHe owes me a horse.\n`;
+	await download(s.app, s.plugin, [hidden(ZEL, 8)], 8);
+	assert.ok((s.vault.contentAt(ZEL_NOTE) ?? "").includes(HIDDEN_STUB_LINE), s.vault.contentAt(ZEL_NOTE));
+	const kept = copies(s.vault).map((p) => s.vault.contentAt(p) ?? "");
+	assert.ok((s.vault.contentAt(ZEL_NOTE) ?? "").includes("He owes me a horse.") || kept.some((c) => c.includes("He owes me a horse.")),
+		"the person's section is in neither the stub nor a copy");
+	assert.equal(kept.length, 1, "a known-of note with the person's section was stubbed with no copy");
 });
 
 test("★ a hidden stub's write records the mark of its bytes: an untouched stub that comes back whole is no copy", async () => {

@@ -775,7 +775,7 @@ export class DownloadWorldCommand {
                     // description (or story for Narrative). The raw v2 element body
                     // (bare link ids, extension namespaces intact) goes straight in.
                     const label = `${category} "${element.name ?? element.id}"`;
-                    const copy = copies.forNote(String(element.id), String(element.name ?? element.id), label, plan.knownOf);
+                    const copy = copies.forNote(String(element.id), String(element.name ?? element.id), label);
                     let wrote: WrittenNote;
                     try {
                         wrote = await writeElementNote(
@@ -944,7 +944,7 @@ export class DownloadWorldCommand {
                 const next = stubNote(content, category);
                 if (next === content) continue;
                 const name = fm.name || file.basename;
-                const copy = copies.forNote(id, name, `${category} "${name}"`, true);
+                const copy = copies.forNote(id, name, `${category} "${name}"`);
                 const wrote = await replaceNote(this.app, file, content, next, {
                     beforeReplace: copy.beforeReplace,
                     markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
