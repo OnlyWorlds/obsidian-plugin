@@ -537,6 +537,21 @@ export interface WrittenNote {
 	text: string | null;
 }
 
+/**
+ * Save every open editor of `file` to disk. Obsidian writes an editor's text about two seconds after the last key, and
+ * `vault.read` and `vault.process` see the disk only: typing not yet saved would be in no copy, and the write's reload of the
+ * editor would end it. Saved first, it is on disk, no longer hashes to the note's mark, and the copy rule keeps it. Only the
+ * views of this file; a view with no `save` (or a workspace that lists no leaves) is passed over.
+ */
+export async function flushOpenEditors(app: App, file: TFile): Promise<void> {
+	const workspace = app.workspace as { getLeavesOfType?: (type: string) => { view: unknown }[] } | undefined;
+	if (typeof workspace?.getLeavesOfType !== "function") return;
+	for (const leaf of workspace.getLeavesOfType("markdown")) {
+		const view = leaf.view as { file?: TFile | null; save?: () => Promise<void> } | undefined;
+		if (view?.file?.path === file.path && typeof view.save === "function") await view.save();
+	}
+}
+
 /** How many times a write meets a note changed since it last read it before it leaves the note as the person has it. */
 export const REPLACE_TRIES = 3;
 
@@ -557,6 +572,8 @@ export async function replaceNote(
 ): Promise<string | null> {
 	let expected = seen;
 	for (let i = 0; i < REPLACE_TRIES; i++) {
+		// An editor's unsaved text reaches the disk first; the write then finds the note changed and copies it.
+		await flushOpenEditors(app, file);
 		if (expected === next) return next;
 		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
 		const found: { text: string | null } = { text: null };
@@ -687,6 +704,8 @@ export async function writeElementNote(
 	// blank line. We also keep any frontmatter key we do not own (extension
 	// namespaces, the user's own additions), which is what processFrontMatter
 	// was buying us.
+	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it.
+	await flushOpenEditors(app, file);
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);

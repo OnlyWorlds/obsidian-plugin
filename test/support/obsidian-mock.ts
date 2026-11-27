@@ -29,6 +29,10 @@
  *     Obsidian's does: a status of 400 or more throws unless `throw: false`.
  *   - adapter.write to a path with no dot-segment writes a real note (Obsidian
  *     creates a file the vault then lists); a dot-path stays a hidden file.
+ *   - Open editors: app.openEditor(path, text) puts a markdown view on a note
+ *     holding unsaved text (workspace.getLeavesOfType("markdown") lists it);
+ *     its save() writes that text. The editor's reload after another writer
+ *     changes the file is not modelled.
  *   - vault.getName() is "Test Vault"; workspace.getLeaf().openFile records the
  *     path in `opened`; fileManager.renameFile and
  *     workspace.openLinkText only record or do nothing (fileManager.trashFile
@@ -444,8 +448,31 @@ export class App {
 	metadataCache = new MockMetadataCache(this.vault);
 	/** Paths opened through workspace.getLeaf().openFile, in order. */
 	opened: string[] = [];
+	/** Open markdown views (openEditor): what workspace.getLeavesOfType("markdown") lists. */
+	leaves: { view: { file: TFile | null; save?: () => Promise<void> } }[] = [];
+	/**
+	 * Test helper: an editor open on the note at `path` holding `text` it has not saved yet, as Obsidian's editor holds typing
+	 * for about two seconds before it writes the file. Its `save()` writes the held text through vault.modify (once) and
+	 * counts the call. `withSave: false` makes a view with no save method.
+	 */
+	openEditor(path: string, text: string | null, withSave = true): { saves: number; pending: string | null } {
+		const file = this.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) throw new Error("openEditor: no note at " + path);
+		const state = { saves: 0, pending: text };
+		const view: { file: TFile | null; save?: () => Promise<void> } = { file };
+		if (withSave) {
+			view.save = async () => {
+				state.saves++;
+				if (state.pending !== null && view.file) await this.vault.modify(view.file, state.pending);
+				state.pending = null;
+			};
+		}
+		this.leaves.push({ view });
+		return state;
+	}
 	workspace = {
 		getActiveFile: (): TFile | null => null,
+		getLeavesOfType: (type: string) => (type === "markdown" ? this.leaves : []),
 		openLinkText: async (): Promise<void> => {},
 		getLeaf: () => ({
 			openFile: async (f: TFile): Promise<void> => {
@@ -476,7 +503,7 @@ export class App {
  * A fresh mock app, typed as Obsidian's App for the code under test, plus
  * typed handles on the mock's own vault and cache for the test to drive.
  */
-export function makeApp(): { app: ObsidianApp; vault: MockVault; cache: MockMetadataCache } {
+export function makeApp(): { app: ObsidianApp; vault: MockVault; cache: MockMetadataCache; mock: App } {
 	const a = new App();
-	return { app: a as unknown as ObsidianApp, vault: a.vault, cache: a.metadataCache };
+	return { app: a as unknown as ObsidianApp, vault: a.vault, cache: a.metadataCache, mock: a };
 }
