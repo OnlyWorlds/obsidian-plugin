@@ -471,6 +471,15 @@ export class SaveElementCommand {
         // and the answer's change_seq is recorded for the next save.
         const seqIndex = await readChangeSeqIndex(this.app, worldName);
         const knownSeq = seqIndex[elementUuid] ?? null;
+        // ★ That number is read after the awaits above (the PIN, the client), the text `content` before them. A pull that wrote the
+        // note in between recorded its number: this save would pair the text it read before the pull with the pull's number, pass the
+        // If-Match, and put the old text over what the pull brought. Bytes that changed since the read are not the text the number
+        // belongs to: nothing is sent. (A pull that lands after this read finds the number old: the If-Match is refused.)
+        if ((await this.app.vault.read(activeFile)) !== content) {
+            const reason = `${elementData.name || elementUuid} not saved: the note changed while it was being saved. Nothing was sent.`;
+            if (manual) return this.fail(reason, 10000);
+            return { ok: false, reason, local: true };
+        }
         // Only a note marked as holding the world's group at this very number clears it by having none (an older plugin that renews the number leaves the mark behind).
         const groupHeld = knownSeq !== null && seqIndex[heldKey(elementUuid)] === knownSeq;
         let current: Record<string, unknown> | null = null;
