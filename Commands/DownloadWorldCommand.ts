@@ -332,11 +332,11 @@ export class DownloadWorldCommand {
                     // Move the watermark only after every note landed — a failed
                     // run must re-pull the same changes next time, and so must a
                     // run that left a note as it was (changed under each try, or
-                    // a write that threw). The lists are saved either way: the
-                    // next walk of the same changes builds them again.
+                    // a write that threw). The lists are held with the cursor: the
+                    // next walk of the same changes derives the same stubs from them.
                     const holdCursor = knownOf.left.length + knownOf.failed.length + stubbed.left.length + stubbed.failed.length > 0;
-                    if (this.plugin && walk.cursor) {
-                        if (!holdCursor) this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
+                    if (this.plugin && walk.cursor && !holdCursor) {
+                        this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
                             [worldId]: [...deleted].filter(id => local.has(id)),

@@ -130,6 +130,25 @@ test("★ a known-of note with a section of the person's, hidden by the world's 
 	assert.equal(kept.length, 1, "a known-of note with the person's section was stubbed with no copy");
 });
 
+test("★ a view-reset stub whose write failed is written by the next pull once the disk takes it: the lists held with the cursor", async () => {
+	const s = await wholeZel();
+	const v = s.app.vault as unknown as { process(f: unknown, fn: (d: string) => string): Promise<string> };
+	const process = v.process.bind(v);
+	let broken = true;
+	v.process = async (f, fn) => {
+		if (broken && (f as { path: string }).path === ZEL_NOTE) throw new Error("the disk is full");
+		return process(f, fn);
+	};
+	// A view reset whose walk no longer names Zelraun: his note becomes a stub, and its write fails.
+	await download(s.app, s.plugin, [whole(IRE, "Ireena", 2)], 2, VIEW);
+	assert.match(s.vault.contentAt(ZEL_NOTE) ?? "", /A knight of Barovia\./, "the failed stub was written");
+	// The disk takes writes again; keel answers the same cursor with the same reset.
+	broken = false;
+	await download(s.app, s.plugin, [whole(IRE, "Ireena", 2)], 2, VIEW);
+	const note = s.vault.contentAt(ZEL_NOTE) ?? "";
+	assert.ok(note.includes(HIDDEN_STUB_LINE) && !note.includes("A knight of Barovia."), `the next pull never retried the stub: ${note}`);
+});
+
 test("★ a hidden stub's write records the mark of its bytes: an untouched stub that comes back whole is no copy", async () => {
 	const s = await wholeZel();
 	await download(s.app, s.plugin, [hidden(ZEL, 3)], 3);
