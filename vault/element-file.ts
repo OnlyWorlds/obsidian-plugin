@@ -714,7 +714,8 @@ export async function writeElement(
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	if (newContent !== content) {
 		// The bytes about to be replaced, as this write read them: the caller's chance to keep them (the pull's copy of a note
-		// that held edits it had not seen), taken here so nothing typed between its look and this write is lost.
+		// that held edits it had not seen). Text typed after this read, while the copy is being written, is not in the copy (the
+		// window is the copy's own write, milliseconds).
 		if (!madeNow) await opts.beforeReplace?.(content);
 		markSelfWrite?.(file.path);
 		await app.vault.modify(file, newContent);

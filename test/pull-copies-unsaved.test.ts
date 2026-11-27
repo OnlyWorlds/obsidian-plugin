@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { makeApp } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { recordChangeSeqs, UNREADABLE_FLAG } from "../vault/change-seq-index";
-import { asKeptCopy, capKeptName, copiedMessage, holdsUnsavedEdits, keptCopyName, markKey, noteMark } from "../vault/note-mark-core";
+import { asKeptCopy, capKeptName, copiedMessage, fencedCopy, holdsUnsavedEdits, keptCopyName, markKey, noteMark } from "../vault/note-mark-core";
+import { ownFrontmatterId } from "../vault/element-file";
 
 const W = "OnlyWorlds/Worlds/W";
 const ELEMENTS = `${W}/Elements`;
@@ -41,7 +42,7 @@ test("the mark: the same bytes agree, one changed character does not, no record 
 	assert.equal(holdsUnsavedEdits("a notf", noteMark("a note")), true);
 	assert.equal(holdsUnsavedEdits("anything", undefined), true);
 	assert.equal(holdsUnsavedEdits("anything", null), true);
-	assert.match(copiedMessage(['Character "Ireena"']), /over 1 note that held edits it had not seen: Character "Ireena"\. The note as it was is kept whole in Kept edits\//);
+	assert.match(copiedMessage(['Character "Ireena"']), /over 1 note that it could not tell were unedited since its last write: Character "Ireena"\. The note as it was is kept whole in Kept edits\//);
 });
 
 test("the copy: the front matter's id key becomes kept_from, every other byte stays, a body line that starts with id: is not touched", () => {
@@ -92,6 +93,30 @@ test("a note with no mark (a vault from before) is copied before the pull replac
 	assert.equal(copies(vault).length, 1);
 	assert.match(vault.contentAt(copies(vault)[0]) ?? "", /A noble, typed into by a person\./);
 	assert.equal(index(vault)[markKey(ID)], noteMark(vault.contentAt(NOTE) ?? ""), "the pull then recorded the mark, so the next pull copies nothing");
+});
+
+test("a note whose id is in flow style is copied whole inside a fence, so the copy is no element, and the next pull copies nothing", async () => {
+	const { vault, dl } = await world();
+	const flow = `---\n{name: Ireena, id: ${ID}, type: Character}\n---\n\n### Description\n\nTyped by a person, with a \`\`\`fence\`\`\` of their own.\n`;
+	await vault.seed(NOTE, flow);
+	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
+	assert.deepEqual(r.copied, ['Character "Ireena"']);
+	assert.equal(copies(vault).length, 1);
+	const copy = vault.contentAt(copies(vault)[0]) ?? "";
+	assert.equal(ownFrontmatterId(copy), null, "the copy still names the element");
+	assert.ok(copy.includes(flow), "the copy does not hold the note byte for byte");
+	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
+	const again = await dl.generateElementNotes(ELEMENTS, el("Changed once more."), false);
+	assert.deepEqual(again.copied, []);
+	assert.equal(copies(vault).length, 1);
+});
+
+test("the fenced copy: the fence is longer than any run of backticks inside, the text is whole, and it is no element note", () => {
+	const text = `---\n{id: ${ID}, type: Character}\n---\n\n\`\`\`\`\`inner\`\`\`\`\`\n`;
+	const out = fencedCopy(text);
+	assert.ok(out.includes("``````markdown\n" + text + "``````\n"), out);
+	assert.equal(ownFrontmatterId(out), null);
+	assert.ok(fencedCopy("no newline at the end").endsWith("no newline at the end\n```\n"));
 });
 
 test("a note beside a clean one: only the typed one is copied, both are written, the pull goes on", async () => {

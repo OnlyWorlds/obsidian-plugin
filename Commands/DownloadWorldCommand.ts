@@ -22,10 +22,10 @@ import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqIndexUnreadable, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, capKeptName, copiedMessage, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, capKeptName, copiedMessage, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
+import { elementNoteType, noteIdIn, ownFrontmatterId, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -813,7 +813,10 @@ export class DownloadWorldCommand {
         let path = normalizePath(`${folder}/${base}.md`);
         for (let n = 2; await adapter.exists(path); n++) path = normalizePath(`${folder}/${base} ${n}.md`);
         this.plugin?.autoSync?.markSelfWrite(path);
-        await this.app.vault.create(path, asKeptCopy(text));
+        // An `id` the key rename cannot read (flow style) would leave the copy an element note: the whole note then goes in a fence instead.
+        let kept = asKeptCopy(text);
+        if (ownFrontmatterId(kept) !== null) kept = fencedCopy(text);
+        await this.app.vault.create(path, kept);
     }
 
     /**

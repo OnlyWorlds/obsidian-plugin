@@ -87,12 +87,24 @@ export function asKeptCopy(text: string): string {
 	return text.slice(0, open[0].length) + rest.slice(0, end).replace(/^(["']?)id\1(\s*):/m, "kept_from$2:") + rest.slice(end);
 }
 
+/**
+ * The note as a copy holds it when `asKeptCopy` could not take its element identity out (an `id` written in a form the key rename
+ * does not read, such as flow style `{id: ..., type: ...}`): the whole note, byte for byte, inside a fenced block under a front
+ * matter of the copy's own, so the copy is a person's note and no element. The fence is longer than any run of backticks inside.
+ */
+export function fencedCopy(text: string): string {
+	let run = 0;
+	for (const m of text.matchAll(/`+/g)) run = Math.max(run, m[0].length);
+	const fence = "`".repeat(Math.max(3, run + 1));
+	return `---\nkept_from: a copy whose id key the plugin could not rename, kept inside the block below\n---\n\n${fence}markdown\n${text}${text.endsWith("\n") ? "" : "\n"}${fence}\n`;
+}
+
 /** The one notice of a pull that copied notes: `labels` are the notes' labels. */
 export function copiedMessage(labels: string[]): string {
 	const shown = labels.slice(0, 3).join(", ");
 	const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
 	const one = labels.length === 1;
-	return `Download wrote the world's copy over ${labels.length} note${one ? "" : "s"} that held edits it had not seen: ${shown}${more}. ` +
+	return `Download wrote the world's copy over ${labels.length} note${one ? "" : "s"} that it could not tell were unedited since its last write: ${shown}${more}. ` +
 		`${one ? "The note" : "Each note"} as it was is kept whole in ${KEPT_FOLDER}/ in the world's folder.`;
 }
 
