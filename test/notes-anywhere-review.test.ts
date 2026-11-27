@@ -238,7 +238,8 @@ test("★ the pull's plan reads a note's front matter as Save does: a comment af
 		await vault.createFolder(`${W}/Elements`);
 		await seed(app, `${W}/Cast/Ireena.md`, text);
 		await new DownloadWorldCommand(app, {}).generateElementNotes(`${W}/Elements`, { Character: [{ id: ID, name: "Ireena", description: "Changed on the server." }] }, false);
-		const mds = [...vault.files.keys()].filter((p) => p.endsWith(".md") && !p.endsWith("World.md"));
+		// A hand-made note has no mark, so the pull copies it first into Kept edits/ (a person's own note, not a second element note).
+		const mds = [...vault.files.keys()].filter((p) => p.endsWith(".md") && !p.endsWith("World.md") && !p.startsWith(`${W}/Kept edits/`));
 		assert.deepEqual(mds, [`${W}/Cast/Ireena.md`], `${shape}: a second note was made: ${JSON.stringify(mds)}`);
 		assert.match(vault.contentAt(`${W}/Cast/Ireena.md`) ?? "", /Changed on the server\./, shape);
 	}

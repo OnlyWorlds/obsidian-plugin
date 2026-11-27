@@ -1,8 +1,8 @@
 /**
  * A pull copies a note that holds edits it had not seen into `Kept edits/` before it writes the world's copy (the note mark,
  * vault/note-mark-core.ts), through the real DownloadWorldCommand note writer and an in-memory vault. The mark is the hash of
- * the note's whole bytes as the last pull or save left them, kept in `.ow-seq.json` as `<id>#`; no mark (a vault from before)
- * means the pull writes as it always did. The copy has no `id` key (`kept_from` instead), so no reader takes it for the element.
+ * the note's whole bytes as the last pull or save left them, kept in `.ow-seq.json` as `<id>#`; no mark (a vault from before, or
+ * a note nothing of this build has written) is copied too, since a mark is what proves a note holds nothing unseen. The copy has no `id` key (`kept_from` instead), so no reader takes it for the element.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
@@ -33,14 +33,14 @@ async function type(app: ReturnType<typeof makeApp>["app"], vault: { contentAt(p
 	await app.vault.modify(app.vault.getAbstractFileByPath(path) as never, (vault.contentAt(path) ?? "").replace(from, to));
 }
 
-test("the mark: the same bytes agree, one changed character does not, no record means no claim", () => {
+test("the mark: the same bytes agree, one changed character does not, no record means a copy", () => {
 	assert.equal(noteMark("a note"), noteMark("a note"));
 	assert.notEqual(noteMark("a note"), noteMark("a nota"));
 	assert.ok(Number.isSafeInteger(noteMark("a note ü 🙂")));
 	assert.equal(holdsUnsavedEdits("a note", noteMark("a note")), false);
 	assert.equal(holdsUnsavedEdits("a notf", noteMark("a note")), true);
-	assert.equal(holdsUnsavedEdits("anything", undefined), false);
-	assert.equal(holdsUnsavedEdits("anything", null), false);
+	assert.equal(holdsUnsavedEdits("anything", undefined), true);
+	assert.equal(holdsUnsavedEdits("anything", null), true);
 	assert.match(copiedMessage(['Character "Ireena"']), /over 1 note that held edits it had not seen: Character "Ireena"\. The note as it was is kept whole in Kept edits\//);
 });
 
@@ -81,15 +81,17 @@ test("a note nobody typed into is replaced with no copy, and takes a new mark", 
 	assert.equal(index(vault)[markKey(ID)], noteMark(vault.contentAt(NOTE) ?? ""));
 });
 
-test("a note with no mark (a vault from before) is written as it always was, with no copy", async () => {
+test("a note with no mark (a vault from before) is copied before the pull replaces it", async () => {
 	const { app, vault, dl } = await world();
 	await dl.generateElementNotes(ELEMENTS, el("A noble."), false);
 	vault.dotfiles.set(SEQ, "{}\n");
 	await type(app, vault, NOTE, "A noble.", "A noble, typed into by a person.");
 	const r = await dl.generateElementNotes(ELEMENTS, el("Changed on the server."), false);
 	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
-	assert.deepEqual(r.copied, []);
-	assert.deepEqual(copies(vault), []);
+	assert.deepEqual(r.copied, ['Character "Ireena"']);
+	assert.equal(copies(vault).length, 1);
+	assert.match(vault.contentAt(copies(vault)[0]) ?? "", /A noble, typed into by a person\./);
+	assert.equal(index(vault)[markKey(ID)], noteMark(vault.contentAt(NOTE) ?? ""), "the pull then recorded the mark, so the next pull copies nothing");
 });
 
 test("a note beside a clean one: only the typed one is copied, both are written, the pull goes on", async () => {

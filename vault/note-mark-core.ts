@@ -7,7 +7,8 @@
  * or save left them. A note whose bytes no longer hash to it holds edits that pull or save has
  * not seen: the pull copies it whole into `Kept edits/` before it writes the world's copy, and
  * says so. No entry (a vault from before, a note an upload just sent, a save that could not
- * tell) means no claim either way: the pull writes it as it always did. Nothing here measures
+ * tell) proves nothing, so the pull copies that note too, and the mark it then writes is the
+ * next pull's baseline. Nothing here measures
  * what a pull would lose: any difference is reason enough for a copy, and a copy costs a file.
  *
  * The hash is cyrb53 (a non-cryptographic 53-bit hash): the index holds whole numbers only, and
@@ -33,9 +34,13 @@ export function noteMark(text: string): number {
 	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
-/** True when the note holds edits no pull or save has seen: a mark is recorded and the bytes no longer match it. */
+/**
+ * True unless the note is provably what the last pull or save left: a mark is recorded and the bytes still match it. A note with
+ * no mark (a vault from before, an upload, a save that could not tell) is copied too: nothing proves it holds nothing unseen,
+ * and a copy costs a file.
+ */
 export function holdsUnsavedEdits(text: string, recorded: number | undefined | null): boolean {
-	return typeof recorded === "number" && noteMark(text) !== recorded;
+	return !(typeof recorded === "number" && noteMark(text) === recorded);
 }
 
 /** The folder of the copies, under the world's folder. A person's own notes live there: it holds no element note. */
