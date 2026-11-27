@@ -108,6 +108,12 @@ export function copiedMessage(labels: string[]): string {
 		`${one ? "The note" : "Each note"} as it was is kept whole in ${KEPT_FOLDER}/ in the world's folder.`;
 }
 
+/** The notice of a pull stopped by a copy it could not write: which note was not changed, and that the notes after it were not written. */
+export function copyStoppedMessage(label: string, reason: string): string {
+	return `Download stopped at ${label}: no copy of the note could be kept in ${KEPT_FOLDER}/ (${reason}), so the note was not changed and the notes after it were not written. ` +
+		`Check that the world's folder can take a new file, then download again.`;
+}
+
 /** The one notice of a run that left notes as the person has them: each changed every time its write came to it. */
 export function leftAsTypedMessage(labels: string[]): string {
 	const shown = labels.slice(0, 3).join(", ");

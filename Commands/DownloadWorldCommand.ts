@@ -21,12 +21,12 @@ import { Category } from '../enums';
 import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
-import { asChangeSeq, changeSeqIndexUnreadable, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, holdsUnsavedEdits, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
-import { keepCopy } from '../vault/kept-copy';
+import { asChangeSeq, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
+import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, copyStoppedMessage, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { inKeptFolder, KeptCopies, KeptCopyFailed } from '../vault/kept-copy';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElementNote } from '../vault/element-file';
+import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElementNote, type WrittenNote } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -248,6 +248,13 @@ export class DownloadWorldCommand {
                     const knownGroups = groupKeysById(await readChangeSeqIndex(this.app, uniqueWorldName));
                     for (const change of latest.values()) if (change.op === 'delete') { seqs[markKey(change.id)] = null; Object.assign(seqs, groupMarkClears(change.id, knownGroups)); }
                     await recordChangeSeqs(this.app, uniqueWorldName, seqs);
+                    // A copy that could not be written stopped the run: what it wrote is recorded above, the
+                    // cursor stays where it was (the next Download brings the same changes), and the notice says
+                    // which note was not changed. The world's folder holds what landed, its key in World.md.
+                    if (knownOf.stopped) {
+                        new Notice(knownOf.stopped, 20000);
+                        return uniqueWorldName;
+                    }
 
                     // The ids the feed reported deleted, old and new: a save never
                     // recreates them as link targets; a later upsert of an id
@@ -563,7 +570,7 @@ export class DownloadWorldCommand {
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; copied: string[]; left: string[] }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; copied: string[]; left: string[]; stopped: string | null }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
@@ -688,12 +695,12 @@ export class DownloadWorldCommand {
 
         // Pass 2 — rename and write. `landed`: the ids whose note this pull wrote.
         const landed: string[] = [];
-        // A note that holds edits no pull or save has seen is copied whole into Kept edits/ just before its write (vault/note-mark-core.ts).
-        const marks = await readChangeSeqIndex(this.app, worldName);
-        // An index that exists and cannot be read is no claim that nothing was typed: every note this pull replaces is copied.
-        const marksUnreadable = await changeSeqIndexUnreadable(this.app, worldName);
-        const copied: string[] = [];
+        // A note that holds edits no pull or save has seen is copied whole into Kept edits/ just before its write (vault/kept-copy.ts).
+        const copies = await KeptCopies.open(this.app, worldName, (p) => this.plugin?.autoSync?.markSelfWrite(p));
+        const marks = copies.marks;
         const knownGroups = groupKeysById(marks);
+        // The copy that could not be written, which stopped the run before its note.
+        let stopped: KeptCopyFailed | null = null;
         // The mark of the bytes each landed note's write put there: the next pull's measure of what a person has typed since.
         const written: Record<string, number | null> = {};
         // The notes that changed each time their write came to them, left as the person has them.
@@ -744,50 +751,53 @@ export class DownloadWorldCommand {
                     // fields verbatim, normalizes link ids, and maps the body to
                     // description (or story for Narrative). The raw v2 element body
                     // (bare link ids, extension namespaces intact) goes straight in.
-                    const wrote = await writeElementNote(
-                        this.app,
-                        worldName,
-                        category,
-                        element.id,
-                        element,
-                        {
-                            markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
-                            // The folder the note is in (a kept note may sit in a
-                            // counted folder the rename left), never another.
-                            folderPath: notePath.slice(0, notePath.lastIndexOf('/')),
-                            fileName: notePath.split('/').pop(),
-                            idToName,
-                            idToRealName,
-                            // A downloaded note carries the SAME full field set as a
-                            // created one. Without this the note shows only fields
-                            // that happen to hold values, so a sparse element gives
-                            // the user no way to see what else it could carry —
-                            // exactly the "kinda useless" problem 3.2 exists to fix.
-                            scaffoldEmptyFields: true,
-                            keepAbove,
-                            knownOf: plan.knownOf,
-                            // The note the plan found, so the write makes no scan of the world's notes for each element.
-                            existingPath: existingElementPath ? notePath : null,
-                            dropKeys,
-                            beforeReplace: plan.knownOf ? undefined : async (text) => {
-                                if (!marksUnreadable && !holdsUnsavedEdits(text, marks[markKey(String(element.id))])) return;
-                                try {
-                                    await keepCopy(this.app, worldName, String(element.name ?? element.id), text, (p) => this.plugin?.autoSync?.markSelfWrite(p));
-                                } catch (error) {
-                                    throw new Error(`could not keep a copy of ${category} "${element.name ?? element.id}" before the pull replaced it (${error instanceof Error ? error.message : String(error)}); the note was not changed`);
-                                }
-                                copied.push(`${category} "${element.name ?? element.id}"`);
-                            },
-                        }
-                    );
+                    const label = `${category} "${element.name ?? element.id}"`;
+                    const copy = copies.forNote(String(element.id), String(element.name ?? element.id), label);
+                    let wrote: WrittenNote;
+                    try {
+                        wrote = await writeElementNote(
+                            this.app,
+                            worldName,
+                            category,
+                            element.id,
+                            element,
+                            {
+                                markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
+                                // The folder the note is in (a kept note may sit in a
+                                // counted folder the rename left), never another.
+                                folderPath: notePath.slice(0, notePath.lastIndexOf('/')),
+                                fileName: notePath.split('/').pop(),
+                                idToName,
+                                idToRealName,
+                                // A downloaded note carries the SAME full field set as a
+                                // created one. Without this the note shows only fields
+                                // that happen to hold values, so a sparse element gives
+                                // the user no way to see what else it could carry —
+                                // exactly the "kinda useless" problem 3.2 exists to fix.
+                                scaffoldEmptyFields: true,
+                                keepAbove,
+                                knownOf: plan.knownOf,
+                                // The note the plan found, so the write makes no scan of the world's notes for each element.
+                                existingPath: existingElementPath ? notePath : null,
+                                dropKeys,
+                                beforeReplace: plan.knownOf ? undefined : copy.beforeReplace,
+                            }
+                        );
+                    } catch (error) {
+                        // A copy that could not be written stops the run before its note: that note is not changed, the
+                        // notes after it are not written, and what the run did write is recorded below.
+                        if (error instanceof KeptCopyFailed) { stopped = error; break; }
+                        throw error;
+                    }
                     const id = String(element.id);
                     if (wrote.text === null) {
                         // The note changed each time the write came to it: it keeps the person's text, its number and its mark
                         // stay as they were, and the run does not move the world's cursor, so the next pull brings the element again.
-                        left.push(`${category} "${element.name ?? element.id}"`);
+                        left.push(label);
                         continue;
                     }
                     landed.push(id);
+                    copy.landed();
                     // The note's mark is the hash of the bytes the write put there, never a later read: text typed after the
                     // write is the person's, and the next pull copies it.
                     written[markKey(id)] = noteMark(wrote.text);
@@ -795,13 +805,17 @@ export class DownloadWorldCommand {
                     Object.assign(written, groupMarkEntries(id, plan.knownOf ? null : (element as { x_properties?: unknown }).x_properties, parseRawFrontmatter(wrote.text) ?? {}, knownGroups));
                 }
             }
-            completed = true;
+            completed = stopped === null;
         } finally {
-            await recordChangeSeqs(this.app, worldName, completed && marksUnreadable ? { ...written, [UNREADABLE_FLAG]: null } : written);
-            if (copied.length > 0) new Notice(copiedMessage(copied), 20000);
+            await recordChangeSeqs(this.app, worldName, completed && copies.unreadable ? { ...written, [UNREADABLE_FLAG]: null } : written);
+            if (copies.copied.length > 0) new Notice(copiedMessage(copies.copied), 20000);
             if (left.length > 0) new Notice(leftAsTypedMessage(left), 20000);
         }
-        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied, left };
+        const halt = stopped as KeptCopyFailed | null;
+        return {
+            became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied: copies.copied, left,
+            stopped: halt ? copyStoppedMessage(halt.label, halt.reason) : null,
+        };
     }
 
     /**
@@ -941,7 +955,7 @@ export class DownloadWorldCommand {
      *  content, and a stored cursor over an empty world folder means an
      *  incremental download would truthfully write nothing (2026-07-16 smoke). */
     private vaultHasElementNotes(worldName: string): boolean {
-        return this.app.vault.getMarkdownFiles().some(f => mayBeElementNote(f.path, worldName));
+        return this.app.vault.getMarkdownFiles().some(f => mayBeElementNote(f.path, worldName) && !inKeptFolder(f.path));
     }
 
     /** id→name across every element note in the vault (all worlds' notes are
