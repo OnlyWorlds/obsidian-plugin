@@ -7,7 +7,7 @@ import { ValidateWorldCommand } from './ValidateWorldCommand';
 import { decodeHtmlEntities } from '../Scripts/htmlEntities';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError, V2Client } from '../client-v2';
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, markKey } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, holdsUnsavedEdits, markKey } from '../vault/note-mark-core';
 import { staleUploadMessage } from '../sync/stale-save';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey, splitWorldsByWrite } from '../vault/world-key';
 import { duplicateIds, emittedIdKey, ownConflictMessage, readElement, readRefusal, unreadableStopMessage, worldElementNotesFromBytes } from '../vault/element-file';
@@ -58,6 +58,8 @@ export class UploadRun {
     knownOfNames = new Map<string, string>();
     /** The world's change_seq index as it stood before this run read any note: the If-Match of each PATCH, so a Save made while the upload waits is refused as stale, never overwritten. */
     knownSeqs: Record<string, number> | null = null;
+    /** The bytes each sent note was read from, by id: an upload keeps a note's mark only when these still hash to it (nobody typed into the note since the pull or save that wrote it). */
+    sentBytes = new Map<string, string>();
 }
 
 export class ExportWorldCommand {
@@ -284,6 +286,7 @@ export class ExportWorldCommand {
             // deleted on onlyworlds.com and not being created again, whether a
             // note here holds it or not (round C, 5). The notes keep them.
             let linksStripped = 0;
+            const strippedIds = new Set<string>();
             const strippedTargets = new Set<string>();
             // A known-of note keel does not serve (out of view, or never on
             // this world's server): a link to it is refused, so it is left out.
@@ -302,7 +305,13 @@ export class ExportWorldCommand {
                     return out;
                 };
                 for (const item of toCreate) item.element = strip(item.type, item.element);
-                for (const item of toUpdate) item.payload = strip(item.type, item.payload);
+                for (const item of toUpdate) {
+                    const before = item.payload;
+                    item.payload = strip(item.type, item.payload);
+                    // A PATCH of a stripped payload replaces the field: the world loses a link the note still holds, so the note's mark goes
+                    // (before any request, so a write that lands and then fails to answer clears it too).
+                    if (item.payload !== before) strippedIds.add(item.id);
+                }
             }
             const strippedNames = [...strippedTargets].map(id => leftOut.nameOf.get(id) ?? run.stubNames.get(id) ?? run.knownOfNames.get(id) ?? feedName.get(id)
                 ?? (hiddenIds.has(id) ? `an element hidden by the world's owner (${id})`
@@ -351,8 +360,18 @@ export class ExportWorldCommand {
             const knownSeqs = run.knownSeqs ?? await readChangeSeqIndex(this.app, worldFolder);
             // /bulk answers no change_seq: a number kept for a created id is not its own.
             const seqs: Record<string, number | null> = {};
+            for (const id of strippedIds) seqs[markKey(id)] = null;
             const knownGroups = groupKeysById(knownSeqs);
             for (const id of landed) { seqs[id] = null; seqs[heldKey(id)] = null; seqs[markKey(id)] = null; Object.assign(seqs, groupMarkClears(id, knownGroups)); }
+            // An upload claims nothing about the bytes it sent: what it sends can leave out a value the note holds (a link that
+            // resolves to nothing, a number the server rounds), so a mark made from it could stand for text the world does not
+            // hold. It only keeps a mark that already matches: a note whose bytes are still what the last pull or save left has no
+            // unsaved edit, so the next pull has nothing to copy. A note typed into since (or with no mark) loses its mark, as before.
+            const keptMark = (id: string): number | null => {
+                const bytes = run.sentBytes.get(id);
+                const held = knownSeqs[markKey(id)];
+                return bytes !== undefined && !strippedIds.has(id) && typeof held === 'number' && !holdsUnsavedEdits(bytes, held) ? held : null;
+            };
             const stale: string[] = [];
             let updated = 0;
             const progressEvery = 50;
@@ -365,7 +384,7 @@ export class ExportWorldCommand {
                     const saved = await client.update(item.type, item.id, body, { ifMatch: knownSeq });
                     seqs[item.id] = changeSeqOf(saved);
                     seqs[heldKey(item.id)] = holdsGroup(item.payload) ? changeSeqOf(saved) : null;
-                    seqs[markKey(item.id)] = null; // an upload does not refresh the note: no claim until the next pull or save (a mark would copy every uploaded note at the next pull)
+                    seqs[markKey(item.id)] = keptMark(item.id); // the note is not refreshed: its mark stays only where it still matches
                     Object.assign(seqs, groupMarkClears(item.id, knownGroups));
                     updated++;
                     if (updated % progressEvery === 0) {
@@ -572,6 +591,7 @@ export class ExportWorldCommand {
                         if (parsed) {
                             run.ambiguousLinks.push(...parsed.ambiguousLinks);
                             if (parsed.dependsOnKept) run.dependsOnKept.push(file.basename);
+                            run.sentBytes.set(String(parsed.id), fileContent);
                             return { id: parsed.id, ...parsed.fields };
                         }
                     }
