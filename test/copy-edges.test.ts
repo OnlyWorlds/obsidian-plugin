@@ -102,8 +102,9 @@ test("★ D2: a pull stopped by a copy it could not write names the note, says i
 });
 
 const ISM = "019e0000-0000-7000-8000-0000000005c3";
+const ISM_NOTE = `${W}/Elements/Character/Ismark.md`;
 
-test("★ a pull stopped by an ordinary write error on the second note of three keeps the first note's number and mark, and holds the cursor", async () => {
+test("★ an ordinary write error on one note of three leaves that note as it is, and the pull carries on: the others land with their numbers, the cursor holds, the notice names it", async () => {
 	const s = fresh();
 	await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, "A noble."), whole(KOL, "Kolyan", 2, "A priest."), whole(ISM, "Ismark", 3, "A brother.")], 3);
 	const v = s.app.vault as unknown as Vaultish;
@@ -114,31 +115,60 @@ test("★ a pull stopped by an ordinary write error on the second note of three 
 	};
 	const r = await download(s.app, s.plugin, [whole(IRE, "Ireena", 4, "Noble, changed."), whole(KOL, "Kolyan", 5, "Priest, changed."), whole(ISM, "Ismark", 6, "Brother, changed.")], 6);
 	assert.match(s.vault.contentAt(IRE_NOTE) ?? "", /Noble, changed\./);
-	assert.equal(index(s.vault)[IRE], 4, "the number of the note the pull wrote was not recorded: its next save would be refused as stale");
-	assert.equal(index(s.vault)[markKey(IRE)], noteMark(s.vault.contentAt(IRE_NOTE) ?? ""));
+	assert.match(s.vault.contentAt(ISM_NOTE) ?? "", /Brother, changed\./, "the pull stopped at the note it could not write: the note after it was starved");
+	assert.match(s.vault.contentAt(KOL_NOTE) ?? "", /A priest\./);
+	assert.equal(index(s.vault)[IRE], 4);
+	assert.equal(index(s.vault)[ISM], 6, "the number of the note written after the bad one was not recorded");
+	assert.equal(index(s.vault)[markKey(ISM)], noteMark(s.vault.contentAt(ISM_NOTE) ?? ""));
 	assert.equal(index(s.vault)[KOL], 2, "the number of the note whose write failed moved");
-	assert.equal(index(s.vault)[ISM], 3, "the number of a note the pull never reached moved");
-	assert.doesNotMatch(s.vault.contentAt(`${W}/Elements/Character/Ismark.md`) ?? "", /Brother, changed\./, "the pull went on past the failed write");
-	assert.equal(s.plugin.settings.syncCursors[WID]?.cursor, "c3", "the cursor moved past changes no note took");
+	assert.equal(s.plugin.settings.syncCursors[WID]?.cursor, "c3", "the cursor moved past a change no note took");
 	const said = r.notices.find((n) => n.includes('Character "Kolyan"')) ?? "";
-	assert.match(said, /^Download stopped/, r.notices.join(" | "));
+	assert.match(said, /^Download could not write/, r.notices.join(" | "));
 	assert.match(said, /the disk is full/, said);
-	assert.equal(r.landed, "Barovia", "a pull that wrote notes into the world's folder reports that nothing landed (a new key would be revoked)");
+	assert.match(said, /not changed/, said);
+	assert.ok(r.notices.some((n) => n.startsWith("World downloaded")), `the pull did not run to its end: ${r.notices.join(" | ")}`);
+	assert.equal(r.landed, "Barovia");
 });
 
-test("★ a hidden stub whose write throws holds the cursor and says so: the note stays whole until the next pull", async () => {
+test("★ a note whose name the disk refuses (too long) among three: the other two land with their numbers, the cursor holds, the notice names it", async () => {
 	const s = fresh();
-	await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, "A noble.")], 1);
+	const long = "森".repeat(90);
+	const v = s.app.vault as unknown as Vaultish;
+	const create = v.create.bind(v);
+	v.create = async (p, c) => {
+		if (p.includes(long)) throw new Error("the name is too long for the disk");
+		return create(p, c);
+	};
+	const r = await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, "A noble."), whole(KOL, long, 2, "A long name."), whole(ISM, "Ismark", 3, "A brother.")], 3);
+	assert.match(s.vault.contentAt(IRE_NOTE) ?? "", /A noble\./);
+	assert.match(s.vault.contentAt(ISM_NOTE) ?? "", /A brother\./, "the note after the refused one was never written");
+	assert.equal(index(s.vault)[IRE], 1);
+	assert.equal(index(s.vault)[ISM], 3);
+	assert.equal(index(s.vault)[KOL], undefined);
+	assert.equal(s.plugin.settings.syncCursors[WID], undefined, "the cursor moved past a change no note took");
+	const said = r.notices.find((n) => n.includes(`Character "${long}"`)) ?? "";
+	assert.match(said, /^Download could not write/, r.notices.join(" | "));
+	assert.match(said, /too long/, said);
+});
+
+test("★ a hidden stub whose write throws is left whole and named; the pull carries on with the other stubs, and the cursor holds", async () => {
+	const s = fresh();
+	await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, "A noble."), whole(KOL, "Kolyan", 2, "A priest.")], 2);
 	const v = s.app.vault as unknown as Vaultish;
 	const process = v.process.bind(v);
 	v.process = async (f, fn) => {
 		if ((f as { path: string }).path === IRE_NOTE) throw new Error("the disk is full");
 		return process(f, fn);
 	};
-	const r = await download(s.app, s.plugin, [{ op: "delete", type: "character", id: IRE, change_seq: 2, updated_at: "x", reason: "hidden" }], 2);
+	const hide = (id: string, seq: number) => ({ op: "delete", type: "character", id, change_seq: seq, updated_at: "x", reason: "hidden" });
+	const r = await download(s.app, s.plugin, [hide(IRE, 3), hide(KOL, 4)], 4);
 	assert.match(s.vault.contentAt(IRE_NOTE) ?? "", /A noble\./);
-	assert.equal(s.plugin.settings.syncCursors[WID]?.cursor, "c1", "the cursor moved past a hidden row whose stub was never written");
-	assert.ok(r.notices.some((n) => n.includes('Character "Ireena"') && /^Download stopped/.test(n)), r.notices.join(" | "));
+	assert.ok((s.vault.contentAt(KOL_NOTE) ?? "").includes("Hidden by the world's owner."), "the stub after the bad one was never written");
+	assert.equal(s.plugin.settings.syncCursors[WID]?.cursor, "c2", "the cursor moved past a hidden row whose stub was never written");
+	const said = r.notices.find((n) => n.includes('Character "Ireena"')) ?? "";
+	assert.match(said, /^Download could not write/, r.notices.join(" | "));
+	assert.match(said, /the disk is full/, said);
+	assert.ok(r.notices.some((n) => n.startsWith("World downloaded")), `the pull did not run to its end: ${r.notices.join(" | ")}`);
 	assert.equal(r.landed, "Barovia");
 });
 

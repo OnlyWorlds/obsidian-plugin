@@ -132,6 +132,18 @@ export function writeStoppedMessage(label: string, reason: string, writer: KeptW
 		`Check that the note can be changed, then ${WRITES[writer].again}.`;
 }
 
+/**
+ * The one notice of a run that went on past notes it could not write (a write that threw, not a failed copy): each with its
+ * reason, each not changed (a new one not made), the other notes written.
+ */
+export function notWrittenMessage(entries: { label: string; reason: string }[], writer: KeptWriter = "Download"): string {
+	const one = entries.length === 1;
+	const shown = entries.slice(0, 3).map((e) => `${e.label} (${e.reason})`).join(", ") + (entries.length > 3 ? ` +${entries.length - 3} more` : "");
+	return `${writer} could not write ${entries.length} note${one ? "" : "s"}: ${shown}. ` +
+		`${one ? "It was" : "They were"} not changed (a note not there yet was not made), and the other notes were written. ` +
+		`Fix what the reason names, then ${WRITES[writer].again}.`;
+}
+
 /** The one notice of a run that left notes as the person has them: each changed every time its write came to it. */
 export function leftAsTypedMessage(labels: string[], writer: KeptWriter = "Download"): string {
 	const one = labels.length === 1;
