@@ -1,12 +1,12 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal, renderElementNote } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
 import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2';
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkEntries, markKey, noteMark, valueMark } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkEntries, markKey, noteMark, sameUpToLayout, valueMark } from '../vault/note-mark-core';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
 import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, holdsGroup, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
@@ -1124,30 +1124,71 @@ export class SaveElementCommand {
      */
     private async refreshServerFields(file: TFile, body: unknown, sent: string, worldName: string, id: string, category: string, partial = false): Promise<void> {
         try {
-            const content = await this.app.vault.read(file);
-            const next = carriesServerFields(body) ? withServerFieldLines(content, body) : content;
-            if (next !== content) {
-                this.plugin.autoSync?.markSelfWrite(file.path);
-                await this.app.vault.modify(file, next);
-            }
-            // The note's mark (vault/note-mark-core.ts): the bytes this save leaves, as it sent them plus the server's lines. A
-            // note typed into while the save ran then differs from its mark, and the next pull copies it before it writes.
-            const expected = carriesServerFields(body) ? withServerFieldLines(sent, body) : sent;
+            // The server's lines are replaced in the bytes the note holds at the write, never in an older read: text typed since
+            // stays, and that note then differs from the world's render and is not marked.
+            await this.app.vault.process(file, (current) => {
+                const next = carriesServerFields(body) ? withServerFieldLines(current, body) : current;
+                if (next !== current) this.plugin.autoSync?.markSelfWrite(file.path);
+                return next;
+            });
+            // What the note holds when nothing was typed since the save read it: those bytes with the server's lines.
+            const unchanged = carriesServerFields(body) ? withServerFieldLines(sent, body) : sent;
+            // The note's mark (vault/note-mark-core.ts) claims the world holds these very bytes, so it is recorded only where the
+            // pull's own render of the world's answer, made over the note as it is now, is the note byte for byte: a pull would
+            // then write nothing the note lacks. A send can leave out what the note holds (a text property beside its section, a
+            // decimal keel rounds, a second link in a single-link field, a link to a note not in the world), and a note typed into
+            // while the save ran differs too: those get no mark, and the next pull copies the note before it writes.
+            // A save that left a link out (unresolved, ambiguous, or deleted on the server) did not send the note's links: no mark, whatever the render says.
+            const noteMarkNow = partial ? null : await this.markIfWorldHolds(file, body, worldName, id, category, unchanged);
             // The group's entries the note holds as the world's (the group marks): only for a note whose entries are still
             // what the save sent, so a value typed while it ran is never taken for the world's.
             const group = body && typeof body === 'object' ? (body as { x_properties?: unknown }).x_properties : null;
             const sentProps = parseRawFrontmatter(sent) ?? {};
-            const nowProps = parseRawFrontmatter(next) ?? {};
+            const nowProps = parseRawFrontmatter(await this.app.vault.read(file)) ?? {};
             const same = !!group && typeof group === 'object' && !Array.isArray(group)
                 && Object.keys(group).every((k) => !(k in nowProps) || (k in sentProps && valueMark(sentProps[k]) === valueMark(nowProps[k])));
             await recordChangeSeqs(this.app, worldName, {
-                // A save that left a link out did not send the note's bytes: the mark is one no note hashes to, so the next pull copies.
-                [markKey(id)]: partial ? 0 : noteMark(expected),
+                [markKey(id)]: noteMarkNow,
                 ...groupMarkEntries(id, same ? group : null, nowProps, groupKeysById(await readChangeSeqIndex(this.app, worldName))),
             });
         } catch (error) {
             console.error(`OnlyWorlds: could not refresh the server fields of ${file.path}`, error);
         }
+    }
+
+    /**
+     * The mark of the note's bytes, or null for none: set only when the writer's own render of the element the world answered
+     * with (what a pull writes), made over the note as it stands, is the note: the same lines but for blank lines, trailing
+     * spaces and line endings (sameUpToLayout). An answer that is not this element's whole answer or a render that could not be
+     * made gives none. A new note's scaffold (the empty fields' keys in its front matter) holds nothing the world lacks, so the
+     * render with the scaffold is tried second.
+     */
+    private async markIfWorldHolds(file: TFile, body: unknown, worldName: string, id: string, category: string, unchanged: string): Promise<number | null> {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+        const world = body as Record<string, unknown>;
+        // The render keeps what the note holds and the answer leaves out (a person's own keys), so an answer that is not the whole
+        // element proves nothing about them: only this element's answer, carrying every field of its type, is read.
+        if (world.id !== id) return null;
+        const schema = getCategorySchema(category);
+        if (!schema || Object.keys(schema).some((k) => !(k in world))) return null;
+        // Link text as the pull writes it: the file name of the note that holds the id (a renamed note, `Twin (1)`), and the
+        // element's own name beside it for an alias.
+        const notes = this.worldNoteIndex(worldName);
+        const idToName = (target: string) => notes.get(target)?.basename ?? null;
+        const idToRealName = (target: string) => {
+            const held = notes.get(target);
+            const name = held ? this.app.metadataCache.getFileCache(held)?.frontmatter?.name : null;
+            return typeof name === 'string' && name ? name : null;
+        };
+        for (const scaffoldEmptyFields of [false, true]) {
+            const drawn = await renderElementNote(this.app, worldName, category, id, world, file.path, { scaffoldEmptyFields, idToName, idToRealName });
+            if (!drawn) continue;
+            // Layout (blank lines, trailing spaces) is tolerated only in a note nobody typed into since the save read it: the save then
+            // sent every such difference with the text. A note typed into meanwhile must be the render byte for byte, since a
+            // whitespace edit made after the read (a hard break, a blank line in a code block) is in no answer.
+            if (drawn.text === drawn.read || (drawn.read === unchanged && sameUpToLayout(drawn.text, drawn.read))) return noteMark(drawn.read);
+        }
+        return null;
     }
 
     /** Show the reason (the Notice the user always got) and report the failure. */

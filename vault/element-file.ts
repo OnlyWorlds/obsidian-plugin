@@ -532,6 +532,11 @@ export interface WriteElementOpts {
 	 * of bytes the server does not hold (Paste world) must not flush: that save would send them.
 	 */
 	flushEditors?: boolean;
+	/**
+	 * Build the note as this write would leave it and return those bytes (`WrittenNote.text`), writing, making and copying
+	 * nothing: `renderElementNote` only. The note must exist; with none this throws.
+	 */
+	dryRender?: boolean;
 }
 
 /**
@@ -541,6 +546,8 @@ export interface WriteElementOpts {
 export interface WrittenNote {
 	file: TFile;
 	text: string | null;
+	/** A dry render only: the bytes of the note the render was made over, read in the same call. */
+	read?: string;
 }
 
 /**
@@ -690,6 +697,7 @@ export async function writeElementNote(
 	let file = app.vault.getAbstractFileByPath(filePath);
 	let made: string | undefined; // the bytes of a note this write just made: no one's edit, so no copy is asked for them
 	if (!(file instanceof TFile)) {
+		if (opts.dryRender) throw new Error(`no note at ${filePath} to render over`);
 		if (!app.vault.getAbstractFileByPath(folder)) {
 			await app.vault.createFolder(folder);
 		}
@@ -737,7 +745,7 @@ export async function writeElementNote(
 	// namespaces, the user's own additions), which is what processFrontMatter
 	// was buying us.
 	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it (a pull's writes only).
-	if (opts.flushEditors) await flushOpenEditors(app, file);
+	if (opts.flushEditors && !opts.dryRender) await flushOpenEditors(app, file);
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
@@ -784,6 +792,14 @@ export async function writeElementNote(
 			};
 		}
 	}
+	// The server's keys close the block, after a person's own keys too (`tags`, a note's `type`): where a save's refresh puts
+	// them (withServerFieldLines), so the render of a saved note is the note and not the same lines in another order.
+	for (const k of SERVER_FIELDS) {
+		if (!hasOwn(merged, k)) continue;
+		const held = merged[k];
+		delete merged[k];
+		merged[k] = held;
+	}
 	// The record goes last, under everything the person reads first.
 	if (knownOf) merged[KNOWN_OF_WRITTEN_KEY] = knownOfWritten(data, cat);
 	// The person's own sections of a known-of note follow the fields, byte for
@@ -813,10 +829,36 @@ export async function writeElementNote(
 	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId, ownDepends, opts.idToRealName);
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
+	if (opts.dryRender) return { file, text: newContent, read: content };
 	// The bytes about to be replaced, as this write read them, go to the caller first (the pull's copy of a note that held edits
 	// it had not seen); the write then replaces those bytes or none (replaceNote).
 	const text = await replaceNote(app, file, content, newContent, { beforeReplace: opts.beforeReplace, markSelfWrite, ownBytes: made, flushEditors: opts.flushEditors });
 	return { file, text };
+}
+
+/**
+ * What a pull would write to the note at `path` from `data` (the element as the world holds it): the writer's own render, run
+ * with no write, and `read`, the note's bytes it was made over (read in the same call, so no later read stands in for them). A
+ * note a Save leaves is the world's copy exactly when `text === read`, and only then may it be marked as such. Null when no
+ * render could be made (no note at `path`, another note taking the id, a throw): never read as a match.
+ */
+export async function renderElementNote(
+	app: App,
+	worldName: string,
+	category: string,
+	elementId: string,
+	data: Record<string, unknown>,
+	path: string,
+	opts: Pick<WriteElementOpts, "scaffoldEmptyFields" | "idToName" | "idToRealName"> = {}
+): Promise<{ text: string; read: string } | null> {
+	try {
+		const out = await writeElementNote(app, worldName, category, elementId, data, { ...opts, existingPath: path, dryRender: true });
+		if (out.text === null || out.read === undefined || out.file.path !== path) return null;
+		return { text: out.text, read: out.read };
+	} catch (error) {
+		console.error(`OnlyWorlds: could not render ${path} as the world holds it`, error);
+		return null;
+	}
 }
 
 /**

@@ -3,7 +3,7 @@
  * a server held in a map (everything else 404s), every dialog answered yes.
  * Returns what was sent, the calls in order and the notices shown.
  */
-import type { TFile } from "obsidian";
+import type { App, TFile } from "obsidian";
 import { makeApp, __notices, __modals } from "./obsidian-mock";
 import { SaveElementCommand } from "../../Commands/SaveElementCommand";
 import { V2ApiError } from "../../client-v2";
@@ -35,6 +35,8 @@ export interface HarnessOpts {
 	gone?: string[];
 	/** The element body keel answers an update or a create of an id with (default: `{}` for an update, the sent body for a create). */
 	answer?: Record<string, Record<string, unknown>>;
+	/** Runs while an update is in flight (after the body is sent, before keel answers): a person typing into a note as the save runs. */
+	during?: (ctx: { app: App; files: Record<string, TFile> }) => Promise<void>;
 }
 
 export async function harnessSave(o: HarnessOpts) {
@@ -72,6 +74,7 @@ export async function harnessSave(o: HarnessOpts) {
 		update: async (type: string, id: string, b: Record<string, unknown>) => {
 			calls.push(`update ${type} ${id}`);
 			sent.push(b);
+			await o.during?.({ app, files });
 			return o.answer?.[id] ?? {};
 		},
 		bulkCreate: async (items: { type: string; element: Record<string, unknown> }[], opts?: unknown) => {
