@@ -29,14 +29,11 @@ export class AutoSyncEngine {
 	private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 	/** Path -> when it was marked (now()); one mark swallows one modify event. */
 	private selfWritePaths: Map<string, number> = new Map();
-	/** Path -> how many plugin writes it has had: an edit's save is scheduled only when none came while its element check ran. */
-	private pluginWrites: Map<string, number> = new Map();
 	private now: () => number;
 	/** Saves running at once: a replace-all over many notes fired one timer each, all at the same moment, every save carrying the PIN. */
 	static readonly MAX_PARALLEL_SAVES = 3;
 	private activeSaves = 0;
-	/** Saves waiting for a free slot, each with its note's path (a plugin write of the note drops it: markSelfWrite). */
-	private waitingSaves: { path: string; resolve: (skip: boolean) => void }[] = [];
+	private waitingSaves: ((skip: boolean) => void)[] = [];
 
 	/** `now` is the clock the self-write marks are aged by (a test's fake clock; Date.now otherwise). */
 	constructor(app: App, plugin: OnlyWorldsPlugin, now: () => number = Date.now) {
@@ -71,11 +68,7 @@ export class AutoSyncEngine {
 				}
 				if (!this.plugin.settings.autoSync) return;
 				// Whether the note is an element's is read from the note (its place, its id and `type`), so a person's own note says nothing.
-				// A plugin write that comes while that read runs replaces what this edit would send: no save is scheduled for it.
-				const writes = this.pluginWrites.get(file.path) ?? 0;
-				void this.isElementFile(file).then((is) => {
-					if (is && (this.pluginWrites.get(file.path) ?? 0) === writes) this.scheduleSync(file);
-				});
+				void this.isElementFile(file).then((is) => { if (is) this.scheduleSync(file); });
 			})
 		);
 	}
@@ -117,7 +110,7 @@ export class AutoSyncEngine {
 	private async syncFile(file: TFile): Promise<void> {
 		if (this.activeSaves >= AutoSyncEngine.MAX_PARALLEL_SAVES) {
 			// Woken to skip when the person cancelled the PIN prompt: they said no for this burst.
-			const skip = await new Promise<boolean>((resolve) => this.waitingSaves.push({ path: file.path, resolve }));
+			const skip = await new Promise<boolean>((resolve) => this.waitingSaves.push(resolve));
 			if (skip) return;
 		} else {
 			this.activeSaves++;
@@ -127,7 +120,7 @@ export class AutoSyncEngine {
 		} finally {
 			// The place passes straight to the next in line, so the count never dips below the cap while any wait.
 			const next = this.waitingSaves.shift();
-			if (next) next.resolve(false);
+			if (next) next(false);
 			else this.activeSaves--;
 		}
 	}
@@ -157,7 +150,7 @@ export class AutoSyncEngine {
 			const cmd = new SaveElementCommand(this.app, this.plugin);
 			const result = await cmd.execute(file);
 			// Cancel on the PIN prompt: the saves still waiting would each ask again, one prompt after another.
-			if (!result.ok && result.pinCancelled) this.waitingSaves.splice(0).forEach((w) => w.resolve(true));
+			if (!result.ok && result.pinCancelled) this.waitingSaves.splice(0).forEach((resolve) => resolve(true));
 			// The command already showed its Notice; the status must agree with it.
 			// A refused save (a 422, no key, the PIN prompt cancelled) ends on
 			// error, never on synced.
@@ -182,29 +175,8 @@ export class AutoSyncEngine {
 	 * Call this before writing to a vault file from plugin code, so the resulting
 	 * 'modify' event doesn't trigger another sync. The mark holds for
 	 * SELF_WRITE_TTL_MS; marking a marked path again renews it, still one event.
-	 *
-	 * It also drops the save already scheduled for this path (its timer, or its
-	 * place in the queue for a free slot, or the save an edit's element check
-	 * is about to schedule): the note is about to hold the plugin's bytes, and
-	 * a person's earlier edit sent after that would send those instead (Paste
-	 * world's pasted ones, under an unchanged If-Match). Only this path's save
-	 * goes. A save already running is not stopped.
 	 */
 	markSelfWrite(path: string): void {
 		this.selfWritePaths.set(path, this.now());
-		this.pluginWrites.set(path, (this.pluginWrites.get(path) ?? 0) + 1);
-		const timer = this.timers.get(path);
-		if (timer !== undefined) {
-			clearTimeout(timer);
-			this.timers.delete(path);
-		}
-		const kept = this.waitingSaves.filter((w) => w.path !== path);
-		const dropped = this.waitingSaves.filter((w) => w.path === path);
-		this.waitingSaves = kept;
-		for (const w of dropped) w.resolve(true);
-		// Nothing left to send: the status the dropped save set ("dirty") no longer holds.
-		if ((timer !== undefined || dropped.length > 0) && this.timers.size === 0 && this.waitingSaves.length === 0 && this.activeSaves === 0) {
-			this.plugin.setSyncStatus("idle");
-		}
 	}
 }
