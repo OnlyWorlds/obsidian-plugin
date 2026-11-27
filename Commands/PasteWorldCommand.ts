@@ -6,7 +6,7 @@ import { WorldService, sanitizeFileName } from 'Scripts/WorldService';
 import { LOCAL_WORLD_KEY_TOKEN, classifyWorldKey } from '../vault/world-key';
 import { Category } from '../enums';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { flushOpenEditors, pickNoteForId, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
+import { pickNoteForId, worldNoteIds, writeElementNote, type WrittenNote } from '../vault/element-file';
 import { KeptCopies, stoppedMessage } from '../vault/kept-copy';
 import { copiedMessage, leftAsTypedMessage } from '../vault/note-mark-core';
 import { isHiddenId, isStubNote, type HiddenListHost } from '../sync/hidden-on-server';
@@ -161,15 +161,6 @@ export class PasteWorldCommand {
                     // Reuse the note this id has anywhere in the world, else mint a unique filename.
                     const existingElementPath = pickNoteForId(worldIds.get(element.id) ?? [], worldName, category);
                     const label = `${category} "${element.name ?? element.id}"`;
-                    // An open editor's unsaved text first, so the note is read as the person has it. A flush that fails stops
-                    // the paste there, as a failed write does, and says so.
-                    const found = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
-                    try {
-                        if (found instanceof TFile) await flushOpenEditors(this.app, found);
-                    } catch (error) {
-                        stopped = { label, error };
-                        break notes;
-                    }
                     if (existingElementPath && (await this.isStub(existingElementPath))) continue;
                     // A known-of stub (the folder spec §4.4) is
                     // written as one, never over a whole note (no reset brought it:
@@ -205,6 +196,10 @@ export class PasteWorldCommand {
                                 markSelfWrite: (p) => this.markSelfWrite?.(p),
                                 // The note found above, so the writer makes no second search.
                                 existingPath: existingElementPath,
+                                // The bytes on disk are copied before the write. Open editors are not saved first (no
+                                // flushEditors): their save's modify event would let auto-sync send the pasted bytes, which
+                                // the server does not hold. Text typed and not yet saved under a note this replaces is the
+                                // known limit: it is in no copy.
                                 beforeReplace: copy.beforeReplace,
                             }
                         );

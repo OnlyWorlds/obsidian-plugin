@@ -821,6 +821,8 @@ export class DownloadWorldCommand {
                                 existingPath: existingElementPath ? notePath : null,
                                 dropKeys,
                                 beforeReplace: copy.beforeReplace,
+                                // A pull writes the server's bytes: its open editors are saved first (flushOpenEditors).
+                                flushEditors: true,
                             }
                         );
                     } catch (error) {
@@ -977,6 +979,7 @@ export class DownloadWorldCommand {
                 const wrote = await replaceNote(this.app, file, content, next, {
                     beforeReplace: copy.beforeReplace,
                     markSelfWrite: (p) => this.plugin?.autoSync?.markSelfWrite(p),
+                    flushEditors: true,
                 });
                 if (wrote === null) {
                     out.left.push(label);

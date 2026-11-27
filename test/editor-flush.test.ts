@@ -1,20 +1,21 @@
 /**
  * Text typed in an open editor and not yet saved is on no disk: Obsidian writes an editor's text about two seconds after the
- * last key, and `vault.read` and `vault.process` see the file only. Before a write reads a note, and before each try of its
+ * last key, and `vault.read` and `vault.process` see the file only. Before a pull reads a note, and before each try of its
  * replace, every open markdown view of that note is saved, so the typed text reaches the disk, no longer hashes to the
  * note's mark, and the copy rule keeps it. Only the views of the note being written are saved; a view with no `save` is
- * passed over.
+ * passed over. Only Download flushes: a pull writes the server's bytes, so the save auto-sync schedules from the flush's
+ * modify event finds nothing to send. Paste world writes bytes the server does not hold and never flushes; text typed and not
+ * yet saved under a note it replaces is its known limit.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import "./support/bare-paths";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeApp, setRequestUrl, __notices, __modals } from "./support/obsidian-mock";
+import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
 import type { MockVault } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
 import { FLUSH_SAVE_TIMEOUT } from "../vault/element-file";
-import { AutoSyncEngine } from "../sync/auto-sync";
 
 const W = "OnlyWorlds/Worlds/W";
 const ELEMENTS = `${W}/Elements`;
@@ -69,13 +70,23 @@ test("★ the hidden stub pass saves an open editor first: its unsaved text is c
 	assert.ok(inACopy(vault, TYPED), `the editor's unsaved text is in no copy: ${__notices.join(" | ")}`);
 });
 
-test("★ Paste world saves an open editor before it writes over the note", async () => {
+test("★ Paste world does not flush or save an open editor: its copy and its write take the note as it is on disk", async () => {
 	const { app, vault, mock, dl } = await world();
 	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
-	mock.openEditor(NOTE, typedOver(vault, NOTE));
-	await new PasteWorldCommand(app, {} as never).generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "Pasted." }] }, false);
-	assert.ok(inACopy(vault, TYPED), "the editor's unsaved text is in no copy");
+	// Saved typing on disk: the note no longer matches its mark, so Paste world copies it first.
+	vault.files.get(NOTE)!.content = (vault.contentAt(NOTE) ?? "").replace("A noble.", "A noble, typed and saved.");
+	const dirty = mock.openEditor(NOTE, typedOver(vault, NOTE));
+	const throwing = mock.openEditor(OTHER_NOTE, typedOver(vault, OTHER_NOTE), { onSave: async () => { throw new Error("a save Paste world must not ask for"); } });
+	__notices.length = 0;
+	const r = await new PasteWorldCommand(app, {} as never).generateElementNotes(ELEMENTS, both("Pasted.", "Pasted too."), false);
+	assert.equal(dirty.saves, 0, "Paste world saved an open editor (its modify event would let auto-sync send the pasted bytes)");
+	assert.equal(throwing.saves, 0, "Paste world saved an open editor");
+	assert.equal(r.stopped, null, r.stopped ?? "");
 	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
+	assert.match(vault.contentAt(OTHER_NOTE) ?? "", /Pasted too\./);
+	assert.ok(inACopy(vault, "A noble, typed and saved."), "the bytes on disk were not copied");
+	// The known limit: text typed in the editor and not yet saved is not in the copy.
+	assert.ok(!inACopy(vault, TYPED));
 });
 
 test("★ only the open views of the note being written are saved, and a view with no save is passed over", async () => {
@@ -158,36 +169,6 @@ test("★ an editor whose save does not return in time: its note is left as it w
 	}
 });
 
-test("★ Paste world's flush of a dirty editor leaves auto-sync nothing to send: no save of pasted bytes is scheduled", async () => {
-	const { app, vault, mock, dl } = await world();
-	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
-	// The real auto-sync engine, its modify listener fed by the vault's writes.
-	const listeners: ((f: unknown) => void)[] = [];
-	const v = app.vault as unknown as { on(name: string, cb: (f: unknown) => void): unknown; modify(f: unknown, c: string): Promise<void> };
-	v.on = (name, cb) => {
-		if (name === "modify") listeners.push(cb);
-		return {};
-	};
-	const modify = v.modify.bind(v);
-	v.modify = async (f, c) => {
-		await modify(f, c);
-		for (const cb of listeners) cb(f);
-	};
-	const statuses: string[] = [];
-	const plugin = { settings: { apiKey: "", debounceMs: 5, autoSync: true }, setSyncStatus: (s: string) => statuses.push(s), registerEvent: () => {} };
-	const engine = new AutoSyncEngine(app, plugin as never);
-	engine.registerListeners();
-	mock.openEditor(NOTE, typedOver(vault, NOTE));
-	await new PasteWorldCommand(app, {} as never, undefined, (p: string) => engine.markSelfWrite(p))
-		.generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "Pasted." }] }, false);
-	await new Promise((r) => setTimeout(r, 30));
-	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
-	assert.ok(inACopy(vault, TYPED));
-	assert.ok(!statuses.includes("syncing"), `auto-sync sent a save after Paste world replaced the note (the pasted bytes): ${statuses.join(" | ")}`);
-	const timers = (engine as unknown as { timers: Map<string, ReturnType<typeof setTimeout>> }).timers;
-	for (const t of timers.values()) clearTimeout(t);
-});
-
 /** A Download over the feed `rows` at `head`, through downloadWithKey. */
 function feed(app: ReturnType<typeof makeApp>["app"], plugin: unknown) {
 	const WID = "019e0000-0000-7000-8000-0000000008ee";
@@ -230,16 +211,6 @@ test("★ a line typed outside the fields of a whole note and not yet saved stay
 	const stub = vault.contentAt(NOTE) ?? "";
 	assert.ok(stub.includes("Hidden by the world's owner."), stub);
 	assert.ok(stub.includes(GATE), `the unsaved line left the stub (only in a copy): ${stub}`);
-});
-
-test("★ text typed above a known-of note's fields and not yet saved stays in the note Paste world rewrites", async () => {
-	const { app, vault, mock } = await world();
-	const known = `---\nname: Ireena\nid: ${ID}\nknown_of: true\n---\n\nKnown of: you know of this element, not all of it. A field not shown here is unknown, not empty.\n\n### Description\n\nA noble.\n`;
-	await vault.seed(NOTE, known);
-	mock.openEditor(NOTE, known.replace("not empty.\n\n", `not empty.\n\n${GATE}\n\n`));
-	await new PasteWorldCommand(app, {} as never).generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "A noble, pasted.", known_of: true }] }, false);
-	assert.match(vault.contentAt(NOTE) ?? "", /A noble, pasted\./);
-	assert.ok((vault.contentAt(NOTE) ?? "").includes(GATE), `the unsaved line left the note (only in a copy): ${vault.contentAt(NOTE)}`);
 });
 
 test("★ text typed in the editor while the note's copy is being written ends in a copy or the note, never in neither", async () => {
@@ -290,24 +261,6 @@ test("★ a flush that throws before the pull reads a note leaves that note as i
 	assert.match(vault.contentAt(OTHER_NOTE) ?? "", /Priest, changed\./);
 	assert.match(vault.contentAt(ISM_NOTE) ?? "", /Brother, changed\./);
 	assert.ok(__notices.some((n) => n.includes('Character "Ireena"') && /could not save/.test(n)), __notices.join(" | "));
-});
-
-test("★ a flush that throws in Paste world is said in a notice, not lost in an unawaited rejection", async () => {
-	const { app, vault, mock, dl } = await world();
-	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
-	const before = vault.contentAt(OTHER_NOTE);
-	mock.openEditor(OTHER_NOTE, typedOver(vault, OTHER_NOTE), { onSave: async () => { throw new Error("the editor could not save"); } });
-	__modals.length = 0;
-	__notices.length = 0;
-	await new PasteWorldCommand(app, {} as never).execute();
-	const modal = __modals[__modals.length - 1] as unknown as { onSubmit(json: unknown): unknown };
-	await Promise.resolve(modal.onSubmit({
-		World: { api_key: "ow_k_test", name: "W" },
-		Character: [{ id: ID, name: "Ireena", description: "Pasted." }, { id: OTHER, name: "Kolyan", description: "Pasted too." }, { id: ISM_ID, name: "Ismark", description: "Pasted new." }],
-	}));
-	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
-	assert.equal(vault.contentAt(OTHER_NOTE), before, "the note whose flush failed was changed");
-	assert.ok(__notices.some((n) => /^Paste world stopped at Character "Kolyan"/.test(n) && /could not save/.test(n)), __notices.join(" | "));
 });
 
 test("a workspace with no getLeavesOfType (an older stand-in) writes as before", async () => {

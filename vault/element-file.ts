@@ -526,6 +526,12 @@ export interface WriteElementOpts {
 	 * then replaces exactly those bytes or none: a note that changed after this call is handed to it again (replaceNote).
 	 */
 	beforeReplace?: (content: string) => Promise<void>;
+	/**
+	 * Save the note's open editors before the write reads it and before each try (flushOpenEditors). Download only: a pull
+	 * writes the server's bytes, so the save auto-sync schedules from the flush's modify event finds nothing to send. A writer
+	 * of bytes the server does not hold (Paste world) must not flush: that save would send them.
+	 */
+	flushEditors?: boolean;
 }
 
 /**
@@ -545,8 +551,8 @@ export interface WrittenNote {
  * Only a dirty view of this file is saved: one whose text (`getViewData`) differs from the file's, line endings aside (an
  * editor that holds `\n` where the file holds `\r\n` has nothing unsaved). A clean view, a view with no `save` or no text, and
  * a workspace that lists no leaves are passed over. The save is a plain one, the person's own, with no self-write mark: its
- * modify event schedules auto-sync's save as any edit does, and the writer's own mark just before its write drops that save
- * (AutoSyncEngine.markSelfWrite); with no write after it, the typing is sent as any edit is.
+ * modify event schedules auto-sync's save as any edit does. Only a pull flushes (WriteElementOpts.flushEditors): it writes the
+ * server's bytes, so that save then finds nothing to send; with no write after it, the typing is sent as any edit is.
  *
  * A save that does not return within FLUSH_SAVE_TIMEOUT.ms throws, so the writer leaves that note as it was and says so; a
  * save that completes later is the person's own. Nothing here swallows an error.
@@ -591,17 +597,17 @@ export async function replaceNote(
 	file: TFile,
 	seen: string,
 	next: string,
-	opts: { beforeReplace?: (content: string) => Promise<void>; markSelfWrite?: (path: string) => void; ownBytes?: string } = {}
+	opts: { beforeReplace?: (content: string) => Promise<void>; markSelfWrite?: (path: string) => void; ownBytes?: string; flushEditors?: boolean } = {}
 ): Promise<string | null> {
 	let expected = seen;
 	for (let i = 0; i < REPLACE_TRIES; i++) {
 		// An editor's unsaved text reaches the disk first; the write then finds the note changed and copies it.
-		await flushOpenEditors(app, file);
+		if (opts.flushEditors) await flushOpenEditors(app, file);
 		if (expected === next) return next;
 		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
 		// And again right before the write: typing in the editor while the copy was written reaches the disk, the comparison
 		// below sees it, and the try repeats with a fresh copy.
-		await flushOpenEditors(app, file);
+		if (opts.flushEditors) await flushOpenEditors(app, file);
 		const found: { text: string | null } = { text: null };
 		await app.vault.process(file, (current) => {
 			if (current !== expected) {
@@ -730,8 +736,8 @@ export async function writeElementNote(
 	// blank line. We also keep any frontmatter key we do not own (extension
 	// namespaces, the user's own additions), which is what processFrontMatter
 	// was buying us.
-	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it.
-	await flushOpenEditors(app, file);
+	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it (a pull's writes only).
+	if (opts.flushEditors) await flushOpenEditors(app, file);
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
@@ -809,7 +815,7 @@ export async function writeElementNote(
 	const newContent = joinNote(serializeFrontmatter(merged), body);
 	// The bytes about to be replaced, as this write read them, go to the caller first (the pull's copy of a note that held edits
 	// it had not seen); the write then replaces those bytes or none (replaceNote).
-	const text = await replaceNote(app, file, content, newContent, { beforeReplace: opts.beforeReplace, markSelfWrite, ownBytes: made });
+	const text = await replaceNote(app, file, content, newContent, { beforeReplace: opts.beforeReplace, markSelfWrite, ownBytes: made, flushEditors: opts.flushEditors });
 	return { file, text };
 }
 
