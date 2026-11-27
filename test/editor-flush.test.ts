@@ -13,6 +13,7 @@ import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
 import type { MockVault } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
+import { AutoSyncEngine } from "../sync/auto-sync";
 
 const W = "OnlyWorlds/Worlds/W";
 const ELEMENTS = `${W}/Elements`;
@@ -96,6 +97,61 @@ test("★ the write is built from the saved editor text: a property typed in the
 	await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest."), false);
 	assert.match(vault.contentAt(NOTE) ?? "", /Changed on the server\./);
 	assert.match(vault.contentAt(NOTE) ?? "", /^mood: grim$/m, "the person's property, typed and not yet saved, left the note (it is only in a copy)");
+});
+
+test("★ a dirty view is marked as the plugin's own write just before its one save; a clean view gets neither a save nor a mark", async () => {
+	const log: string[] = [];
+	const { app, vault, mock } = await world();
+	const plugin = { autoSync: { markSelfWrite: (p: string) => log.push(`mark ${p}`) } };
+	const dl = new DownloadWorldCommand(app, {}, plugin as never);
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	const dirty = mock.openEditor(NOTE, typedOver(vault, NOTE), true, log);
+	const clean = mock.openEditor(OTHER_NOTE, null, true, log);
+	const v = app.vault as unknown as { modify(f: unknown, c: string): Promise<void> };
+	const modify = v.modify.bind(v);
+	v.modify = async (f, c) => {
+		log.push(`write ${(f as { path: string }).path}`);
+		return modify(f, c);
+	};
+	log.length = 0;
+	await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest, changed."), false);
+	assert.equal(dirty.saves, 1, `the dirty view was saved ${dirty.saves} times`);
+	const at = log.indexOf(`save ${NOTE}`);
+	assert.equal(log[at - 1], `mark ${NOTE}`, `the dirty view's save was not marked just before it: ${log.join(" | ")}`);
+	assert.equal(clean.saves, 0, "a clean view was saved");
+	const ofOther = log.filter((x) => x.endsWith(OTHER_NOTE));
+	assert.equal(ofOther.filter((x) => x.startsWith("mark")).length, ofOther.filter((x) => x.startsWith("write")).length,
+		`a clean view left a self-write mark behind: ${ofOther.join(" | ")}`);
+});
+
+test("★ Paste world's flush of a dirty editor leaves auto-sync nothing to send: no save of pasted bytes is scheduled", async () => {
+	const { app, vault, mock, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	// The real auto-sync engine, its modify listener fed by the vault's writes.
+	const listeners: ((f: unknown) => void)[] = [];
+	const v = app.vault as unknown as { on(name: string, cb: (f: unknown) => void): unknown; modify(f: unknown, c: string): Promise<void> };
+	v.on = (name, cb) => {
+		if (name === "modify") listeners.push(cb);
+		return {};
+	};
+	const modify = v.modify.bind(v);
+	v.modify = async (f, c) => {
+		await modify(f, c);
+		for (const cb of listeners) cb(f);
+	};
+	const statuses: string[] = [];
+	const plugin = { settings: { apiKey: "", debounceMs: 5, autoSync: true }, setSyncStatus: (s: string) => statuses.push(s), registerEvent: () => {} };
+	const engine = new AutoSyncEngine(app, plugin as never);
+	engine.registerListeners();
+	mock.openEditor(NOTE, typedOver(vault, NOTE));
+	await new PasteWorldCommand(app, {} as never, undefined, (p: string) => engine.markSelfWrite(p))
+		.generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "Pasted." }] }, false);
+	await new Promise((r) => setTimeout(r, 30));
+	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
+	assert.ok(inACopy(vault, TYPED));
+	assert.deepEqual(statuses, [], `auto-sync took the flush for an edit and would send the pasted bytes: ${statuses.join(" | ")}`);
+	const timers = (engine as unknown as { timers: Map<string, ReturnType<typeof setTimeout>> }).timers;
+	for (const t of timers.values()) clearTimeout(t);
 });
 
 test("a workspace with no getLeavesOfType (an older stand-in) writes as before", async () => {

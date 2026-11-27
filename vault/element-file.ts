@@ -540,15 +540,24 @@ export interface WrittenNote {
 /**
  * Save every open editor of `file` to disk. Obsidian writes an editor's text about two seconds after the last key, and
  * `vault.read` and `vault.process` see the disk only: typing not yet saved would be in no copy, and the write's reload of the
- * editor would end it. Saved first, it is on disk, no longer hashes to the note's mark, and the copy rule keeps it. Only the
- * views of this file; a view with no `save` (or a workspace that lists no leaves) is passed over.
+ * editor would end it. Saved first, it is on disk, no longer hashes to the note's mark, and the copy rule keeps it.
+ *
+ * Only a dirty view of this file is saved: one whose text (`getViewData`) is a string other than the file's. A clean view, a
+ * view with no `save` or no text, and a workspace that lists no leaves are passed over. A dirty view's save is marked as the
+ * plugin's own write just before it (`markSelfWrite`): its modify event is no edit for auto-sync to send, since the note is
+ * about to hold the writer's bytes (a save then would send those, Paste world's pasted ones among them). A clean view takes no
+ * mark, which would swallow the person's next real edit.
  */
-export async function flushOpenEditors(app: App, file: TFile): Promise<void> {
+export async function flushOpenEditors(app: App, file: TFile, markSelfWrite?: (path: string) => void): Promise<void> {
 	const workspace = app.workspace as { getLeavesOfType?: (type: string) => { view: unknown }[] } | undefined;
 	if (typeof workspace?.getLeavesOfType !== "function") return;
 	for (const leaf of workspace.getLeavesOfType("markdown")) {
-		const view = leaf.view as { file?: TFile | null; save?: () => Promise<void> } | undefined;
-		if (view?.file?.path === file.path && typeof view.save === "function") await view.save();
+		const view = leaf.view as { file?: TFile | null; save?: () => Promise<void>; getViewData?: () => unknown } | undefined;
+		if (view?.file?.path !== file.path || typeof view.save !== "function") continue;
+		const held = typeof view.getViewData === "function" ? view.getViewData() : null;
+		if (typeof held !== "string" || held === (await app.vault.read(file))) continue;
+		markSelfWrite?.(file.path);
+		await view.save();
 	}
 }
 
@@ -573,7 +582,7 @@ export async function replaceNote(
 	let expected = seen;
 	for (let i = 0; i < REPLACE_TRIES; i++) {
 		// An editor's unsaved text reaches the disk first; the write then finds the note changed and copies it.
-		await flushOpenEditors(app, file);
+		await flushOpenEditors(app, file, opts.markSelfWrite);
 		if (expected === next) return next;
 		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
 		const found: { text: string | null } = { text: null };
@@ -705,7 +714,7 @@ export async function writeElementNote(
 	// namespaces, the user's own additions), which is what processFrontMatter
 	// was buying us.
 	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it.
-	await flushOpenEditors(app, file);
+	await flushOpenEditors(app, file, markSelfWrite);
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);

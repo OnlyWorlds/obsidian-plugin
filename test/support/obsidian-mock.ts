@@ -449,20 +449,25 @@ export class App {
 	/** Paths opened through workspace.getLeaf().openFile, in order. */
 	opened: string[] = [];
 	/** Open markdown views (openEditor): what workspace.getLeavesOfType("markdown") lists. */
-	leaves: { view: { file: TFile | null; save?: () => Promise<void> } }[] = [];
+	leaves: { view: { file: TFile | null; save?: () => Promise<void>; getViewData?: () => string } }[] = [];
 	/**
-	 * Test helper: an editor open on the note at `path` holding `text` it has not saved yet, as Obsidian's editor holds typing
-	 * for about two seconds before it writes the file. Its `save()` writes the held text through vault.modify (once) and
-	 * counts the call. `withSave: false` makes a view with no save method.
+	 * Test helper: an editor open on the note at `path` holding `text` it has not saved yet (null: nothing unsaved), as
+	 * Obsidian's editor holds typing for about two seconds before it writes the file. `getViewData()` gives the editor's text
+	 * (the held text, else the file's). Its `save()` writes the held text through vault.modify (once), counts the call, and
+	 * pushes `save <path>` onto `log` when one is given. `withSave: false` makes a view with no save method.
 	 */
-	openEditor(path: string, text: string | null, withSave = true): { saves: number; pending: string | null } {
+	openEditor(path: string, text: string | null, withSave = true, log?: string[]): { saves: number; pending: string | null } {
 		const file = this.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) throw new Error("openEditor: no note at " + path);
 		const state = { saves: 0, pending: text };
-		const view: { file: TFile | null; save?: () => Promise<void> } = { file };
+		const view: { file: TFile | null; save?: () => Promise<void>; getViewData?: () => string } = {
+			file,
+			getViewData: () => state.pending ?? this.vault.contentAt(file.path) ?? "",
+		};
 		if (withSave) {
 			view.save = async () => {
 				state.saves++;
+				log?.push(`save ${path}`);
 				if (state.pending !== null && view.file) await this.vault.modify(view.file, state.pending);
 				state.pending = null;
 			};
