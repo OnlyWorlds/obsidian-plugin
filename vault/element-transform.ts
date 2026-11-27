@@ -349,19 +349,37 @@ export function bodyTextFields(category: string): string[] {
  * Whether `key`, an `x_` key holding `value`, is written as a body section ONLY, once (the Markdown profile, OPEN 15 as ruled
  * 2026-11-28): a string `x_` key whose section reads back as the same key. A key with a capital or a doubled underscore
  * (`x_NPC_list` would come back `x_npc_list`), an element id (a link, kept as a property), one whose label is not a clean custom heading, or one whose label is a field the
- * type already has (`x_reputation` on a Character) stays a property and is written once there, like any other foreign key.
+ * type already has (`x_reputation` on a Character), or one a tool's key shadows (`x_color` beside `atlas_color`), stays a property and is written once there, like any other foreign key.
  */
-export function writesAsSection(key: string, value: unknown, category: string): boolean {
+export function writesAsSection(key: string, value: unknown, category: string, siblings?: Iterable<string>): boolean {
 	if (typeof value !== "string" || !isUserCustomKey(key) || key === OWN_PROPERTIES_KEY || key === DEPENDS_ON_CUSTOM_KEY) return false;
 	// An element id is a link, written as one property (extensionLinksOut), never as a section's text.
 	if (UUID_RE.test(value)) return false;
 	const words = stripExtensionPrefix(key);
 	if (!words) return false;
+	// A tool's key beside it (`atlas_color` beside `x_color`) gives the same heading, and the reader takes that section for the tool's
+	// old copy unless the person's property is there to claim it (toolShadowHeadings): the key stays a property.
+	if (siblings) for (const s of siblings) if (isExtensionKey(s) && !isUserCustomKey(s) && `${EXTENSION_NAMESPACES[2]}${headingToFieldKey(stripExtensionPrefix(s))}` === key) return false;
 	const label = fieldToHeading(words);
 	if (!readsAsCustomField(label)) return false;
 	const back = headingToFieldKey(label);
 	if (`${EXTENSION_NAMESPACES[2]}${back}` !== key) return false;
 	return !bodyTextFields(category).includes(back);
+}
+
+/**
+ * Whether a note's property for an `x_` key and the same key's section hold different text (the twin check). `resolved` is the
+ * property as the reader took it (an element id for a link), `section` the section's text. Line endings and trailing space do
+ * not count. An empty property is an empty text; a number or a boolean is its text; anything else (a date, a list, an object) is
+ * no text the section can equal.
+ */
+export function twinTextsDiffer(property: unknown, resolved: unknown, section: string): boolean {
+	const plain = (s: string) => s.replace(/\r\n/g, "\n").trimEnd();
+	const held = typeof resolved === "string" ? resolved : property;
+	if (held === null || held === undefined) return plain(section) !== "";
+	if (typeof held === "string") return plain(held) !== plain(section);
+	if (typeof held === "number" || typeof held === "boolean") return String(held) !== plain(section);
+	return true;
 }
 
 /** The `###` headings a body already holds, as the person typed them, by the field key each reads as (the first of a key). */
@@ -406,7 +424,10 @@ export function buildElementBody(
 	const parts: string[] = [];
 	for (const key of keys) {
 		const words = isExtensionKey(key) ? stripExtensionPrefix(key) : key;
-		const label = heldHeadings?.get(headingToFieldKey(words)) ?? fieldToHeading(words);
+		// A held heading is used only where the reader would still take it for the field: a custom field's heading must pass the
+		// reader's own test (`My<tab>notes` would not, and its text would go into the description).
+		const heldHeading = heldHeadings?.get(headingToFieldKey(words));
+		const label = heldHeading !== undefined && (!isExtensionKey(key) || readsAsCustomField(heldHeading)) ? heldHeading : fieldToHeading(words);
 		const raw = values[key];
 		// The value as it is, never trimmed: sectionValue
 		// strips exactly the layout written here and nothing of the value. A
@@ -1835,7 +1856,7 @@ export function apiDataToFrontmatter(
 			continue;
 		}
 		// A string `x_` key whose section reads back as itself is the section's alone (writesAsSection): never written twice.
-		if (writesAsSection(key, value, category)) continue;
+		if (writesAsSection(key, value, category, Object.keys(data))) continue;
 		if (isExtensionKey(key)) {
 			// Verbatim, kept even when empty (R3 exception); a whole value of
 			// element ids is written as links (3.13.0, extensionLinksOut).

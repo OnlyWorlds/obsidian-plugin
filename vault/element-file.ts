@@ -40,6 +40,7 @@ import {
 	repeatedHeadingMessage,
 	writesAsSection,
 	heldHeadingsOf,
+	twinTextsDiffer,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -411,8 +412,7 @@ export async function readElement(
 			for (const k of shadowKeys) delete sectionValues[k];
 			for (const [k, v] of Object.entries(sectionValues)) {
 				// The note's own copy of the key, a property: equal reads as one, different is refused by name (the section is what is sent).
-				const property = fm[k];
-				if (isUserCustomKey(k) && typeof property === "string" && property.trimEnd() !== v.trimEnd()) twinTexts.push(k);
+				if (isUserCustomKey(k) && hasOwn(fm, k) && twinTextsDiffer(fm[k], fields[k], v)) twinTexts.push(k);
 				fields[k] = v;
 			}
 			// A heading read as a field, typed twice: only its last section would travel.
@@ -684,7 +684,7 @@ export async function writeElementNote(
 	// section's, which no reader reads. An element that
 	// carries one keeps it in the frontmatter, verbatim, as any extension key.
 	const customTextFields = Object.entries(data)
-		.filter(([k, v]) => writesAsSection(k, v, cat))
+		.filter(([k, v]) => writesAsSection(k, v, cat, Object.keys(data)))
 		.map(([k]) => k);
 
 	const folder = opts.folderPath

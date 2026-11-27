@@ -13,6 +13,7 @@ import {
 	getCategorySchema,
 	hasOwn,
 	isExtensionKey,
+	writesAsSection,
 	inLineEndingsOf,
 	joinNote,
 	splitNote,
@@ -288,6 +289,8 @@ export class MigrateWorldCommand {
 		const values: Record<string, unknown> = { ...frontmatter, [bodyFieldForCategory(category)]: bodyValue };
 		const extra: string[] = [];
 		for (const [k, v] of Object.entries(frontmatter)) {
+			// An `x_` text key apiDataToFrontmatter leaves to its section (writesAsSection) is written as that section.
+			if (writesAsSection(k, v, category, Object.keys(frontmatter))) { extra.push(k); continue; }
 			if (k === 'id' || k === 'name' || hasOwn(schema, k) || isExtensionKey(k) || v == null || v === '') continue;
 			values[`x_${k}`] = typeof v === 'string' ? v : Array.isArray(v) ? v.join(', ') : typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
 			extra.push(`x_${k}`);
