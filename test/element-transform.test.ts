@@ -159,13 +159,13 @@ test("own properties: Obsidian's own keys (tags, aliases) are no property of the
 
 test("own properties: the pull writes each entry as a property of that name, no x_ copy, and the group is gone", () => {
 	const fm = apiDataToFrontmatter(
-		{ name: "Ireena", x_properties: { status: "alive", home: "the farm" }, x_home: "loc-id" },
+		{ name: "Ireena", x_properties: { status: "alive", home: "the farm" }, x_Home: "loc-id" },
 		"character",
 		"c-1"
 	);
 	assert.equal(fm.status, "alive");
 	assert.equal(fm.home, "the farm");
-	assert.equal(fm.x_home, "loc-id", "a tool's key beside the person's stays as itself");
+	assert.equal(fm.x_Home, "loc-id", "a key beside the person's that is no section's stays as itself");
 	assert.ok(!("x_properties" in fm) && !("x_status" in fm));
 });
 
@@ -461,7 +461,8 @@ test("R3 WRITE: null/''/[]  fields are omitted; id/name/extension-empty retained
 		species: [], // omit
 		image_url: "", // omit
 		supertype: "NPC", // keep
-		x_pinned: "", // extension empty -> KEEP (R3 exception)
+		x_Pinned: "", // extension empty -> KEEP (R3 exception); a capital: no section reads back as it, so it stays a property
+		x_pinned: "", // a string key whose section reads back as itself: the section's alone, empty too
 		atlas_flag: "", // extension empty -> KEEP
 	};
 	const fm = apiDataToFrontmatter(data, "character", "c-1");
@@ -471,7 +472,8 @@ test("R3 WRITE: null/''/[]  fields are omitted; id/name/extension-empty retained
 	assert.equal(fm.supertype, "NPC");
 	assert.equal(fm.name, "Ireena"); // always present
 	assert.equal(fm.id, "c-1"); // always present
-	assert.equal(fm.x_pinned, ""); // extension kept even when empty
+	assert.equal(fm.x_Pinned, ""); // extension kept even when empty
+	assert.ok(!("x_pinned" in fm), "written once: its empty section is the copy (writesAsSection)");
 	assert.equal(fm.atlas_flag, "");
 });
 
@@ -614,13 +616,13 @@ test("R1 ROUND-TRIP: a raw id that resolves to a note drifts to [[Name]] but rec
 
 test("an extension value that is no element id never becomes a wikilink; extensions never get empty-omitted (R1/R3 law)", () => {
 	const fm = apiDataToFrontmatter(
-		{ id: "c-1", name: "X", atlas_ref: "loc-1", x_empty: "", shadow_list: [] },
+		{ id: "c-1", name: "X", atlas_ref: "loc-1", x_Empty: "", shadow_list: [] },
 		"character",
 		"c-1",
 		{ resolveIdToName: () => "SHOULD NOT BE USED" }
 	);
 	assert.equal(fm.atlas_ref, "loc-1"); // NOT a [[wikilink]] — foreign, verbatim
-	assert.equal(fm.x_empty, ""); // empty extension kept
+	assert.equal(fm.x_Empty, ""); // empty extension kept
 	assert.deepEqual(fm.shadow_list, []); // empty extension array kept
 });
 

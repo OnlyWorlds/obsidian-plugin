@@ -38,6 +38,8 @@ import {
 	withDependsOn,
 	withoutDependsOn,
 	repeatedHeadingMessage,
+	writesAsSection,
+	heldHeadingsOf,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -139,6 +141,11 @@ export interface ParsedElement {
 	 * profile, sentence 4), never sent with one of the two picked.
 	 */
 	ownConflicts?: string[];
+	/**
+	 * `x_` keys the note holds as a property and again as a `###` section, with different text (the Markdown profile, rule 11):
+	 * the note is refused by name, never sent with one of the two picked. Two copies that are equal read as one.
+	 */
+	twinTexts?: string[];
 }
 
 /** Why a note with a name in both its properties and its `x_properties` is not sent (or `verb`). */
@@ -190,7 +197,7 @@ export function unclosedFenceMessage(
  * left out by a summary of many notes.
  */
 export function readRefusal(
-	parsed: Pick<ParsedElement, "unclosedFence" | "repeatedHeadings">,
+	parsed: Pick<ParsedElement, "unclosedFence" | "repeatedHeadings" | "twinTexts">,
 	label: string,
 	verdict = "not sent",
 	outcome = ""
@@ -200,6 +207,11 @@ export function readRefusal(
 		return outcome ? `${message} ${outcome}` : message;
 	}
 	if (parsed.repeatedHeadings?.length) return repeatedHeadingMessage(label, parsed.repeatedHeadings, verdict, outcome);
+	if (parsed.twinTexts?.length) {
+		const one = parsed.twinTexts.length === 1;
+		const message = `${label} ${verdict}: ${parsed.twinTexts.join(", ")} ${one ? "is" : "are each"} both a property of the note and a ### section, with different text. Keep one of the two, then try again.`;
+		return outcome ? `${message} ${outcome}` : message;
+	}
 	return null;
 }
 
@@ -372,6 +384,7 @@ export async function readElement(
 		// prose. A legacy body with no headings at all parses to a lone preamble,
 		// which lands in the body field exactly as it did before.
 		let repeatedHeadings: string[] = [];
+		const twinTexts: string[] = [];
 		if (body) {
 			// A `### Looks` section is a user-added custom TEXT field and must reach
 			// the API as `x_looks`, not be salvaged into description. We cannot know
@@ -397,6 +410,9 @@ export async function readElement(
 			const sectionValues = bodyToFieldValues(body, category, [...customKeys, ...shadowKeys]);
 			for (const k of shadowKeys) delete sectionValues[k];
 			for (const [k, v] of Object.entries(sectionValues)) {
+				// The note's own copy of the key, a property: equal reads as one, different is refused by name (the section is what is sent).
+				const property = fm[k];
+				if (isUserCustomKey(k) && typeof property === "string" && property.trimEnd() !== v.trimEnd()) twinTexts.push(k);
 				fields[k] = v;
 			}
 			// A heading read as a field, typed twice: only its last section would travel.
@@ -419,6 +435,7 @@ export async function readElement(
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
 			...(repeatedHeadings.length ? { repeatedHeadings } : {}),
+			...(twinTexts.length ? { twinTexts } : {}),
 			...misnamed(category, adopted),
 			...(ownConflicts.length ? { ownConflicts: [...new Set(ownConflicts)] } : {}),
 			knownOf,
@@ -667,7 +684,7 @@ export async function writeElementNote(
 	// section's, which no reader reads. An element that
 	// carries one keeps it in the frontmatter, verbatim, as any extension key.
 	const customTextFields = Object.entries(data)
-		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string" && k !== DEPENDS_ON_CUSTOM_KEY)
+		.filter(([k, v]) => writesAsSection(k, v, cat))
 		.map(([k]) => k);
 
 	const folder = opts.folderPath
@@ -758,6 +775,8 @@ export async function writeElementNote(
 	// element arrives with a group; with none it stays, and the next save sends it.
 	if (OWN_PROPERTIES_KEY in data) ownedKeys.add(OWN_PROPERTIES_KEY);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
+	// A section-only key (writesAsSection) is the section's: an old note's property copy of it goes with this write.
+	for (const k of customTextFields) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	// A stub replacing a whole copy (a view reset) keeps none of its extension
 	// values: they are the element's, and a stub carries only what it keeps.
@@ -806,12 +825,13 @@ export async function writeElementNote(
 	// byte, whether the stub arrives again or whole. An own
 	// section headed as a field the element leaves unset stands for that
 	// field: the field is not written a second, empty time (N4).
+	const held = heldHeadingsOf(splitNote(content).body);
 	const own = knownOfOwnSections(content, cat, data, written);
 	const bodyValue = knownOf
-		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data && !own.fields.includes(k)))
+		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data && !own.fields.includes(k)), held)
 		: own.fields.length
-			? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !own.fields.includes(k)))
-			: buildElementBody(data, cat, customTextFields);
+			? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !own.fields.includes(k)), held)
+			: buildElementBody(data, cat, customTextFields, undefined, held);
 	const above = opts.keepAbove ?? "";
 	// The kept text, then one blank line before the first heading.
 	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";

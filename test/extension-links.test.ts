@@ -61,7 +61,7 @@ async function note(made: Pulled, name: string): Promise<{ file: TFile; text: st
 const KREZK_KEYS = {
 	x_spine_depends_on: [VALLAKI, ARGYNVOST],
 	atlas_capital: VALLAKI,
-	x_ruler: ARGYNVOST, // a string under x_ is also a body section, which keeps the id as served
+	x_ruler: ARGYNVOST, // a string id under x_ is a link property alone: no section holds it too
 	atlas_page_refs: [VALLAKI, "not an id"],
 	shadow_lost: GONE,
 	x_mood: "wary",
@@ -110,7 +110,8 @@ test("apiDataToFrontmatter -> frontmatterToPayloadFields: every shape comes back
 		resolveNameToId: (n, t) => { targets.push(t); return ids[n.toLowerCase()] ?? null; },
 		omitFieldOnUnresolved: true,
 	});
-	for (const [k, v] of Object.entries(KREZK_KEYS)) assert.deepEqual(back[k], v, k);
+	assert.ok(!("x_mood" in fm), "a text key is its section's alone");
+	for (const [k, v] of Object.entries(KREZK_KEYS)) if (k !== "x_mood") assert.deepEqual(back[k], v, k);
 	assert.ok(targets.every((t) => t === "any"), "an extension key names no type: any type answers");
 });
 
@@ -161,11 +162,11 @@ test("★ a pull writes extension ids as links: a list, a single id, a list with
 	assert.ok(text.includes(`x_spine_depends_on:\n  - "[[Vallaki]]"\n  - "[[Argynvostholt]]"\n`), text);
 	assert.ok(text.includes(`atlas_capital: "[[Vallaki]]"\n`), text);
 	assert.ok(text.includes(`x_ruler: "[[Argynvostholt]]"\n`), text);
-	assert.ok(text.includes(`### Ruler\n\n${ARGYNVOST}\n`), text);
+	assert.ok(!text.includes("### Ruler"), "an id is the link property alone, never a section too");
 	assert.ok(text.includes(`atlas_page_refs:\n  - ${VALLAKI}\n  - not an id\n`), text);
 	assert.ok(text.includes(`shadow_lost: ${GONE}\n`), text);
 	assert.ok(!text.includes("[[Unknown]]") && !text.includes(`[[${GONE}]]`));
-	assert.ok(text.includes("x_mood: wary\n"));
+	assert.ok(text.includes("### Mood\n\nwary\n") && !text.includes("x_mood"), "a text key is the section alone: written once");
 	// The generated Depends on section is written as before, beside the links.
 	assert.ok(text.includes("### Depends on\n\n- [[Vallaki]]\n- [[Argynvostholt]]\n"), text);
 });
