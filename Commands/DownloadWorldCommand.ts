@@ -22,10 +22,11 @@ import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqIndexUnreadable, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, capKeptName, copiedMessage, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, groupMarkEntries, copiedMessage, holdsUnsavedEdits, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { keepCopy } from '../vault/kept-copy';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, ownFrontmatterId, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElementNote } from '../vault/element-file';
+import { elementNoteType, noteIdIn, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElementNote } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -771,7 +772,7 @@ export class DownloadWorldCommand {
                             beforeReplace: plan.knownOf ? undefined : async (text) => {
                                 if (!marksUnreadable && !holdsUnsavedEdits(text, marks[markKey(String(element.id))])) return;
                                 try {
-                                    await this.keepCopy(worldName, String(element.name ?? element.id), text);
+                                    await keepCopy(this.app, worldName, String(element.name ?? element.id), text, (p) => this.plugin?.autoSync?.markSelfWrite(p));
                                 } catch (error) {
                                     throw new Error(`could not keep a copy of ${category} "${element.name ?? element.id}" before the pull replaced it (${error instanceof Error ? error.message : String(error)}); the note was not changed`);
                                 }
@@ -801,28 +802,6 @@ export class DownloadWorldCommand {
             if (left.length > 0) new Notice(leftAsTypedMessage(left), 20000);
         }
         return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied, left };
-    }
-
-    /**
-     * The note as it was, whole, in the world's Kept edits/ folder, under a name with the moment in it; the copy's `id` key is
-     * `kept_from`, so it is a person's own note and no reader takes it for the element. A copy that cannot be written stops the
-     * pull before the note is replaced: nothing is lost silently.
-     */
-    private async keepCopy(worldName: string, name: string, text: string): Promise<void> {
-        const folder = `OnlyWorlds/Worlds/${worldName}/${KEPT_FOLDER}`;
-        const adapter = this.app.vault.adapter;
-        if (!(await adapter.exists(folder))) {
-            // A second device or a sync may make the folder in the same moment: a folder that is there is all that is wanted.
-            try { await this.app.vault.createFolder(folder); } catch (error) { if (!(await adapter.exists(folder))) throw error; }
-        }
-        const base = keptCopyName(capKeptName(sanitizeFileName(name)), new Date());
-        let path = normalizePath(`${folder}/${base}.md`);
-        for (let n = 2; await adapter.exists(path); n++) path = normalizePath(`${folder}/${base} ${n}.md`);
-        this.plugin?.autoSync?.markSelfWrite(path);
-        // An `id` the key rename cannot read (flow style) would leave the copy an element note: the whole note then goes in a fence instead.
-        let kept = asKeptCopy(text);
-        if (ownFrontmatterId(kept) !== null) kept = fencedCopy(text);
-        await this.app.vault.create(path, kept);
     }
 
     /**
