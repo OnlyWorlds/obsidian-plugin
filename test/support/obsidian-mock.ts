@@ -7,7 +7,7 @@
  * from here directly for `makeApp` and the parser switch.
  *
  * What is emulated, and how faithfully:
- *   - Vault: a path -> content map. create / modify / read / createFolder /
+ *   - Vault: a path -> content map. create / modify / process / read / createFolder /
  *     delete (a file, or an empty folder only; recorded in `deletes`),
  *     getAbstractFileByPath, getFiles, getMarkdownFiles, adapter.{exists,read,write,list},
  *     and adapter.{readBinary,writeBinary,mkdir}: bytes written as bytes read
@@ -294,6 +294,21 @@ export class MockVault {
 		if (!e) throw new Error("modify: no such file " + file.path);
 		this.binaries.delete(file.path);
 		e.content = String(content);
+	}
+	/**
+	 * Obsidian's atomic read-modify-write: `fn` gets the note's bytes as they are at this moment and returns the new ones, with
+	 * nothing in between. The write goes through `modify` (so a test that watches modify sees it), and only when the bytes
+	 * change (what Obsidian does with an unchanged return is not modelled). `beforeProcess`, when a test sets it, runs first:
+	 * the moment between a writer's own read and its process call, where a person's typing lands.
+	 */
+	beforeProcess: ((file: TFile) => Promise<void> | void) | null = null;
+	async process(file: TFile, fn: (data: string) => string): Promise<string> {
+		if (this.beforeProcess) await this.beforeProcess(file);
+		const e = this.files.get(file.path);
+		if (!e) throw new Error("process: no such file " + file.path);
+		const next = fn(e.content);
+		if (next !== e.content) await this.modify(file, next);
+		return next;
 	}
 	async read(file: TFile): Promise<string> {
 		const e = this.files.get(file.path);

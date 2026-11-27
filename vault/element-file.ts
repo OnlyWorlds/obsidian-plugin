@@ -521,18 +521,68 @@ export interface WriteElementOpts {
 	 * note-mark-core.ts): they leave the note with the write, where every other property of a person's stays.
 	 */
 	dropKeys?: string[];
-	/** Called with the note's bytes just before the write replaces them (not called when the write changes nothing). */
+	/**
+	 * Called with the note's bytes just before the write replaces them (not called when the write changes nothing). The write
+	 * then replaces exactly those bytes or none: a note that changed after this call is handed to it again (replaceNote).
+	 */
 	beforeReplace?: (content: string) => Promise<void>;
 }
 
-export async function writeElement(
+/**
+ * The note a write left: its file, and the bytes the writer put there (or found and left, when nothing needed to change), the
+ * measure of what a person types after it. `text` is null when the note changed under each try and was left as the person has it.
+ */
+export interface WrittenNote {
+	file: TFile;
+	text: string | null;
+}
+
+/** How many times a write meets a note changed since it last read it before it leaves the note as the person has it. */
+export const REPLACE_TRIES = 3;
+
+/**
+ * Replace the bytes `seen` of a note with `next` in one atomic read-modify-write (`vault.process`): the write goes through only
+ * when the note still holds the bytes last handed to `beforeReplace`, so text a person types after that (while a copy of the note
+ * is written, or before the write) is in the copy or stays in the note, never in neither. A note found changed is handed to
+ * `beforeReplace` again, then tried again, up to REPLACE_TRIES times. `ownBytes` are bytes the writer itself just put there
+ * (a note it made): no one's edit, so they are not handed over. The self-write mark is taken inside the write, only when the
+ * write happens. Returns `next`, or null when the note was left as the person has it.
+ */
+export async function replaceNote(
+	app: App,
+	file: TFile,
+	seen: string,
+	next: string,
+	opts: { beforeReplace?: (content: string) => Promise<void>; markSelfWrite?: (path: string) => void; ownBytes?: string } = {}
+): Promise<string | null> {
+	let expected = seen;
+	for (let i = 0; i < REPLACE_TRIES; i++) {
+		if (expected === next) return next;
+		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
+		const found: { text: string | null } = { text: null };
+		await app.vault.process(file, (current) => {
+			if (current !== expected) {
+				found.text = current;
+				return current;
+			}
+			opts.markSelfWrite?.(file.path);
+			return next;
+		});
+		if (found.text === null) return next;
+		expected = found.text;
+	}
+	return null;
+}
+
+/** writeElement, and the bytes the write left (WrittenNote): the caller's mark of the note is the hash of those, never a later read. */
+export async function writeElementNote(
 	app: App,
 	worldName: string,
 	category: string,
 	elementId: string,
 	data: Record<string, unknown>,
 	optsOrMark?: WriteElementOpts | ((path: string) => void)
-): Promise<TFile> {
+): Promise<WrittenNote> {
 	// Back-compat: a bare function arg is markSelfWrite.
 	const opts: WriteElementOpts =
 		typeof optsOrMark === "function" ? { markSelfWrite: optsOrMark } : optsOrMark ?? {};
@@ -589,14 +639,14 @@ export async function writeElement(
 		: await claimNotePath(app, folder, leaf.replace(/\.md$/i, ""), elementId);
 
 	let file = app.vault.getAbstractFileByPath(filePath);
-	let madeNow = false; // a note this write just made held nothing of a person's: its stub is no edit to keep
+	let made: string | undefined; // the bytes of a note this write just made: no one's edit, so no copy is asked for them
 	if (!(file instanceof TFile)) {
 		if (!app.vault.getAbstractFileByPath(folder)) {
 			await app.vault.createFolder(folder);
 		}
 		markSelfWrite?.(filePath);
-		file = await app.vault.create(filePath, `---\nid: ${elementId}\n---\n\n`);
-		madeNow = true;
+		made = `---\nid: ${elementId}\n---\n\n`;
+		file = await app.vault.create(filePath, made);
 	}
 	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
@@ -712,16 +762,27 @@ export async function writeElement(
 	const depends = dependsOnSection(data[DEPENDS_ON_KEY], resolveId, ownDepends, opts.idToRealName);
 	if (depends) body = `${withDependsOn(body, depends)}\n`;
 	const newContent = joinNote(serializeFrontmatter(merged), body);
-	if (newContent !== content) {
-		// The bytes about to be replaced, as this write read them: the caller's chance to keep them (the pull's copy of a note
-		// that held edits it had not seen). Text typed after this read, while the copy is being written, is not in the copy (the
-		// window is the copy's own write, milliseconds).
-		if (!madeNow) await opts.beforeReplace?.(content);
-		markSelfWrite?.(file.path);
-		await app.vault.modify(file, newContent);
-	}
+	// The bytes about to be replaced, as this write read them, go to the caller first (the pull's copy of a note that held edits
+	// it had not seen); the write then replaces those bytes or none (replaceNote).
+	const text = await replaceNote(app, file, content, newContent, { beforeReplace: opts.beforeReplace, markSelfWrite, ownBytes: made });
+	return { file, text };
+}
 
-	return file;
+/**
+ * Write/update an element note (writeElementNote), returning its file. A note that changed under every try of the write is left
+ * as the person has it, and this throws, saying so.
+ */
+export async function writeElement(
+	app: App,
+	worldName: string,
+	category: string,
+	elementId: string,
+	data: Record<string, unknown>,
+	optsOrMark?: WriteElementOpts | ((path: string) => void)
+): Promise<TFile> {
+	const wrote = await writeElementNote(app, worldName, category, elementId, data, optsOrMark);
+	if (wrote.text === null) throw new Error(`${wrote.file.path} was not written: it changed each time it was about to be, so it was left as it is`);
+	return wrote.file;
 }
 
 // --- helpers -----------------------------------------------------------------

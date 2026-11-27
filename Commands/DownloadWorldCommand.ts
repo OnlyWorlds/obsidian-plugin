@@ -22,10 +22,10 @@ import { V2ApiError, V2Change, V2Client, V2_ORIGIN } from '../client-v2';
 import { recordServerWorldId } from '../vault/world-id-marker';
 import { readFolderSidecar, writeFolderSidecar } from '../vault/folder-sidecar';
 import { asChangeSeq, changeSeqIndexUnreadable, changeSeqOf, UNREADABLE_FLAG, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
-import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, capKeptName, copiedMessage, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
+import { groupKeysById, groupMarkClears, groupMarkEntries, asKeptCopy, capKeptName, copiedMessage, fencedCopy, holdsUnsavedEdits, KEPT_FOLDER, keptCopyName, leftAsTypedMessage, markKey, noteMark, removedGroupKeys } from '../vault/note-mark-core';
 import type OnlyWorldsPlugin from '../main';
 import { CreateCoreFilesCommand } from './CreateCoreFilesCommand';
-import { elementNoteType, noteIdIn, ownFrontmatterId, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElement } from '../vault/element-file';
+import { elementNoteType, noteIdIn, ownFrontmatterId, parseElementPath, parseRawFrontmatter, pickNoteForId, writeElementNote } from '../vault/element-file';
 import { isInCategoryFolder, isUnderElements, mayBeElementNote, typeOfPlace } from '../vault/category-folder';
 import { idsInFrontmatter, parseRawFrontmatterScalars } from '../vault/element-transform';
 import { upsertWorldUnits, worldUnitsFromBody } from '../vault/world-units';
@@ -296,8 +296,9 @@ export class DownloadWorldCommand {
                     await recordChangeSeqs(this.app, uniqueWorldName, Object.fromEntries([...hidden.stubHidden, ...hidden.stubView].map((id) => [markKey(id), null])));
 
                     // Persist the watermark only after every note landed — a
-                    // failed run must re-pull the same changes next time.
-                    if (this.plugin && walk.cursor) {
+                    // failed run must re-pull the same changes next time, and so
+                    // must a run that left a note as the person had it.
+                    if (this.plugin && walk.cursor && knownOf.left.length === 0) {
                         this.plugin.settings.syncCursors[worldId] = { cursor: walk.cursor, head: walk.head };
                         this.plugin.settings.deletedOnServer = {
                             ...(this.plugin.settings.deletedOnServer ?? {}),
@@ -561,7 +562,7 @@ export class DownloadWorldCommand {
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; copied: string[] }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; copied: string[]; left: string[] }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
@@ -692,9 +693,10 @@ export class DownloadWorldCommand {
         const marksUnreadable = await changeSeqIndexUnreadable(this.app, worldName);
         const copied: string[] = [];
         const knownGroups = groupKeysById(marks);
-        // The bytes each landed note was left with, read at once after its own write (a later write must not stand for it): the next
-        // pull's measure of what a person has typed since.
+        // The mark of the bytes each landed note's write put there: the next pull's measure of what a person has typed since.
         const written: Record<string, number | null> = {};
+        // The notes that changed each time their write came to them, left as the person has them.
+        const left: string[] = [];
         // The marks of the notes this run wrote are recorded and its copies announced even when a later note stops the run:
         // the next pull then starts from what is on disk.
         let completed = false;
@@ -718,7 +720,6 @@ export class DownloadWorldCommand {
                 }
 
                 if (overwrite || existingElementPath || !await fs.exists(notePath)) {
-                    landed.push(String((element as { id?: unknown }).id));
                     // A stub written in full again (an unhide, or back in view)
                     // keeps the person's writing it held, above the first field, byte
                     // for byte; so does a known-of note,
@@ -742,7 +743,7 @@ export class DownloadWorldCommand {
                     // fields verbatim, normalizes link ids, and maps the body to
                     // description (or story for Narrative). The raw v2 element body
                     // (bare link ids, extension namespaces intact) goes straight in.
-                    const wrote = await writeElement(
+                    const wrote = await writeElementNote(
                         this.app,
                         worldName,
                         category,
@@ -779,22 +780,27 @@ export class DownloadWorldCommand {
                         }
                     );
                     const id = String(element.id);
-                    // The note the write left, by the file it returns (a name it had to change is not the planned path).
-                    const file = wrote instanceof TFile ? wrote : this.app.vault.getAbstractFileByPath(notePath);
-                    try {
-                        const text = file instanceof TFile ? await this.app.vault.read(file) : null;
-                        written[markKey(id)] = text === null ? null : noteMark(text);
-                        // And the group's entries the note now holds as the world's, each at the value it holds.
-                        Object.assign(written, groupMarkEntries(id, plan.knownOf ? null : (element as { x_properties?: unknown }).x_properties, text === null ? {} : parseRawFrontmatter(text) ?? {}, knownGroups));
-                    } catch { written[markKey(id)] = null; }
+                    if (wrote.text === null) {
+                        // The note changed each time the write came to it: it keeps the person's text, its number and its mark
+                        // stay as they were, and the run does not move the world's cursor, so the next pull brings the element again.
+                        left.push(`${category} "${element.name ?? element.id}"`);
+                        continue;
+                    }
+                    landed.push(id);
+                    // The note's mark is the hash of the bytes the write put there, never a later read: text typed after the
+                    // write is the person's, and the next pull copies it.
+                    written[markKey(id)] = noteMark(wrote.text);
+                    // And the group's entries the note now holds as the world's, each at the value it holds.
+                    Object.assign(written, groupMarkEntries(id, plan.knownOf ? null : (element as { x_properties?: unknown }).x_properties, parseRawFrontmatter(wrote.text) ?? {}, knownGroups));
                 }
             }
             completed = true;
         } finally {
             await recordChangeSeqs(this.app, worldName, completed && marksUnreadable ? { ...written, [UNREADABLE_FLAG]: null } : written);
             if (copied.length > 0) new Notice(copiedMessage(copied), 20000);
+            if (left.length > 0) new Notice(leftAsTypedMessage(left), 20000);
         }
-        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied };
+        return { became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied, left };
     }
 
     /**

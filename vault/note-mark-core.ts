@@ -108,6 +108,16 @@ export function copiedMessage(labels: string[]): string {
 		`${one ? "The note" : "Each note"} as it was is kept whole in ${KEPT_FOLDER}/ in the world's folder.`;
 }
 
+/** The one notice of a run that left notes as the person has them: each changed every time its write came to it. */
+export function leftAsTypedMessage(labels: string[]): string {
+	const shown = labels.slice(0, 3).join(", ");
+	const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
+	const one = labels.length === 1;
+	return `Download did not write the world's copy over ${labels.length} note${one ? "" : "s"}: ${shown}${more}. ` +
+		`${one ? "The note" : "Each note"} changed each time the write came to it, so ${one ? "it is" : "they are"} left as you have ${one ? "it" : "them"}. ` +
+		`Download again to bring the world's copy.`;
+}
+
 /**
  * The group marks: which entries of the world's group (`x_properties`) the note holds because the world showed them, so a
  * pull can tell an entry another client removed from one a person typed. Beside an id's number, the index keeps one entry
