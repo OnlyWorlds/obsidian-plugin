@@ -356,10 +356,11 @@ export class DownloadWorldCommand {
                             [worldId]: [...hidden.leftView].filter(id => local.has(id)),
                         };
                         // Whole notes kept over a stub: never sent while keel
-                        // serves a stub for them.
+                        // serves a stub for them. Only a note this pull wrote leaves the
+                        // list: one planned and not written is still the kept whole note.
                         this.plugin.settings.lastKnown = {
                             ...(this.plugin.settings.lastKnown ?? {}),
-                            [worldId]: nextLastKnown(this.plugin.settings.lastKnown?.[worldId] ?? [], knownOf.kept, knownOf.written),
+                            [worldId]: nextLastKnown(this.plugin.settings.lastKnown?.[worldId] ?? [], knownOf.kept, knownOf.landed),
                         };
                         await this.plugin.saveSettings();
                     }
@@ -592,14 +593,14 @@ export class DownloadWorldCommand {
      * forced this walk from the start, if any: a known-of stub replaces a whole
      * note only after a `view` reset (the folder spec §4.4 rule 5).
      * Returns how many notes became known of, the ids of whole notes
-     * kept as last known, and the ids written.
+     * kept as last known, and the ids whose note this pull wrote (landed).
      */
     async generateElementNotes(
         worldFolderPath: string,
         data: any,
         overwrite: boolean,
         opts: { resync?: ResyncReason | null } = {}
-    ): Promise<{ became: number; keptWhole: number; kept: string[]; written: string[]; landed: string[]; copied: string[]; left: string[]; failed: { label: string; reason: string }[]; stopped: string | null }> {
+    ): Promise<{ became: number; keptWhole: number; kept: string[]; landed: string[]; copied: string[]; left: string[]; failed: { label: string; reason: string }[]; stopped: string | null }> {
         const fs = this.app.vault.adapter;
         let became = 0;
         let keptWhole = 0;
@@ -857,7 +858,7 @@ export class DownloadWorldCommand {
             if (failed.length > 0) new Notice(notWrittenMessage(failed), 20000);
         }
         return {
-            became, keptWhole, kept, written: plans.map((p) => String((p.element as { id?: unknown }).id)), landed, copied: copies.copied, left, failed,
+            became, keptWhole, kept, landed, copied: copies.copied, left, failed,
             stopped: stopped ? stoppedMessage(stopped.label, stopped.error) : null,
         };
     }

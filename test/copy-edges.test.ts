@@ -174,6 +174,26 @@ test("★ a hidden stub whose write throws is left whole and named; the pull car
 	assert.equal(r.landed, "Barovia");
 });
 
+test("★ a note kept as last known whose whole write then fails keeps its last-known entry: only a note that landed leaves the list", async () => {
+	const s = fresh();
+	await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, "A noble."), whole(KOL, "Kolyan", 2, "A priest.")], 2);
+	// The element arrives as a stub with no reset: the whole note is kept as last known (not sent while keel serves a stub).
+	const stub = { op: "upsert", type: "character", id: IRE, change_seq: 3, updated_at: "x", element: { type: "character", id: IRE, name: "Ireena", description: "", known_of: true, change_seq: 3 } };
+	await download(s.app, s.plugin, [stub], 3);
+	const lastKnown = () => ((s.plugin.settings as { lastKnown?: Record<string, string[]> }).lastKnown?.[WID] ?? []);
+	assert.deepEqual(lastKnown(), [IRE]);
+	// Whole again, but its write fails: the note is still the kept whole one, so it must stay protected.
+	const v = s.app.vault as unknown as Vaultish;
+	const process = v.process.bind(v);
+	v.process = async (f, fn) => {
+		if ((f as { path: string }).path === IRE_NOTE) throw new Error("the disk is full");
+		return process(f, fn);
+	};
+	await download(s.app, s.plugin, [whole(IRE, "Ireena", 4, "Whole again."), whole(KOL, "Kolyan", 5, "Priest, changed.")], 5);
+	assert.match(s.vault.contentAt(IRE_NOTE) ?? "", /A noble\./, "the note was written after all");
+	assert.deepEqual(lastKnown(), [IRE], "a planned write that never landed cleared the note's last-known protection");
+});
+
 test("★ D3: the copied notice names only notes the write reached: a copy whose write then failed is not named", async () => {
 	const s = fresh();
 	await download(s.app, s.plugin, [whole(IRE, "Ireena", 1, "A noble."), whole(KOL, "Kolyan", 2, "A priest.")], 2);
