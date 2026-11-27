@@ -165,6 +165,8 @@ test("★ a hidden stub whose write throws is left whole and named; the pull car
 	assert.match(s.vault.contentAt(IRE_NOTE) ?? "", /A noble\./);
 	assert.ok((s.vault.contentAt(KOL_NOTE) ?? "").includes("Hidden by the world's owner."), "the stub after the bad one was never written");
 	assert.equal(s.plugin.settings.syncCursors[WID]?.cursor, "c2", "the cursor moved past a hidden row whose stub was never written");
+	const hiddenList = (s.plugin.settings as { hiddenOnServer?: Record<string, string[]> }).hiddenOnServer?.[WID] ?? [];
+	assert.ok(hiddenList.includes(KOL), `the hidden list was not saved while the cursor held: ${JSON.stringify(hiddenList)}`);
 	const said = r.notices.find((n) => n.includes('Character "Ireena"')) ?? "";
 	assert.match(said, /^Download could not write/, r.notices.join(" | "));
 	assert.match(said, /the disk is full/, said);
