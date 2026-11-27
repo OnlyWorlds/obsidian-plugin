@@ -542,23 +542,37 @@ export interface WrittenNote {
  * `vault.read` and `vault.process` see the disk only: typing not yet saved would be in no copy, and the write's reload of the
  * editor would end it. Saved first, it is on disk, no longer hashes to the note's mark, and the copy rule keeps it.
  *
- * Only a dirty view of this file is saved: one whose text (`getViewData`) is a string other than the file's. A clean view, a
- * view with no `save` or no text, and a workspace that lists no leaves are passed over. A dirty view's save is marked as the
- * plugin's own write just before it (`markSelfWrite`): its modify event is no edit for auto-sync to send, since the note is
- * about to hold the writer's bytes (a save then would send those, Paste world's pasted ones among them). A clean view takes no
- * mark, which would swallow the person's next real edit.
+ * Only a dirty view of this file is saved: one whose text (`getViewData`) differs from the file's, line endings aside (an
+ * editor that holds `\n` where the file holds `\r\n` has nothing unsaved). A clean view, a view with no `save` or no text, and
+ * a workspace that lists no leaves are passed over. The save is a plain one, the person's own, with no self-write mark: its
+ * modify event schedules auto-sync's save as any edit does, and the writer's own mark just before its write drops that save
+ * (AutoSyncEngine.markSelfWrite); with no write after it, the typing is sent as any edit is.
+ *
+ * A save that does not return within FLUSH_SAVE_TIMEOUT.ms throws, so the writer leaves that note as it was and says so; a
+ * save that completes later is the person's own. Nothing here swallows an error.
  */
-export async function flushOpenEditors(app: App, file: TFile, markSelfWrite?: (path: string) => void): Promise<void> {
+export async function flushOpenEditors(app: App, file: TFile): Promise<void> {
 	const workspace = app.workspace as { getLeavesOfType?: (type: string) => { view: unknown }[] } | undefined;
 	if (typeof workspace?.getLeavesOfType !== "function") return;
 	for (const leaf of workspace.getLeavesOfType("markdown")) {
 		const view = leaf.view as { file?: TFile | null; save?: () => Promise<void>; getViewData?: () => unknown } | undefined;
 		if (view?.file?.path !== file.path || typeof view.save !== "function") continue;
 		const held = typeof view.getViewData === "function" ? view.getViewData() : null;
-		if (typeof held !== "string" || held === (await app.vault.read(file))) continue;
-		markSelfWrite?.(file.path);
-		await view.save();
+		if (typeof held !== "string") continue;
+		if (held.replace(/\r\n/g, "\n") === (await app.vault.read(file)).replace(/\r\n/g, "\n")) continue;
+		await savedWithin(view.save(), FLUSH_SAVE_TIMEOUT.ms);
 	}
+}
+
+/** How long the flush waits for an editor's save (a test may shorten it). */
+export const FLUSH_SAVE_TIMEOUT = { ms: 5000 };
+
+function savedWithin(save: Promise<void>, ms: number): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`the open editor did not save its text within ${Math.round(ms / 100) / 10} s`)), ms);
+	});
+	return Promise.race([save, late]).finally(() => clearTimeout(timer));
 }
 
 /** How many times a write meets a note changed since it last read it before it leaves the note as the person has it. */
@@ -582,7 +596,7 @@ export async function replaceNote(
 	let expected = seen;
 	for (let i = 0; i < REPLACE_TRIES; i++) {
 		// An editor's unsaved text reaches the disk first; the write then finds the note changed and copies it.
-		await flushOpenEditors(app, file, opts.markSelfWrite);
+		await flushOpenEditors(app, file);
 		if (expected === next) return next;
 		if (expected !== opts.ownBytes) await opts.beforeReplace?.(expected);
 		const found: { text: string | null } = { text: null };
@@ -714,7 +728,7 @@ export async function writeElementNote(
 	// namespaces, the user's own additions), which is what processFrontMatter
 	// was buying us.
 	// An open editor's unsaved text is saved first, so this read (and the copy of it) holds it.
-	await flushOpenEditors(app, file, markSelfWrite);
+	await flushOpenEditors(app, file);
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);

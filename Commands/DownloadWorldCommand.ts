@@ -772,7 +772,7 @@ export class DownloadWorldCommand {
                         if (current instanceof TFile) {
                             try {
                                 // An open editor's unsaved text first, so what the write keeps of the note is the person's latest.
-                                await flushOpenEditors(this.app, current, (p) => this.plugin?.autoSync?.markSelfWrite(p));
+                                await flushOpenEditors(this.app, current);
                                 const text = await this.app.vault.read(current);
                                 keepAbove = knownOfKeptText(text);
                                 if (!plan.knownOf) dropKeys = removedGroupKeys(String(element.id), (element as { x_properties?: unknown }).x_properties, parseRawFrontmatter(text) ?? {}, marks);
@@ -956,7 +956,7 @@ export class DownloadWorldCommand {
             let label = file.basename;
             try {
                 // An open editor's unsaved text first, so the stub keeps what the person wrote outside the fields.
-                await flushOpenEditors(this.app, file, (p) => this.plugin?.autoSync?.markSelfWrite(p));
+                await flushOpenEditors(this.app, file);
                 const content = await this.app.vault.read(file);
                 // The note's type by its place, else by its `type` property: a hidden element's note outside the type folders is stubbed too.
                 const fm = parseRawFrontmatterScalars(content, ['id', 'type', 'name']);

@@ -453,10 +453,13 @@ export class App {
 	/**
 	 * Test helper: an editor open on the note at `path` holding `text` it has not saved yet (null: nothing unsaved), as
 	 * Obsidian's editor holds typing for about two seconds before it writes the file. `getViewData()` gives the editor's text
-	 * (the held text, else the file's). Its `save()` writes the held text through vault.modify (once), counts the call, and
-	 * pushes `save <path>` onto `log` when one is given. `withSave: false` makes a view with no save method.
+	 * (the held text, else the file's); a test may change `pending` at any moment, as typing does. Its `save()` counts the call,
+	 * pushes `save <path>` onto `opts.log`, runs `opts.onSave` when given (a save that hangs or throws), then writes the held text
+	 * through vault.modify (once). `opts.withSave: false` makes a view with no save method.
 	 */
-	openEditor(path: string, text: string | null, withSave = true, log?: string[]): { saves: number; pending: string | null } {
+	openEditor(path: string, text: string | null, opts: { withSave?: boolean; log?: string[]; onSave?: () => Promise<void> } = {}): { saves: number; pending: string | null } {
+		const withSave = opts.withSave !== false;
+		const log = opts.log;
 		const file = this.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) throw new Error("openEditor: no note at " + path);
 		const state = { saves: 0, pending: text };
@@ -468,6 +471,7 @@ export class App {
 			view.save = async () => {
 				state.saves++;
 				log?.push(`save ${path}`);
+				if (opts.onSave) await opts.onSave();
 				if (state.pending !== null && view.file) await this.vault.modify(view.file, state.pending);
 				state.pending = null;
 			};

@@ -162,7 +162,7 @@ export class PasteWorldCommand {
                     const existingElementPath = pickNoteForId(worldIds.get(element.id) ?? [], worldName, category);
                     // An open editor's unsaved text first, so the note is read as the person has it.
                     const found = existingElementPath ? this.app.vault.getAbstractFileByPath(existingElementPath) : null;
-                    if (found instanceof TFile) await flushOpenEditors(this.app, found, (p) => this.markSelfWrite?.(p));
+                    if (found instanceof TFile) await flushOpenEditors(this.app, found);
                     if (existingElementPath && (await this.isStub(existingElementPath))) continue;
                     // A known-of stub (the folder spec §4.4) is
                     // written as one, never over a whole note (no reset brought it:

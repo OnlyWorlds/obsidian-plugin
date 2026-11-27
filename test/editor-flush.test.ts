@@ -13,6 +13,7 @@ import { makeApp, setRequestUrl, __notices } from "./support/obsidian-mock";
 import type { MockVault } from "./support/obsidian-mock";
 import { DownloadWorldCommand } from "../Commands/DownloadWorldCommand";
 import { PasteWorldCommand } from "../Commands/PasteWorldCommand";
+import { FLUSH_SAVE_TIMEOUT } from "../vault/element-file";
 import { AutoSyncEngine } from "../sync/auto-sync";
 
 const W = "OnlyWorlds/Worlds/W";
@@ -81,7 +82,7 @@ test("★ only the open views of the note being written are saved, and a view wi
 	const { vault, mock, dl } = await world();
 	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
 	const other = mock.openEditor(OTHER_NOTE, typedOver(vault, OTHER_NOTE));
-	mock.openEditor(NOTE, typedOver(vault, NOTE), false);
+	mock.openEditor(NOTE, typedOver(vault, NOTE), { withSave: false });
 	const editor = mock.openEditor(NOTE, typedOver(vault, NOTE));
 	await dl.generateElementNotes(ELEMENTS, { Character: [{ id: ID, name: "Ireena", description: "Changed on the server." }] }, false);
 	assert.ok(editor.saves > 0, "the open editor of the note being written was not saved");
@@ -99,14 +100,14 @@ test("★ the write is built from the saved editor text: a property typed in the
 	assert.match(vault.contentAt(NOTE) ?? "", /^mood: grim$/m, "the person's property, typed and not yet saved, left the note (it is only in a copy)");
 });
 
-test("★ a dirty view is marked as the plugin's own write just before its one save; a clean view gets neither a save nor a mark", async () => {
+test("★ a dirty view is saved once, as a plain save with no self-write mark of its own; a clean view is not saved", async () => {
 	const log: string[] = [];
 	const { app, vault, mock } = await world();
 	const plugin = { autoSync: { markSelfWrite: (p: string) => log.push(`mark ${p}`) } };
 	const dl = new DownloadWorldCommand(app, {}, plugin as never);
 	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
-	const dirty = mock.openEditor(NOTE, typedOver(vault, NOTE), true, log);
-	const clean = mock.openEditor(OTHER_NOTE, null, true, log);
+	const dirty = mock.openEditor(NOTE, typedOver(vault, NOTE), { log });
+	const clean = mock.openEditor(OTHER_NOTE, null, { log });
 	const v = app.vault as unknown as { modify(f: unknown, c: string): Promise<void> };
 	const modify = v.modify.bind(v);
 	v.modify = async (f, c) => {
@@ -116,12 +117,45 @@ test("★ a dirty view is marked as the plugin's own write just before its one s
 	log.length = 0;
 	await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest, changed."), false);
 	assert.equal(dirty.saves, 1, `the dirty view was saved ${dirty.saves} times`);
-	const at = log.indexOf(`save ${NOTE}`);
-	assert.equal(log[at - 1], `mark ${NOTE}`, `the dirty view's save was not marked just before it: ${log.join(" | ")}`);
 	assert.equal(clean.saves, 0, "a clean view was saved");
-	const ofOther = log.filter((x) => x.endsWith(OTHER_NOTE));
-	assert.equal(ofOther.filter((x) => x.startsWith("mark")).length, ofOther.filter((x) => x.startsWith("write")).length,
-		`a clean view left a self-write mark behind: ${ofOther.join(" | ")}`);
+	for (const path of [NOTE, OTHER_NOTE]) {
+		const of = log.filter((x) => x.endsWith(path));
+		const marks = of.filter((x) => x.startsWith("mark")).length;
+		const writes = of.filter((x) => x.startsWith("write")).length - of.filter((x) => x.startsWith("save")).length;
+		assert.equal(marks, writes, `the flush took a self-write mark of its own for ${path}: ${of.join(" | ")}`);
+	}
+});
+
+test("★ a view that differs from its file only in line endings is clean: no save, no mark", async () => {
+	const log: string[] = [];
+	const { app, vault, mock } = await world();
+	const plugin = { autoSync: { markSelfWrite: (p: string) => log.push(`mark ${p}`) } };
+	const dl = new DownloadWorldCommand(app, {}, plugin as never);
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	const crlf = mock.openEditor(OTHER_NOTE, (vault.contentAt(OTHER_NOTE) ?? "").replace(/\n/g, "\r\n"), { log });
+	log.length = 0;
+	await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest, changed."), false);
+	assert.equal(crlf.saves, 0, "a view that differs only in line endings was saved");
+});
+
+test("★ an editor whose save does not return in time: its note is left as it was and named, and the pull goes on", { timeout: 5000 }, async () => {
+	const { vault, mock, dl } = await world();
+	await dl.generateElementNotes(ELEMENTS, both("A noble.", "A priest."), false);
+	const before = vault.contentAt(NOTE);
+	mock.openEditor(NOTE, typedOver(vault, NOTE), { onSave: () => new Promise<void>(() => undefined) });
+	const was = FLUSH_SAVE_TIMEOUT.ms;
+	FLUSH_SAVE_TIMEOUT.ms = 30;
+	__notices.length = 0;
+	try {
+		const r = await dl.generateElementNotes(ELEMENTS, both("Changed on the server.", "A priest, changed."), false);
+		assert.equal(vault.contentAt(NOTE), before, "the note whose editor did not save was written over");
+		assert.match(vault.contentAt(OTHER_NOTE) ?? "", /A priest, changed\./, "the pull stopped at the note whose editor did not save");
+		assert.equal(r.failed.length, 1, JSON.stringify(r.failed));
+		assert.match(r.failed[0].reason, /did not save/, r.failed[0].reason);
+		assert.ok(__notices.some((n) => n.includes('Character "Ireena"') && /did not save/.test(n)), __notices.join(" | "));
+	} finally {
+		FLUSH_SAVE_TIMEOUT.ms = was;
+	}
 });
 
 test("★ Paste world's flush of a dirty editor leaves auto-sync nothing to send: no save of pasted bytes is scheduled", async () => {
@@ -149,7 +183,7 @@ test("★ Paste world's flush of a dirty editor leaves auto-sync nothing to send
 	await new Promise((r) => setTimeout(r, 30));
 	assert.match(vault.contentAt(NOTE) ?? "", /Pasted\./);
 	assert.ok(inACopy(vault, TYPED));
-	assert.deepEqual(statuses, [], `auto-sync took the flush for an edit and would send the pasted bytes: ${statuses.join(" | ")}`);
+	assert.ok(!statuses.includes("syncing"), `auto-sync sent a save after Paste world replaced the note (the pasted bytes): ${statuses.join(" | ")}`);
 	const timers = (engine as unknown as { timers: Map<string, ReturnType<typeof setTimeout>> }).timers;
 	for (const t of timers.values()) clearTimeout(t);
 });
