@@ -335,6 +335,33 @@ export function typeFromFolderPath(rel: string): string | null {
 	return null;
 }
 
+/** The deepest an object or array may sit in a file that is read (folder format 0.3.25): the file's top object is 1. */
+export const MAX_FILE_DEPTH = 200;
+
+/**
+ * True when an object or array in `text` sits more than `MAX_FILE_DEPTH` levels deep, counted in the
+ * text as each one opens, so a key written twice counts with each of its values. Brackets inside a
+ * string are not counted. The SDK's `textTooDeep`, which the pinned version does not export.
+ */
+export function textTooDeep(text: string): boolean {
+	let depth = 0;
+	let inString = false;
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+		if (inString) {
+			if (c === "\\") i++; // the next character is escaped
+			else if (c === '"') inString = false;
+		} else if (c === '"') {
+			inString = true;
+		} else if (c === "{" || c === "[") {
+			if (++depth > MAX_FILE_DEPTH) return true;
+		} else if (c === "}" || c === "]") {
+			depth--;
+		}
+	}
+	return false;
+}
+
 /** Is this a valid UUID string (used to validate world.json / mention ids). */
 export function isUuid(s: unknown): s is string {
 	return typeof s === "string" && UUID_RE.test(s);
