@@ -672,21 +672,6 @@ export async function writeElementNote(
 	// finding, 2026-07-16: safeName was a weaker regex than sanitizeFileName).
 	const safeName = sanitizeFileName(name);
 	const bodyField = bodyFieldForCategory(cat);
-	// v3.2: the body is no longer just description/story — it carries EVERY text
-	// field as a `## Heading` section, empty ones included (the empty section is
-	// the scaffold that makes a field discoverable at all). Custom `x_` text
-	// fields ride along, rendered without their prefix.
-	// Only `x_` keys, the user's own custom fields. Any
-	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
-	// frontmatter verbatim, never becomes a section, and so is never read back
-	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
-	// `x_depends_on` is never a section: its heading is the generated
-	// section's, which no reader reads. An element that
-	// carries one keeps it in the frontmatter, verbatim, as any extension key.
-	const customTextFields = Object.entries(data)
-		.filter(([k, v]) => writesAsSection(k, v, cat, Object.keys(data)))
-		.map(([k]) => k);
-
 	const folder = opts.folderPath
 		? normalizePath(opts.folderPath)
 		: `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
@@ -724,28 +709,6 @@ export async function writeElementNote(
 	}
 	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
-	// R1: render link ids as [[Name]] wikilinks. Prefer a caller-supplied map
-	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
-	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
-	// not yet indexed in metadataCache).
-	const resolveId = opts.idToName ?? buildIdToNameResolver(app, worldName);
-	const built = apiDataToFrontmatter(data, cat, elementId, {
-		resolveIdToName: resolveId,
-		resolveIdToRealName: opts.idToRealName,
-		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
-	});
-	// The mark sits under the id, where the Properties panel shows it first;
-	// the stub's base keys follow, written even when empty, as the reference
-	// writers write them.
-	let fm: Record<string, unknown> = built;
-	if (knownOf) {
-		fm = { name: built.name, id: built.id, [KNOWN_OF_KEY]: true };
-		for (const k of ["supertype", "subtype", "image_url"]) {
-			if (k in data) fm[k] = k in built ? built[k] : data[k];
-		}
-		for (const [k, v] of Object.entries(built)) if (!(k in fm)) fm[k] = v;
-	}
-
 	// ★ ONE write for the whole note — frontmatter AND body together.
 	//
 	// This used to be two steps: processFrontMatter for the block, then a
@@ -766,6 +729,47 @@ export async function writeElementNote(
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
+	// The keys the reader will see are the element's and the ones this write keeps from the note: a tool's key among either
+	// keeps its `x_` namesake a property (writesAsSection).
+	const noteKeys = Object.keys(existingFm);
+	// v3.2: the body is no longer just description/story — it carries EVERY text
+	// field as a `## Heading` section, empty ones included (the empty section is
+	// the scaffold that makes a field discoverable at all). Custom `x_` text
+	// fields ride along, rendered without their prefix.
+	// Only `x_` keys, the user's own custom fields. Any
+	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
+	// frontmatter verbatim, never becomes a section, and so is never read back
+	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
+	// `x_depends_on` is never a section: its heading is the generated
+	// section's, which no reader reads. An element that
+	// carries one keeps it in the frontmatter, verbatim, as any extension key.
+	const customTextFields = Object.entries(data)
+		.filter(([k, v]) => writesAsSection(k, v, cat, [...Object.keys(data), ...noteKeys]))
+		.map(([k]) => k);
+
+	// R1: render link ids as [[Name]] wikilinks. Prefer a caller-supplied map
+	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
+	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
+	// not yet indexed in metadataCache).
+	const resolveId = opts.idToName ?? buildIdToNameResolver(app, worldName);
+	const built = apiDataToFrontmatter(data, cat, elementId, {
+		resolveIdToName: resolveId,
+		resolveIdToRealName: opts.idToRealName,
+		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
+		siblingKeys: noteKeys,
+	});
+	// The mark sits under the id, where the Properties panel shows it first;
+	// the stub's base keys follow, written even when empty, as the reference
+	// writers write them.
+	let fm: Record<string, unknown> = built;
+	if (knownOf) {
+		fm = { name: built.name, id: built.id, [KNOWN_OF_KEY]: true };
+		for (const k of ["supertype", "subtype", "image_url"]) {
+			if (k in data) fm[k] = k in built ? built[k] : data[k];
+		}
+		for (const [k, v] of Object.entries(built)) if (!(k in fm)) fm[k] = v;
+	}
+
 	// `known_of` and its record are the writer's alone: set on a stub, gone on a whole write.
 	// The server's seven are the arriving element's (3.10): one the server
 	// now serves null (a former member's `changed_by` after the owner's

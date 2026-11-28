@@ -87,3 +87,17 @@ test("★ Migrate writes a span's x_ text key as its section (red on cd24c0e: th
 	assert.ok(text.includes("### Looks\n\nTall.\n") || text.includes("x_looks: Tall."), text);
 	assert.ok(!(text.includes("### Looks") && text.includes("x_looks:")), "once, not twice:\n" + text);
 });
+
+test("★ a note that keeps a tool's key the world dropped: x_color stays a property and is read (red on 254d3fb: its section was taken for the tool's old copy)", async () => {
+	const w = await written(head('x_color: Red\natlas_color: "#f00"\n'), { x_color: "Blue" });
+	assert.ok(w.text.includes("atlas_color:"), "the note keeps the tool's key\n" + w.text);
+	assert.ok(w.text.includes("x_color: Blue") && !w.text.includes("### Color"), w.text);
+	assert.equal((await readElement(w.app, w.file as never))?.fields.x_color, "Blue");
+});
+
+test("★ two identical copies stay one text though the property's link now resolves (red on 254d3fb: refused as different)", async () => {
+	const { app, vault } = makeApp();
+	await vault.seed("OnlyWorlds/Worlds/W/Elements/Character/Bob.md", `---\nname: Bob\nid: ${BOB}\n---\n\n### Description\n\nA man.\n`);
+	const f = await vault.seed(PATH, head('x_sources: "[[Bob]]"\n') + `\n### Sources\n\n[[Bob]]\n`);
+	assert.equal((await readElement(app, f as never))?.twinTexts, undefined);
+});

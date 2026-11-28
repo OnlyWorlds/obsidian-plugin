@@ -375,6 +375,7 @@ export function writesAsSection(key: string, value: unknown, category: string, s
  */
 export function twinTextsDiffer(property: unknown, resolved: unknown, section: string): boolean {
 	const plain = (s: string) => s.replace(/\r\n/g, "\n").trimEnd();
+	if (typeof property === "string" && plain(property) === plain(section)) return false;
 	const held = typeof resolved === "string" ? resolved : property;
 	if (held === null || held === undefined) return plain(section) !== "";
 	if (typeof held === "string") return plain(held) !== plain(section);
@@ -1765,6 +1766,8 @@ export function frontmatterToPayloadFields(
  */
 export interface WriteFrontmatterOptions {
 	resolveIdToName?: IdToName;
+	/** Keys the written note will hold besides the element's own: the note's front matter keys, which the writer may keep (writesAsSection's siblings). */
+	siblingKeys?: string[];
 	/**
 	 * Id -> the element's own name: an extension key's link shows it as
 	 * `[[note|name]]` where it differs from the note's name (extensionLinksOut).
@@ -1856,7 +1859,7 @@ export function apiDataToFrontmatter(
 			continue;
 		}
 		// A string `x_` key whose section reads back as itself is the section's alone (writesAsSection): never written twice.
-		if (writesAsSection(key, value, category, Object.keys(data))) continue;
+		if (writesAsSection(key, value, category, [...Object.keys(data), ...(opts.siblingKeys ?? [])])) continue;
 		if (isExtensionKey(key)) {
 			// Verbatim, kept even when empty (R3 exception); a whole value of
 			// element ids is written as links (3.13.0, extensionLinksOut).
