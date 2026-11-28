@@ -131,7 +131,7 @@ const staleShown = new Set<string>();
 const unguardedShown = new Set<string>();
 
 /** Per note path, the save running now: the next save of that note waits for it. */
-const saveChains = new Map<string, Promise<void>>();
+const saveChains = new Map<TFile | null, Promise<void>>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
@@ -304,7 +304,8 @@ export class SaveElementCommand {
         // auto-sync's, or the next pause's) waits for it, then reads the
         // change_seq it recorded. Otherwise both read the same number and the
         // second is refused as stale over the person's own write.
-        const key = activeFile instanceof TFile ? activeFile.path : '';
+        // The note is the file, not its path: Obsidian keeps the same TFile through a rename.
+        const key = activeFile instanceof TFile ? activeFile : null;
         const run = (saveChains.get(key) ?? Promise.resolve()).then(() => this.saveOne(activeFile, opts));
         const tail = run.then(() => undefined, () => undefined);
         saveChains.set(key, tail);
@@ -327,9 +328,18 @@ export class SaveElementCommand {
         // type and name come from those bytes, never the metadata cache: a cache
         // that still holds an id the note no longer carries would send the new
         // text under that id.
+        // ★ The change numbers are read BEFORE the text that is sent (as Upload does). This save sends the number as If-Match: read
+        // after the text, across the PIN prompt and the client, it could be the number a pull recorded meanwhile, paired with the
+        // text from before that pull, and the old text would go over what the pull brought. Read first, a pull in between leaves
+        // the number old and the save is refused as stale.
+        const placed = await this.extractPathInfo(activeFile.path, await this.app.vault.read(activeFile));
+        if (!placed) {
+            return this.fail("The current file is not a valid OnlyWorlds element note.");
+        }
+        const seqIndex = await readChangeSeqIndex(this.app, placed.worldName);
         const content = await this.app.vault.read(activeFile);
         const pathInfo = await this.extractPathInfo(activeFile.path, content);
-        if (!pathInfo) {
+        if (!pathInfo || pathInfo.worldName !== placed.worldName) {
             return this.fail("The current file is not a valid OnlyWorlds element note.");
         }
         const { worldName, category } = pathInfo;
@@ -469,7 +479,6 @@ export class SaveElementCommand {
         // change is refused (412) instead of reverting it. None recorded (a
         // vault from before 3.8.1, a note never saved): saved as before, once,
         // and the answer's change_seq is recorded for the next save.
-        const seqIndex = await readChangeSeqIndex(this.app, worldName);
         const knownSeq = seqIndex[elementUuid] ?? null;
         // Only a note marked as holding the world's group at this very number clears it by having none (an older plugin that renews the number leaves the mark behind).
         const groupHeld = knownSeq !== null && seqIndex[heldKey(elementUuid)] === knownSeq;
