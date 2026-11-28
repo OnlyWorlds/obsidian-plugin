@@ -31,7 +31,7 @@ interface FakeClientOpts {
 	existing?: Set<string>;
 }
 
-async function harness(opts: FakeClientOpts & { worldKey?: string | null; pin?: boolean } = {}) {
+async function harness(opts: FakeClientOpts & { worldKey?: string | null; pin?: boolean; debounceMs?: number } = {}) {
 	const { app, vault } = makeApp();
 	const worldKey = opts.worldKey === undefined ? "ow_k_test" : opts.worldKey;
 	await vault.seed(`${W}/World.md`, worldKey ? `- **API Key:** ${worldKey}\n` : "# W\n");
@@ -72,7 +72,7 @@ async function harness(opts: FakeClientOpts & { worldKey?: string | null; pin?: 
 	};
 	const statuses: string[] = [];
 	const plugin = {
-		settings: { apiKey: "", debounceMs: 5, autoSync: true },
+		settings: { apiKey: "", debounceMs: opts.debounceMs ?? 5, autoSync: true },
 		setSyncStatus: (s: string) => statuses.push(s),
 		buildV2Client: async () => (opts.pin === false ? null : client),
 	};
@@ -145,4 +145,15 @@ test("a save that lands, or finds nothing to change, ends on synced", async () =
 	await settle();
 	assert.equal(h.statuses.at(-1), "synced");
 	assert.ok(!h.statuses.includes("error"));
+});
+
+test("★ a note renamed while its timer waits is saved once, not once under each path (#2443)", async () => {
+	const h = await harness({ debounceMs: 80 });
+	schedule(h.engine, h.fileB);
+	h.vault.move(`${FOLDER}/Beta.md`, `${FOLDER}/Beta renamed.md`);
+	schedule(h.engine, h.fileB); // the person types again, under the new name
+	await settle(250);
+	const saves = h.calls.filter((c) => c === `create character ${ID_B}`);
+	assert.equal(saves.length, 1, "one note, one save: " + h.calls.join(" | "));
+	assert.equal((h.engine as unknown as { timers: Map<unknown, unknown> }).timers.size, 0, "no timer is left under a path the note no longer has");
 });

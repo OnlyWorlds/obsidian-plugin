@@ -4,7 +4,7 @@
  * Returns what was sent, the calls in order and the notices shown.
  */
 import type { App, TFile } from "obsidian";
-import { makeApp, __notices, __modals } from "./obsidian-mock";
+import { makeApp, __notices, __modals, type MockVault } from "./obsidian-mock";
 import { SaveElementCommand } from "../../Commands/SaveElementCommand";
 import { V2ApiError } from "../../client-v2";
 
@@ -37,6 +37,8 @@ export interface HarnessOpts {
 	answer?: Record<string, Record<string, unknown>>;
 	/** Runs while an update is in flight (after the body is sent, before keel answers): a person typing into a note as the save runs. */
 	during?: (ctx: { app: App; files: Record<string, TFile> }) => Promise<void>;
+	/** Runs while the save waits for its client (the PIN prompt's place): a pull that writes the note and records its number meanwhile. */
+	beforeClient?: (ctx: { app: App; vault: MockVault; files: Record<string, TFile> }) => Promise<void>;
 }
 
 export async function harnessSave(o: HarnessOpts) {
@@ -100,7 +102,7 @@ export async function harnessSave(o: HarnessOpts) {
 		lastKnown: (o.lastKnown ? { [HARNESS_WID]: o.lastKnown } : {}) as Record<string, string[]>,
 		syncCursors: (o.cursor ? { [HARNESS_WID]: o.cursor } : {}) as Record<string, { cursor: string; head: number }>,
 	};
-	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => client };
+	const plugin = { settings, saveSettings: async () => {}, buildV2Client: async () => { await o.beforeClient?.({ app, vault: vault as MockVault, files }); return client; } };
 	__notices.length = 0;
 	__modals.length = 0;
 	let done = false;

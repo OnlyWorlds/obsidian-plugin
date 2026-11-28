@@ -11,7 +11,7 @@ import { isUnderElements, mayBeElementNote, typeOfPlace } from "../vault/categor
  * Watches vault modifications, debounces rapid edits per file, and triggers
  * per-element pushes via SaveElementCommand once typing stops.
  *
- * Per-file debounce: a separate timer per file path means edits in file A don't
+ * Per-file debounce: a separate timer per file means edits in file A don't
  * delay syncing file B, and rapid typing in one file just keeps resetting that
  * file's own timer.
  *
@@ -26,7 +26,8 @@ export class AutoSyncEngine {
 	static readonly SELF_WRITE_TTL_MS = 30_000;
 	private app: App;
 	private plugin: OnlyWorldsPlugin;
-	private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+	/** File -> its pending timer. Keyed by the file itself, not its path: Obsidian keeps the same TFile through a rename, so a note renamed while its timer waits is still the one timer. */
+	private timers: Map<TFile, ReturnType<typeof setTimeout>> = new Map();
 	/** Path -> when it was marked (now()); one mark swallows one modify event. */
 	private selfWritePaths: Map<string, number> = new Map();
 	private now: () => number;
@@ -78,17 +79,17 @@ export class AutoSyncEngine {
 	 * pending timer for this file's path, so rapid edits coalesce into one push.
 	 */
 	private scheduleSync(file: TFile): void {
-		const existing = this.timers.get(file.path);
+		const existing = this.timers.get(file);
 		if (existing !== undefined) {
 			clearTimeout(existing);
 		}
 		this.plugin.setSyncStatus("dirty");
 		const ms = this.plugin.settings.debounceMs;
 		const timer = setTimeout(() => {
-			this.timers.delete(file.path);
+			this.timers.delete(file);
 			void this.syncFile(file);
 		}, ms);
-		this.timers.set(file.path, timer);
+		this.timers.set(file, timer);
 	}
 
 	/**
