@@ -131,7 +131,7 @@ const staleShown = new Set<string>();
 const unguardedShown = new Set<string>();
 
 /** Per note path, the save running now: the next save of that note waits for it. */
-const saveChains = new Map<string, Promise<void>>();
+const saveChains = new Map<TFile | null, Promise<void>>();
 
 // Element ids whose new name auto-sync saved without renaming the note live
 // in the plugin's data (settings.pendingRenames, per world folder), so the
@@ -304,7 +304,8 @@ export class SaveElementCommand {
         // auto-sync's, or the next pause's) waits for it, then reads the
         // change_seq it recorded. Otherwise both read the same number and the
         // second is refused as stale over the person's own write.
-        const key = activeFile instanceof TFile ? activeFile.path : '';
+        // The note is the file, not its path: Obsidian keeps the same TFile through a rename.
+        const key = activeFile instanceof TFile ? activeFile : null;
         const run = (saveChains.get(key) ?? Promise.resolve()).then(() => this.saveOne(activeFile, opts));
         const tail = run.then(() => undefined, () => undefined);
         saveChains.set(key, tail);
