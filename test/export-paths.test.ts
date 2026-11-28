@@ -64,8 +64,8 @@ test("an id that is no UUID and is one plain name is still exported", async () =
 });
 
 test("isPlainFileId and escapesFolder", () => {
-	for (const ok of [GOOD, "checklist-7", "a.b", "..a", "urn:uuid:1"]) assert.equal(isPlainFileId(ok), true, ok);
-	for (const no of ["", ".", "..", "a/b", "a\\b", "a\nb", "a\u007fb"]) assert.equal(isPlainFileId(no), false, JSON.stringify(no));
+	for (const ok of [GOOD, "checklist-7", "a.b", "..a"]) assert.equal(isPlainFileId(ok), true, ok);
+	for (const no of ["", ".", "..", "a/b", "a\\b", "a\nb", "a\u007fb", "C:evil", "urn:uuid:1"]) assert.equal(isPlainFileId(no), false, JSON.stringify(no));
 	for (const ok of ["world.json", "elements/character/a--b.json", "records/x/.hidden", "records/..keep"]) assert.equal(escapesFolder(ok), false, ok);
 	for (const no of ["../x.json", "elements/character/../../x", "a\\..\\b", "/etc/x", "C:/x", "a//b", "./a"]) assert.equal(escapesFolder(no), true, no);
 });

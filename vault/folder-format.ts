@@ -110,11 +110,12 @@ export function slugify(name: string, max = SLUG_MAX_LEN): string {
 }
 
 /**
- * True when `id` can be part of one plain file name: not empty, not `.` or `..`, and holding no `/`, no `\` and no
- * control character. A writer names a file from the id (spec §3.2), so any other id could name a path.
+ * True when `id` can be part of one plain file name: not empty, not `.` or `..`, and holding no `/`, no `\`, no `:`
+ * and no control character. A writer names a file from the id (spec §3.2), so any other id could name a path; on
+ * Windows a colon names a drive, or a hidden stream of another file.
  */
 export function isPlainFileId(id: string): boolean {
-	return id !== "" && id !== "." && id !== ".." && !/[/\\\u0000-\u001f\u007f]/.test(id);
+	return id !== "" && id !== "." && id !== ".." && !/[/\\:\u0000-\u001f\u007f]/.test(id);
 }
 
 /** True when the relative path `rel` could leave the folder it is written under: absolute, a drive, or a `.`, `..` or empty part. */
