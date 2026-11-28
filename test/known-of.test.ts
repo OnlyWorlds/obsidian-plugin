@@ -224,7 +224,7 @@ async function wholeZel() {
 		whole(IRE, "Ireena", 2, { description: "A noble." }),
 	], 2);
 	const before = await s.vault.read(noteOf(s.app, ZEL));
-	assert.ok(before.includes("Born in Krezk.") && before.includes("x_mood"), before);
+	assert.ok(before.includes("Born in Krezk.") && before.includes("### Mood\n\ngrim\n") && !before.includes("x_mood"), before);
 	return { ...s, before };
 }
 const ZEL_STUB = (seq: number) => stubOf(ZEL, "Zelraun", seq, { description: "A knight." });
@@ -236,7 +236,7 @@ test("★ rule 5, view: after a view reset the stub replaces the whole copy", as
 	});
 	const note = await s.vault.read(noteOf(s.app, ZEL));
 	assert.ok(note.includes("known_of: true") && note.includes(KNOWN_OF_LINE) && note.includes("A knight."), note);
-	for (const gone of ["Born in Krezk.", "height:", "x_mood", "### Background", "A knight of Barovia."]) {
+	for (const gone of ["Born in Krezk.", "height:", "### Mood", "### Background", "A knight of Barovia."]) {
 		assert.ok(!note.includes(gone), `the whole copy's ${gone} stayed\n${note}`);
 	}
 	assert.ok(notices.includes(KNOWN_NOTICE), notices.join(" | "));

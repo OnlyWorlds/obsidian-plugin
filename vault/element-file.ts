@@ -8,6 +8,7 @@ import {
 	bodyToFieldValues,
 	parseElementBody,
 	headingToFieldKey,
+	bodySpans,
 	readsAsCustomField,
 	isExtensionKey,
 	isUserCustomKey,
@@ -38,6 +39,9 @@ import {
 	withDependsOn,
 	withoutDependsOn,
 	repeatedHeadingMessage,
+	writesAsSection,
+	heldHeadingsOf,
+	twinTextsDiffer,
 } from "./element-transform";
 import {
 	KNOWN_OF_KEY,
@@ -139,6 +143,11 @@ export interface ParsedElement {
 	 * profile, sentence 4), never sent with one of the two picked.
 	 */
 	ownConflicts?: string[];
+	/**
+	 * `x_` keys the note holds as a property and again as a `###` section, with different text (the Markdown profile, rule 11):
+	 * the note is refused by name, never sent with one of the two picked. Two copies that are equal read as one.
+	 */
+	twinTexts?: string[];
 }
 
 /** Why a note with a name in both its properties and its `x_properties` is not sent (or `verb`). */
@@ -190,7 +199,7 @@ export function unclosedFenceMessage(
  * left out by a summary of many notes.
  */
 export function readRefusal(
-	parsed: Pick<ParsedElement, "unclosedFence" | "repeatedHeadings">,
+	parsed: Pick<ParsedElement, "unclosedFence" | "repeatedHeadings" | "twinTexts">,
 	label: string,
 	verdict = "not sent",
 	outcome = ""
@@ -200,6 +209,11 @@ export function readRefusal(
 		return outcome ? `${message} ${outcome}` : message;
 	}
 	if (parsed.repeatedHeadings?.length) return repeatedHeadingMessage(label, parsed.repeatedHeadings, verdict, outcome);
+	if (parsed.twinTexts?.length) {
+		const one = parsed.twinTexts.length === 1;
+		const message = `${label} ${verdict}: ${parsed.twinTexts.join(", ")} ${one ? "is" : "are each"} both a property of the note and a ### section, with different text. Run Save element on the note to choose which to keep.`;
+		return outcome ? `${message} ${outcome}` : message;
+	}
 	return null;
 }
 
@@ -220,6 +234,31 @@ export function noteFence(
 		line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
 		heading: fence.swallows.trim(),
 	};
+}
+
+/**
+ * `content` holding the doubled `x_` key `key` once: `keep` "section" takes the property's lines out of the front matter,
+ * "property" takes its `###` section out of the body, text and all. Every other byte stays. Null when the one cannot be
+ * taken out cleanly (front matter whose lines cannot be told apart by key). The caller reads the result back before it
+ * writes it, and copies the note first.
+ */
+export function withOneCopy(content: string, key: string, keep: "section" | "property"): string | null {
+	if (keep === "property") {
+		const body = stripFrontmatter(content);
+		const spans = bodySpans(body);
+		const left = spans.filter((s) => s.heading === null || `x_${headingToFieldKey(s.heading)}` !== key);
+		if (left.length === spans.length) return null;
+		return content.slice(0, content.length - body.length) + left.map((s) => body.slice(s.start, s.end)).join("");
+	}
+	const close = frontmatterClose(content);
+	if (!close) return null;
+	const rest = content.slice(close.end);
+	const closing = /^\r?\n[^\n]*/.exec(rest)?.[0];
+	if (!closing) return null;
+	// A Windows closing line ends in `\r`, which the line editor's own read-back does not take: held aside and put back.
+	const cr = closing.endsWith("\r") ? "\r" : "";
+	const edited = editFrontmatterLines(content.slice(0, close.end) + closing.slice(0, closing.length - cr.length), [key], {}, {});
+	return edited === null ? null : edited + cr + rest.slice(closing.length);
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
@@ -372,6 +411,7 @@ export async function readElement(
 		// prose. A legacy body with no headings at all parses to a lone preamble,
 		// which lands in the body field exactly as it did before.
 		let repeatedHeadings: string[] = [];
+		const twinTexts: string[] = [];
 		if (body) {
 			// A `### Looks` section is a user-added custom TEXT field and must reach
 			// the API as `x_looks`, not be salvaged into description. We cannot know
@@ -397,6 +437,8 @@ export async function readElement(
 			const sectionValues = bodyToFieldValues(body, category, [...customKeys, ...shadowKeys]);
 			for (const k of shadowKeys) delete sectionValues[k];
 			for (const [k, v] of Object.entries(sectionValues)) {
+				// The note's own copy of the key, a property: equal reads as one, different is refused by name (the section is what is sent).
+				if (isUserCustomKey(k) && hasOwn(fm, k) && twinTextsDiffer(fm[k], fields[k], v)) twinTexts.push(k);
 				fields[k] = v;
 			}
 			// A heading read as a field, typed twice: only its last section would travel.
@@ -419,6 +461,7 @@ export async function readElement(
 			ambiguousLinks: ambiguous,
 			...(unclosedFence ? { unclosedFence } : {}),
 			...(repeatedHeadings.length ? { repeatedHeadings } : {}),
+			...(twinTexts.length ? { twinTexts } : {}),
 			...misnamed(category, adopted),
 			...(ownConflicts.length ? { ownConflicts: [...new Set(ownConflicts)] } : {}),
 			knownOf,
@@ -655,21 +698,6 @@ export async function writeElementNote(
 	// finding, 2026-07-16: safeName was a weaker regex than sanitizeFileName).
 	const safeName = sanitizeFileName(name);
 	const bodyField = bodyFieldForCategory(cat);
-	// v3.2: the body is no longer just description/story — it carries EVERY text
-	// field as a `## Heading` section, empty ones included (the empty section is
-	// the scaffold that makes a field discoverable at all). Custom `x_` text
-	// fields ride along, rendered without their prefix.
-	// Only `x_` keys, the user's own custom fields. Any
-	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
-	// frontmatter verbatim, never becomes a section, and so is never read back
-	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
-	// `x_depends_on` is never a section: its heading is the generated
-	// section's, which no reader reads. An element that
-	// carries one keeps it in the frontmatter, verbatim, as any extension key.
-	const customTextFields = Object.entries(data)
-		.filter(([k, v]) => isUserCustomKey(k) && typeof v === "string" && k !== DEPENDS_ON_CUSTOM_KEY)
-		.map(([k]) => k);
-
 	const folder = opts.folderPath
 		? normalizePath(opts.folderPath)
 		: `OnlyWorlds/Worlds/${worldName}/Elements/${folderName}`;
@@ -707,28 +735,6 @@ export async function writeElementNote(
 	}
 	if (!(file instanceof TFile)) throw new Error(`Could not create the element file at ${filePath}`);
 
-	// R1: render link ids as [[Name]] wikilinks. Prefer a caller-supplied map
-	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
-	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
-	// not yet indexed in metadataCache).
-	const resolveId = opts.idToName ?? buildIdToNameResolver(app, worldName);
-	const built = apiDataToFrontmatter(data, cat, elementId, {
-		resolveIdToName: resolveId,
-		resolveIdToRealName: opts.idToRealName,
-		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
-	});
-	// The mark sits under the id, where the Properties panel shows it first;
-	// the stub's base keys follow, written even when empty, as the reference
-	// writers write them.
-	let fm: Record<string, unknown> = built;
-	if (knownOf) {
-		fm = { name: built.name, id: built.id, [KNOWN_OF_KEY]: true };
-		for (const k of ["supertype", "subtype", "image_url"]) {
-			if (k in data) fm[k] = k in built ? built[k] : data[k];
-		}
-		for (const [k, v] of Object.entries(built)) if (!(k in fm)) fm[k] = v;
-	}
-
 	// ★ ONE write for the whole note — frontmatter AND body together.
 	//
 	// This used to be two steps: processFrontMatter for the block, then a
@@ -749,6 +755,47 @@ export async function writeElementNote(
 	const content = await app.vault.read(file);
 	const existingFm = parseRawFrontmatter(content) ?? {};
 	const schema = getCategorySchema(cat);
+	// The keys the reader will see are the element's and the ones this write keeps from the note: a tool's key among either
+	// keeps its `x_` namesake a property (writesAsSection).
+	const noteKeys = Object.keys(existingFm);
+	// v3.2: the body is no longer just description/story — it carries EVERY text
+	// field as a `## Heading` section, empty ones included (the empty section is
+	// the scaffold that makes a field discoverable at all). Custom `x_` text
+	// fields ride along, rendered without their prefix.
+	// Only `x_` keys, the user's own custom fields. Any
+	// other namespace (`atlas_`, `shadow_`) is a tool's: it stays in the
+	// frontmatter verbatim, never becomes a section, and so is never read back
+	// as an `x_` copy of itself (`atlas_color` -> `### Color` -> `x_color`).
+	// `x_depends_on` is never a section: its heading is the generated
+	// section's, which no reader reads. An element that
+	// carries one keeps it in the frontmatter, verbatim, as any extension key.
+	const customTextFields = Object.entries(data)
+		.filter(([k, v]) => writesAsSection(k, v, cat, [...Object.keys(data), ...noteKeys]))
+		.map(([k]) => k);
+
+	// R1: render link ids as [[Name]] wikilinks. Prefer a caller-supplied map
+	// (payload-derived, cache-independent — the S9 fix) over the cache-scanning
+	// resolver, which is unreliable mid-bulk-write (freshly-written siblings are
+	// not yet indexed in metadataCache).
+	const resolveId = opts.idToName ?? buildIdToNameResolver(app, worldName);
+	const built = apiDataToFrontmatter(data, cat, elementId, {
+		resolveIdToName: resolveId,
+		resolveIdToRealName: opts.idToRealName,
+		scaffoldEmptyFields: knownOf ? false : opts.scaffoldEmptyFields,
+		siblingKeys: noteKeys,
+	});
+	// The mark sits under the id, where the Properties panel shows it first;
+	// the stub's base keys follow, written even when empty, as the reference
+	// writers write them.
+	let fm: Record<string, unknown> = built;
+	if (knownOf) {
+		fm = { name: built.name, id: built.id, [KNOWN_OF_KEY]: true };
+		for (const k of ["supertype", "subtype", "image_url"]) {
+			if (k in data) fm[k] = k in built ? built[k] : data[k];
+		}
+		for (const [k, v] of Object.entries(built)) if (!(k in fm)) fm[k] = v;
+	}
+
 	// `known_of` and its record are the writer's alone: set on a stub, gone on a whole write.
 	// The server's seven are the arriving element's (3.10): one the server
 	// now serves null (a former member's `changed_by` after the owner's
@@ -758,6 +805,8 @@ export async function writeElementNote(
 	// element arrives with a group; with none it stays, and the next save sends it.
 	if (OWN_PROPERTIES_KEY in data) ownedKeys.add(OWN_PROPERTIES_KEY);
 	if (schema) for (const k of Object.keys(schema)) ownedKeys.add(k);
+	// A section-only key (writesAsSection) is the section's: an old note's property copy of it goes with this write.
+	for (const k of customTextFields) ownedKeys.add(k);
 	const preserved: Record<string, unknown> = {};
 	// A stub replacing a whole copy (a view reset) keeps none of its extension
 	// values: they are the element's, and a stub carries only what it keeps.
@@ -806,12 +855,13 @@ export async function writeElementNote(
 	// byte, whether the stub arrives again or whole. An own
 	// section headed as a field the element leaves unset stands for that
 	// field: the field is not written a second, empty time (N4).
+	const held = heldHeadingsOf(splitNote(content).body);
 	const own = knownOfOwnSections(content, cat, data, written);
 	const bodyValue = knownOf
-		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data && !own.fields.includes(k)))
+		? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => k in data && !own.fields.includes(k)), held)
 		: own.fields.length
-			? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !own.fields.includes(k)))
-			: buildElementBody(data, cat, customTextFields);
+			? buildElementBody(data, cat, customTextFields, bodyTextFields(cat).filter((k) => !own.fields.includes(k)), held)
+			: buildElementBody(data, cat, customTextFields, undefined, held);
 	const above = opts.keepAbove ?? "";
 	// The kept text, then one blank line before the first heading.
 	const gap = !above || above.endsWith("\n\n") ? "" : above.endsWith("\n") ? "\n" : "\n\n";

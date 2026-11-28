@@ -7,6 +7,7 @@ import type { App, TFile } from "obsidian";
 import { makeApp, __notices, __modals, type MockVault } from "./obsidian-mock";
 import { SaveElementCommand } from "../../Commands/SaveElementCommand";
 import { V2ApiError } from "../../client-v2";
+import { recordChangeSeqs } from "../../vault/change-seq-index";
 
 export const HARNESS_WID = "019e0000-0000-7000-8000-0000000000ee";
 
@@ -17,6 +18,12 @@ export interface HarnessOpts {
 	/** Elements on the server: id -> its body. */
 	server?: Record<string, Record<string, unknown>>;
 	manual?: boolean;
+	/** Change numbers the vault has recorded, id -> number. */
+	seqs?: Record<string, number>;
+	/** The answer to "which copy" (a list: one per question, in order). */
+	twin?: "section" | "property" | "cancel" | Array<"section" | "property" | "cancel">;
+	/** Runs while that question is open. */
+	whileAsked?: (ctx: { app: App; files: Record<string, TFile> }) => Promise<void>;
 	/** The status keel answers for each /bulk item (default 201). */
 	bulkStatus?: (id: string) => number;
 	/** The plugin's stored deleted list for the world. */
@@ -50,6 +57,7 @@ export async function harnessSave(o: HarnessOpts) {
 		const path = rel.startsWith("~/") ? `OnlyWorlds/Worlds/W/${rel.slice(2)}` : `OnlyWorlds/Worlds/W/Elements/${rel}`;
 		files[rel] = (await vault.seed(path, c)) as unknown as TFile;
 	}
+	if (o.seqs) await recordChangeSeqs(app, "W", o.seqs);
 	const server = new Map(Object.entries(o.server ?? {}));
 	const calls: string[] = [];
 	const sent: Record<string, unknown>[] = [];
@@ -106,12 +114,20 @@ export async function harnessSave(o: HarnessOpts) {
 	__notices.length = 0;
 	__modals.length = 0;
 	let done = false;
+	const answers = Array.isArray(o.twin) ? [...o.twin] : [];
 	const run = new SaveElementCommand(app, plugin as never)
 		.execute(files[o.save], { manual: o.manual ?? true })
 		.finally(() => (done = true));
 	while (!done) {
 		await new Promise((r) => setImmediate(r));
 		for (const m of __modals.splice(0)) {
+			const t = m as unknown as { offers?: string[]; pick?: (c: string) => void };
+			if (typeof t.pick === "function") {
+				await o.whileAsked?.({ app, files });
+				const want = (Array.isArray(o.twin) ? answers.shift() : o.twin) ?? "cancel";
+				t.pick(t.offers?.includes(want) ? want : "cancel");
+				continue;
+			}
 			const d = m as unknown as { choose?: (b: boolean) => void };
 			if (typeof d.choose === "function") d.choose(true);
 		}

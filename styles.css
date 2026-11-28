@@ -439,3 +439,11 @@
     justify-content: space-between;
     margin-top: 20px;
 }
+
+/* The two copies of a doubled field (ChooseCopyModal): whole, wrapped, scrolled when long, and selectable. */
+.ow-copy-text {
+	white-space: pre-wrap;
+	max-height: 20vh;
+	overflow: auto;
+	user-select: text;
+}

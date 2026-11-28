@@ -346,6 +346,55 @@ export function bodyTextFields(category: string): string[] {
 }
 
 /**
+ * Whether `key`, an `x_` key holding `value`, is written as a body section ONLY, once (the Markdown profile, OPEN 15 as ruled
+ * 2026-11-28): a string `x_` key whose section reads back as the same key. A key with a capital or a doubled underscore
+ * (`x_NPC_list` would come back `x_npc_list`), an element id (a link, kept as a property), one whose label is not a clean custom heading, or one whose label is a field the
+ * type already has (`x_reputation` on a Character), or one a tool's key shadows (`x_color` beside `atlas_color`), stays a property and is written once there, like any other foreign key.
+ */
+export function writesAsSection(key: string, value: unknown, category: string, siblings?: Iterable<string>): boolean {
+	if (typeof value !== "string" || !isUserCustomKey(key) || key === OWN_PROPERTIES_KEY || key === DEPENDS_ON_CUSTOM_KEY) return false;
+	// An element id is a link, written as one property (extensionLinksOut), never as a section's text.
+	if (UUID_RE.test(value)) return false;
+	const words = stripExtensionPrefix(key);
+	if (!words) return false;
+	// A tool's key beside it (`atlas_color` beside `x_color`) gives the same heading, and the reader takes that section for the tool's
+	// old copy unless the person's property is there to claim it (toolShadowHeadings): the key stays a property.
+	if (siblings) for (const s of siblings) if (isExtensionKey(s) && !isUserCustomKey(s) && `${EXTENSION_NAMESPACES[2]}${headingToFieldKey(stripExtensionPrefix(s))}` === key) return false;
+	const label = fieldToHeading(words);
+	if (!readsAsCustomField(label)) return false;
+	const back = headingToFieldKey(label);
+	if (`${EXTENSION_NAMESPACES[2]}${back}` !== key) return false;
+	return !bodyTextFields(category).includes(back);
+}
+
+/**
+ * Whether a note's property for an `x_` key and the same key's section hold different text (the twin check). `resolved` is the
+ * property as the reader took it (an element id for a link), `section` the section's text. Line endings and trailing space do
+ * not count. An empty property is an empty text; a number or a boolean is its text; anything else (a date, a list, an object) is
+ * no text the section can equal.
+ */
+export function twinTextsDiffer(property: unknown, resolved: unknown, section: string): boolean {
+	const plain = (s: string) => s.replace(/\r\n/g, "\n").trimEnd();
+	if (typeof property === "string" && plain(property) === plain(section)) return false;
+	const held = typeof resolved === "string" ? resolved : property;
+	if (held === null || held === undefined) return plain(section) !== "";
+	if (typeof held === "string") return plain(held) !== plain(section);
+	if (typeof held === "number" || typeof held === "boolean") return String(held) !== plain(section);
+	return true;
+}
+
+/** The `###` headings a body already holds, as the person typed them, by the field key each reads as (the first of a key). */
+export function heldHeadingsOf(body: string): Map<string, string> {
+	const held = new Map<string, string>();
+	for (const span of bodySpans(body)) {
+		if (span.heading === null) continue;
+		const key = headingToFieldKey(span.heading);
+		if (!held.has(key)) held.set(key, span.heading);
+	}
+	return held;
+}
+
+/**
  * Render an element's body: one `## Heading` section per text field, in schema
  * order, INCLUDING empty ones — the empty section IS the scaffold, and is the
  * whole reason a user can discover a field exists.
@@ -362,7 +411,12 @@ export function buildElementBody(
 	 * the schema, never from this list — a note added to and removed from many
 	 * times still reads canonically. Omit for the full scaffold.
 	 */
-	onlyFields?: string[]
+	onlyFields?: string[],
+	/**
+	 * The headings the note already holds, by the key each reads as (heldHeadingsOf): a section keeps the heading its note has
+	 * (`### My notes`), and only a heading written new takes the label's capitals.
+	 */
+	heldHeadings?: Map<string, string>
 ): string {
 	const schemaKeys = onlyFields
 		? bodyTextFields(category).filter((k) => onlyFields.includes(k))
@@ -370,7 +424,11 @@ export function buildElementBody(
 	const keys = [...schemaKeys, ...extraTextFields];
 	const parts: string[] = [];
 	for (const key of keys) {
-		const label = fieldToHeading(isExtensionKey(key) ? stripExtensionPrefix(key) : key);
+		const words = isExtensionKey(key) ? stripExtensionPrefix(key) : key;
+		// A held heading is used only where the reader would still take it for the field: a custom field's heading must pass the
+		// reader's own test (`My<tab>notes` would not, and its text would go into the description).
+		const heldHeading = heldHeadings?.get(headingToFieldKey(words));
+		const label = heldHeading !== undefined && (!isExtensionKey(key) || readsAsCustomField(heldHeading)) ? heldHeading : fieldToHeading(words);
 		const raw = values[key];
 		// The value as it is, never trimmed: sectionValue
 		// strips exactly the layout written here and nothing of the value. A
@@ -1708,6 +1766,8 @@ export function frontmatterToPayloadFields(
  */
 export interface WriteFrontmatterOptions {
 	resolveIdToName?: IdToName;
+	/** Keys the written note will hold besides the element's own: the note's front matter keys, which the writer may keep (writesAsSection's siblings). */
+	siblingKeys?: string[];
 	/**
 	 * Id -> the element's own name: an extension key's link shows it as
 	 * `[[note|name]]` where it differs from the note's name (extensionLinksOut).
@@ -1798,6 +1858,8 @@ export function apiDataToFrontmatter(
 			ownGroup = value; // expanded below, once the content's own keys are known
 			continue;
 		}
+		// A string `x_` key whose section reads back as itself is the section's alone (writesAsSection): never written twice.
+		if (writesAsSection(key, value, category, [...Object.keys(data), ...(opts.siblingKeys ?? [])])) continue;
 		if (isExtensionKey(key)) {
 			// Verbatim, kept even when empty (R3 exception); a whole value of
 			// element ids is written as links (3.13.0, extensionLinksOut).

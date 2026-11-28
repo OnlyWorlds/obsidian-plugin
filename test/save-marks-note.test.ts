@@ -77,9 +77,9 @@ test("★ a text property edited beside its section: the world holds the section
 	assert.equal(markKey(ID) in seqOf(r), false, "the property's text is in no world copy and the note was marked: " + JSON.stringify(seqOf(r)) + bytesOf(r));
 });
 
-test("the control of the text-property test: property and section agreeing, saved, is marked (the render does run on this fixture)", async () => {
+test("the control of the text-property test: the section alone, saved, is marked (the render does run on this fixture)", async () => {
 	const r = await harnessSave({
-		notes: { "Character/Ireena.md": pulled({ fm: "x_mood: light\n" }) + "### Mood\n\nlight\n", "~/.ow-seq.json": JSON.stringify(OLD) },
+		notes: { "Character/Ireena.md": pulled() + "### Mood\n\nlight\n", "~/.ow-seq.json": JSON.stringify(OLD) },
 		save: "Character/Ireena.md",
 		server: { [ID]: whole({ description: "A noble.", x_mood: "light", change_seq: 5 }) },
 		answer: { [ID]: whole({ description: "A noble.", x_mood: "light", change_seq: 6 }) },
