@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal, renderElementNote } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal, renderElementNote, withoutSettledTwins } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
@@ -8,7 +8,7 @@ import { bulkSlotWhy, isStaleWrite, toV2Payload, V2ApiError } from '../client-v2
 import { changeSeqOf, heldKey, readChangeSeqIndex, recordChangeSeqs } from '../vault/change-seq-index';
 import { groupKeysById, groupMarkEntries, markKey, noteMark, sameUpToLayout, valueMark } from '../vault/note-mark-core';
 import { staleSaveMessage, unguardedSaveMessage } from '../sync/stale-save';
-import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, holdsGroup, keepServerEscapes, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
+import { carriesServerFields, dependsOnKeptMessage, diffPayload, getCategorySchema, holdsGroup, keepServerEscapes, twinTextsDiffer, withGroupCleared, withServerFieldLines } from '../vault/element-transform';
 import { CreateFirstModal, cannotTellLine, type CannotTellReason, type CreateFirstItem } from '../Modals/CreateFirstModal';
 import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClient, type DeletedView } from '../sync/deleted-on-server';
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
@@ -346,6 +346,8 @@ export class SaveElementCommand {
 
         // 2. Read the note with the one reader: front matter, or an old span note by its one grammar.
         let elementData: ElementData | null = null;
+        // x_ keys the note holds twice with different text: settled against the world's copy once it is read, else refused.
+        let twins: string[] = [];
         const v2 = await readElement(this.app, activeFile, { content });
         if (v2?.id && (isHiddenId(this.plugin.settings, v2.id) || isStubNote(content))) return this.hiddenRefusal(activeFile, manual);
         // Two notes holding one id are both refused, by note (the Markdown profile, sentence 1): neither is the element's to choose.
@@ -371,12 +373,9 @@ export class SaveElementCommand {
             // check every sending reader asks (readRefusal).
             // Auto-sync says it once a session per note, not at every pause;
             // the status bar still shows the error (the fix round, item 1).
-            const refusal = readRefusal(v2, v2.name, 'not saved', 'Nothing was sent.');
-            if (refusal) {
-                if (!manual && readRefusalShown.has(activeFile.path)) return { ok: false, reason: refusal };
-                if (!manual) readRefusalShown.add(activeFile.path);
-                return this.fail(refusal, 15000);
-            }
+            const refusal = readRefusal({ ...v2, twinTexts: undefined }, v2.name, 'not saved', 'Nothing was sent.');
+            if (refusal) return this.readRefused(activeFile, refusal, manual);
+            twins = v2.twinTexts ?? [];
             // A name the note holds as a property and again inside its own
             // x_properties: refused by name, never sent with one of the two picked.
             if (v2.ownConflicts) return this.fail(ownConflictMessage(v2.name, v2.ownConflicts), 15000);
@@ -483,10 +482,14 @@ export class SaveElementCommand {
         // Only a note marked as holding the world's group at this very number clears it by having none (an older plugin that renews the number leaves the mark behind).
         const groupHeld = knownSeq !== null && seqIndex[heldKey(elementUuid)] === knownSeq;
         let current: Record<string, unknown> | null = null;
+        const twinRefused = (open: string[]) => this.readRefused(
+            activeFile, readRefusal({ twinTexts: open }, String(label), 'not saved', 'Nothing was sent.')!, manual);
         try {
             current = await client.get(type, elementUuid);
         } catch (error) {
             const gone = this.isGone(error);
+            // No copy of the world's to settle a doubled key by: nothing is created from it.
+            if (twins.length && (gone || this.isNotFound(error))) return twinRefused(twins);
             if (gone || this.isNotFound(error)) {
                 try {
                     // A 404 is "never uploaded" or "deleted on the server". The
@@ -601,6 +604,21 @@ export class SaveElementCommand {
             return this.fail(`Could not save ${category}: ${msg}`, 10000);
         }
 
+        // A doubled key (an older plugin wrote both and its save left the property as it was): the world's copy settles it
+        // one way only. At the note's own change number, a property that still equals the world's value holds no edit, so
+        // the section is the edit. A property that differs proves nothing: it is also what every saved section edit left.
+        const settled: Record<string, unknown> = {};
+        if (twins.length) {
+            const held = parseRawFrontmatter(content) ?? {};
+            const atNumber = knownSeq !== null && changeSeqOf(current) === knownSeq;
+            for (const key of twins) {
+                const worlds = current?.[key];
+                if (atNumber && typeof worlds === 'string' && !twinTextsDiffer(held[key], undefined, worlds)) settled[key] = held[key];
+            }
+            const open = twins.filter((key) => !(key in settled));
+            if (open.length) return twinRefused(open);
+        }
+
         // A value that differs from the server's only by a backslash the
         // read took off a `###` or fence line (a note from before the escape
         // holds `\### x` as typed) keeps the server's value (the keeper's
@@ -667,7 +685,7 @@ export class SaveElementCommand {
             await this.recordSeqs(worldName, [elementUuid], changeSeqOf(saved), holdsGroup(payload));
             // The note's seven server keys follow the answer; the guard
             // above reads its own record.
-            await this.refreshServerFields(activeFile, saved, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0 || (plan.leftOutIds?.length ?? 0) > 0);
+            await this.refreshServerFields(activeFile, saved, content, worldName, elementUuid, category, v2.unresolvedLinks.length > 0 || v2.ambiguousLinks.length > 0 || (plan.leftOutIds?.length ?? 0) > 0, settled);
             // Sent without the check (no number recorded yet): said once per element.
             if (knownSeq === null && !unguardedShown.has(elementUuid)) {
                 unguardedShown.add(elementUuid);
@@ -1131,17 +1149,18 @@ export class SaveElementCommand {
      * so auto-sync does not save it again. Never fails the save: a write that
      * fails is logged, and the next Download writes them.
      */
-    private async refreshServerFields(file: TFile, body: unknown, sent: string, worldName: string, id: string, category: string, partial = false): Promise<void> {
+    private async refreshServerFields(file: TFile, body: unknown, sent: string, worldName: string, id: string, category: string, partial = false, settled: Record<string, unknown> = {}): Promise<void> {
         try {
             // The server's lines are replaced in the bytes the note holds at the write, never in an older read: text typed since
             // stays, and that note then differs from the world's render and is not marked.
+            const rewritten = (text: string) => withoutSettledTwins(carriesServerFields(body) ? withServerFieldLines(text, body) : text, settled);
             await this.app.vault.process(file, (current) => {
-                const next = carriesServerFields(body) ? withServerFieldLines(current, body) : current;
+                const next = rewritten(current);
                 if (next !== current) this.plugin.autoSync?.markSelfWrite(file.path);
                 return next;
             });
             // What the note holds when nothing was typed since the save read it: those bytes with the server's lines.
-            const unchanged = carriesServerFields(body) ? withServerFieldLines(sent, body) : sent;
+            const unchanged = rewritten(sent);
             // The note's mark (vault/note-mark-core.ts) claims the world holds these very bytes, so it is recorded only where the
             // pull's own render of the world's answer, made over the note as it is now, is the note byte for byte: a pull would
             // then write nothing the note lacks. A send can leave out what the note holds (a text property beside its section, a
@@ -1198,6 +1217,13 @@ export class SaveElementCommand {
             if (drawn.text === drawn.read || (drawn.read === unchanged && sameUpToLayout(drawn.text, drawn.read))) return noteMark(drawn.read);
         }
         return null;
+    }
+
+    /** A note its reader refuses: auto-sync says it once a session per note, the status bar still shows the error. */
+    private readRefused(file: TFile, reason: string, manual: boolean): SaveResult {
+        if (!manual && readRefusalShown.has(file.path)) return { ok: false, reason };
+        if (!manual) readRefusalShown.add(file.path);
+        return this.fail(reason, 15000);
     }
 
     /** Show the reason (the Notice the user always got) and report the failure. */

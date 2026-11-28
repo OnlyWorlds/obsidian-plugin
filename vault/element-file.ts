@@ -54,6 +54,7 @@ import {
 	noteStateOf,
 	withoutKnownOfLine,
 } from "../sync/known-of";
+import { valueMark } from "./note-mark-core";
 
 /**
  * Element file format (v2 / frontmatter).
@@ -210,7 +211,7 @@ export function readRefusal(
 	if (parsed.repeatedHeadings?.length) return repeatedHeadingMessage(label, parsed.repeatedHeadings, verdict, outcome);
 	if (parsed.twinTexts?.length) {
 		const one = parsed.twinTexts.length === 1;
-		const message = `${label} ${verdict}: ${parsed.twinTexts.join(", ")} ${one ? "is" : "are each"} both a property of the note and a ### section, with different text. Keep one of the two, then try again.`;
+		const message = `${label} ${verdict}: ${parsed.twinTexts.join(", ")} ${one ? "is" : "are each"} both a property of the note and a ### section, with different text. Earlier plugin versions sent the section. Keep one of the two, then try again.`;
 		return outcome ? `${message} ${outcome}` : message;
 	}
 	return null;
@@ -233,6 +234,27 @@ export function noteFence(
 		line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
 		heading: fence.swallows.trim(),
 	};
+}
+
+/**
+ * `content` without the property lines of the keys in `settled` (key -> the property as the save read it), each only while
+ * the property still reads as it did then: one typed over since stays. The note comes back unchanged when its lines cannot
+ * be told apart by key.
+ */
+export function withoutSettledTwins(content: string, settled: Record<string, unknown>): string {
+	if (Object.keys(settled).length === 0) return content;
+	const close = frontmatterClose(content);
+	const fm = parseRawFrontmatter(content);
+	if (!close || !fm) return content;
+	const drop = Object.keys(settled).filter((k) => Object.prototype.hasOwnProperty.call(fm, k) && valueMark(fm[k]) === valueMark(settled[k]));
+	if (drop.length === 0) return content;
+	const rest = content.slice(close.end);
+	const closing = /^\r?\n[^\n]*/.exec(rest)?.[0];
+	if (!closing) return content;
+	// A Windows closing line ends in `\r`, which the line editor's own read-back does not take: held aside and put back.
+	const cr = closing.endsWith("\r") ? "\r" : "";
+	const edited = editFrontmatterLines(content.slice(0, close.end) + closing.slice(0, closing.length - cr.length), drop, {}, {});
+	return edited === null ? content : edited + cr + rest.slice(closing.length);
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
