@@ -43,7 +43,14 @@ export class ChooseCopyModal extends Modal {
         const row = new Setting(contentEl)
             .addButton((b) => b.setButtonText('Keep the section').onClick(() => this.pick('section')));
         if (this.offers.includes('property')) row.addButton((b) => b.setButtonText('Keep the property').onClick(() => this.pick('property')));
-        row.addButton((b) => b.setButtonText('Cancel').onClick(() => this.pick('cancel')));
+        let cancel: HTMLButtonElement | undefined;
+        row.addButton((b) => {
+            b.setButtonText('Cancel').onClick(() => this.pick('cancel'));
+            cancel = b.buttonEl;
+        });
+        // Obsidian focuses the first button of an opened dialog, so a stray Enter (the one that ran the command, a person
+        // still typing) would pick a copy: the focus goes to Cancel, after Obsidian's own.
+        if (typeof window !== 'undefined') window.setTimeout(() => cancel?.focus(), 0);
         applyMobileModal(this);
     }
 
