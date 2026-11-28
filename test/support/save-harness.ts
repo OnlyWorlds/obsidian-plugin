@@ -7,7 +7,6 @@ import type { App, TFile } from "obsidian";
 import { makeApp, __notices, __modals, type MockVault } from "./obsidian-mock";
 import { SaveElementCommand } from "../../Commands/SaveElementCommand";
 import { V2ApiError } from "../../client-v2";
-import { recordChangeSeqs } from "../../vault/change-seq-index";
 
 export const HARNESS_WID = "019e0000-0000-7000-8000-0000000000ee";
 
@@ -18,8 +17,6 @@ export interface HarnessOpts {
 	/** Elements on the server: id -> its body. */
 	server?: Record<string, Record<string, unknown>>;
 	manual?: boolean;
-	/** Change numbers the vault has recorded, id -> number. */
-	seqs?: Record<string, number>;
 	/** The status keel answers for each /bulk item (default 201). */
 	bulkStatus?: (id: string) => number;
 	/** The plugin's stored deleted list for the world. */
@@ -53,7 +50,6 @@ export async function harnessSave(o: HarnessOpts) {
 		const path = rel.startsWith("~/") ? `OnlyWorlds/Worlds/W/${rel.slice(2)}` : `OnlyWorlds/Worlds/W/Elements/${rel}`;
 		files[rel] = (await vault.seed(path, c)) as unknown as TFile;
 	}
-	if (o.seqs) await recordChangeSeqs(app, "W", o.seqs);
 	const server = new Map(Object.entries(o.server ?? {}));
 	const calls: string[] = [];
 	const sent: Record<string, unknown>[] = [];
