@@ -1,7 +1,7 @@
 /**
- * #2443: a Save reads the note, then waits (the PIN, the client), then reads the change number it sends as If-Match. A pull that
+ * #2443: a Save read the note, then waited (the PIN, the client), then read the change number it sends as If-Match. A pull that
  * writes the note in that wait records a newer number; the save would pair the text it read before the pull with the pull's number,
- * pass the If-Match, and put the old text over what the pull brought. A save whose note changed since it was read sends nothing.
+ * pass the If-Match, and put the old text over what the pull brought. The numbers are now read before the text.
  */
 import "./support/obsidian-shim"; // MUST stay first: routes `obsidian` to the mock
 import { test } from "node:test";
@@ -17,7 +17,7 @@ const pullLands = async ({ app, vault, files }: { app: never; vault: { dotfiles:
 	vault.dotfiles.set(SEQ_FILE, JSON.stringify({ [ID]: 6 }));
 };
 
-test("★ a pull that lands while the save waits for its client: nothing is sent, and the note says why (red on 3.23.1: the old text went over the pull's)", async () => {
+test("★ a pull that lands while the save waits for its client: the save is refused as stale and nothing is sent (red on 3.23.1: the old text went over the pull's)", async () => {
 	const r = await harnessSave({
 		notes: { [NOTE]: note("old prose"), "~/.ow-seq.json": JSON.stringify({ [ID]: 5 }) },
 		save: NOTE,
@@ -25,11 +25,12 @@ test("★ a pull that lands while the save waits for its client: nothing is sent
 		beforeClient: pullLands as never,
 	});
 	assert.equal(r.sent.length, 0, "the old text was sent: " + JSON.stringify(r.sent));
-	assert.ok(r.notices.some((n) => /not saved: the note changed while it was being saved\. Nothing was sent\./.test(n)), r.notices.join(" | "));
+	assert.equal(r.result.ok, false, r.notices.join(" | "));
+	assert.ok(!(r.result as { local?: boolean }).local, "a refusal the status shows, never idle");
 	assert.ok((await r.vault.read(r.files[NOTE] as never)).includes("new prose from the world"), "the pull's text stays in the note");
 });
 
-test("the same wait in auto-sync: nothing is sent, no notice, the result is local (idle), not an error", async () => {
+test("the same wait in auto-sync: nothing is sent and the result is an error the status shows, with its notice", async () => {
 	const r = await harnessSave({
 		notes: { [NOTE]: note("old prose"), "~/.ow-seq.json": JSON.stringify({ [ID]: 5 }) },
 		save: NOTE,
@@ -38,9 +39,20 @@ test("the same wait in auto-sync: nothing is sent, no notice, the result is loca
 		beforeClient: pullLands as never,
 	});
 	assert.equal(r.sent.length, 0);
-	assert.equal(r.notices.length, 0, r.notices.join(" | "));
-	assert.deepEqual(r.result.ok, false);
-	assert.equal((r.result as { local?: boolean }).local, true);
+	assert.equal(r.result.ok, false);
+	assert.ok(!(r.result as { local?: boolean }).local);
+});
+
+test("★ the note typed into while the save waits for its client (Obsidian's own autosave): the save goes through with the newest text, never refused", async () => {
+	const r = await harnessSave({
+		notes: { [NOTE]: note("my edit"), "~/.ow-seq.json": JSON.stringify({ [ID]: 5 }) },
+		save: NOTE,
+		server: { [ID]: { name: "Ireena", description: "old prose", change_seq: 5 } },
+		beforeClient: (async ({ app, files }: { app: { vault: { modify(f: unknown, t: string): Promise<void> } }; files: Record<string, unknown> }) => {
+			await app.vault.modify(files[NOTE], note("my edit, and more"));
+		}) as never,
+	});
+	assert.equal(r.sent.length, 1, r.notices.join(" | "));
 });
 
 test("the control: no pull in the wait, the edited note is saved", async () => {
