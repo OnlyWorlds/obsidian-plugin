@@ -109,6 +109,19 @@ export function slugify(name: string, max = SLUG_MAX_LEN): string {
 		.replace(/-+$/g, "");
 }
 
+/**
+ * True when `id` can be part of one plain file name: not empty, not `.` or `..`, and holding no `/`, no `\` and no
+ * control character. A writer names a file from the id (spec §3.2), so any other id could name a path.
+ */
+export function isPlainFileId(id: string): boolean {
+	return id !== "" && id !== "." && id !== ".." && !/[/\\\u0000-\u001f\u007f]/.test(id);
+}
+
+/** True when the relative path `rel` could leave the folder it is written under: absolute, a drive, or a `.`, `..` or empty part. */
+export function escapesFolder(rel: string): boolean {
+	return /^[A-Za-z]:/.test(rel) || rel.split(/[/\\]/).some((part) => part === "" || part === "." || part === "..");
+}
+
 /** 8-char id tail: strip dashes, take the last 8 chars (spec §3.2). */
 export function idTail(id: string): string {
 	return id.replace(/-/g, "").slice(-8);
@@ -131,7 +144,8 @@ export function filenameFor(element: { id: string; name?: unknown }, fullId = fa
  * the cap stays at 60 so an existing export's folder keeps its name.
  */
 export function worldFolderName(worldName: string, worldId: string): string {
-	const head = worldId.replace(/-/g, "").slice(0, 8);
+	// Letters and digits only (a UUID has nothing else but its dashes): the id is read from a file in the vault.
+	const head = worldId.replace(/[^0-9a-zA-Z]/g, "").slice(0, 8);
 	const slug = slugify(worldName, 60);
 	return slug ? `${slug}-${head}` : `world-${head}`;
 }

@@ -24,6 +24,8 @@ import { LOCAL_WORLD_KEY_TOKEN } from "../vault/world-key-core";
 import {
 	worldFolderName,
 	planElementPaths,
+	isPlainFileId,
+	escapesFolder,
 	buildFolderElementBody,
 	folderServerFields,
 	wikilinksToOwMentions,
@@ -356,6 +358,14 @@ export class ExportFolderCommand {
 			elements.splice(elements.indexOf(el), 1);
 			byPath.delete(el.path);
 		}
+		// A file is named from the id (§3.2): one that could name a path is not written, by note.
+		for (const el of [...elements]) {
+			if (isPlainFileId(String(el.payload.id))) continue;
+			failed.push({ path: el.path, reason: "its id holds characters that cannot be part of a file name, so it is not exported" });
+			refusedPaths.add(el.path);
+			elements.splice(elements.indexOf(el), 1);
+			byPath.delete(el.path);
+		}
 		if (elements.length === 0) {
 			new Notice(`Export aborted — no readable elements in ${world}.`);
 			return null;
@@ -416,6 +426,9 @@ export class ExportFolderCommand {
 		const held = await readRecordsTree(this.app, worldRecordsRoot(world));
 		const records = held.length > 0 ? planRecords(held, opts.includePrivateRecords === true) : null;
 		if (records) planned.push(...records.files);
+		// The last wall, for every file of every kind: nothing is written that could land outside the export folder.
+		const outside = planned.find((f) => escapesFolder(f.rel));
+		if (outside) throw new Error(`${outside.rel} would be written outside the export folder, so nothing was exported`);
 		return { files: planned, failed, hidden, records };
 	}
 
