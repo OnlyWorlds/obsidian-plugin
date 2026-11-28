@@ -1,6 +1,6 @@
 import { App, Notice, TFile, normalizePath } from 'obsidian';
 import type OnlyWorldsPlugin from '../main';
-import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, readElement, readRefusal, renderElementNote } from '../vault/element-file';
+import { elementNoteType, likelyMisnamedMessage, noteIdIn, ownConflictMessage, parseRawFrontmatter, flushOpenEditors, readElement, readRefusal, renderElementNote, withOneCopy } from '../vault/element-file';
 import { LOCAL_WORLD_SYNC_MESSAGE, READ_ONLY_WORLD_MESSAGE, resolveWorldKey } from '../vault/world-key';
 import { categoryOfFolder, isNoteNameFor, sanitizeFileName, WorldService } from '../Scripts/WorldService';
 import { categoryFolderType, isUnderElements, mayBeElementNote } from '../vault/category-folder';
@@ -14,6 +14,8 @@ import { forgetDeleted, readDeletedOnServer, storedDeleted, type DeletedListClie
 import { HIDDEN_NOT_SAVED, LEFT_VIEW_NOT_SAVED, isHiddenId, isLeftViewId, isStubNote } from '../sync/hidden-on-server';
 import { KNOWN_OF_NOT_SAVED, LAST_KNOWN_NOT_SAVED, isLastKnownId } from '../sync/known-of';
 import { confirm } from '../Modals/ConfirmModal';
+import { chooseCopy } from '../Modals/ChooseCopyModal';
+import { keepCopy } from '../vault/kept-copy';
 
 // Define the structure for element data (adapt as needed based on actual fields)
 interface ElementData {
@@ -373,6 +375,12 @@ export class SaveElementCommand {
             // the status bar still shows the error (the fix round, item 1).
             const refusal = readRefusal(v2, v2.name, 'not saved', 'Nothing was sent.');
             if (refusal) {
+                // A key held twice is the one refusal Save element can mend, by asking the person; auto-sync never asks.
+                if (manual && v2.twinTexts && !readRefusal({ ...v2, twinTexts: undefined }, v2.name)) {
+                    const mended = await this.keepOneCopy(activeFile, content, v2.twinTexts, v2.name, worldName);
+                    if (mended !== true) return this.fail(mended, 15000);
+                    return this.saveOne(activeFile, opts);
+                }
                 if (!manual && readRefusalShown.has(activeFile.path)) return { ok: false, reason: refusal };
                 if (!manual) readRefusalShown.add(activeFile.path);
                 return this.fail(refusal, 15000);
@@ -1198,6 +1206,52 @@ export class SaveElementCommand {
             if (drawn.text === drawn.read || (drawn.read === unchanged && sameUpToLayout(drawn.text, drawn.read))) return noteMark(drawn.read);
         }
         return null;
+    }
+
+    /**
+     * Ask which copy of each doubled key to keep, then write the note once with the others gone. Nothing is written
+     * unless every key was answered, the note still holds the bytes the person was asked about, each repaired key reads
+     * back as the text they picked with every other field as before, and the whole note is in Kept edits/ first. True
+     * when the note was mended, else why it was left as it is.
+     */
+    private async keepOneCopy(file: TFile, content: string, keys: string[], name: string, worldName: string): Promise<true | string> {
+        const read = (text: string) => readElement(this.app, file, { content: text });
+        const before = await read(content);
+        const held = parseRawFrontmatter(content) ?? {};
+        if (!before) return `${name} not saved: the note could not be read. Nothing was changed.`;
+        let mended = content;
+        const expected: Record<string, unknown> = { ...before.fields };
+        for (const key of keys) {
+            const property = held[key];
+            const section = String(before.fields[key] ?? '');
+            const keep = await chooseCopy(this.app, { note: name, key, property, section });
+            if (keep === 'cancel') return `${name} not saved: no copy was chosen. Nothing was changed.`;
+            if (keep === 'property') expected[key] = property;
+            const next = withOneCopy(mended, key, keep);
+            if (next === null) return `${name} not saved: the plugin could not remove one copy of ${key} cleanly. Delete one by hand. Nothing was changed.`;
+            mended = next;
+        }
+        const after = await read(mended);
+        const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+        const clean = !!after && !after.twinTexts && !readRefusal(after, name)
+            && [...new Set([...Object.keys(expected), ...Object.keys(after.fields)])].every((k) => same(expected[k], after.fields[k]));
+        if (!clean) return `${name} not saved: removing one copy would change more than that field. Delete one by hand. Nothing was changed.`;
+        const changedMeanwhile = `${name} not saved: the note changed while you chose. Nothing was changed. Save again.`;
+        try {
+            await flushOpenEditors(this.app, file);
+            if ((await this.app.vault.read(file)) !== content) return changedMeanwhile;
+            await keepCopy(this.app, worldName, name, content, (path) => this.plugin.autoSync?.markSelfWrite(path));
+            let wrote = false;
+            await this.app.vault.process(file, (current) => {
+                wrote = current === content;
+                return wrote ? mended : current;
+            });
+            if (!wrote) return changedMeanwhile;
+        } catch (error) {
+            return `${name} not saved: the note could not be copied to Kept edits/ and rewritten (${error instanceof Error ? error.message : String(error)}).`;
+        }
+        new Notice(`The note as it was is kept whole in Kept edits/ in the world's folder.`, 8000);
+        return true;
     }
 
     /** Show the reason (the Notice the user always got) and report the failure. */

@@ -114,6 +114,7 @@ test("★ Save refuses the doubled note whose copies differ, with the word, and 
 	const r = await harnessSave({
 		notes: { "Character/Ireena.md": head("x_looks: Edited.\n") + "\n### Looks\n\nTall.\n" },
 		save: "Character/Ireena.md",
+		manual: false, // auto-sync refuses; Save element asks (twin-choice.test.ts)
 		server: { [ID]: { name: "Ireena", description: "A noble.", x_looks: "Tall.", change_seq: 5 } },
 	});
 	assert.equal(r.sent.length, 0, JSON.stringify(r.sent));

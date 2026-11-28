@@ -8,6 +8,7 @@ import {
 	bodyToFieldValues,
 	parseElementBody,
 	headingToFieldKey,
+	bodySpans,
 	readsAsCustomField,
 	isExtensionKey,
 	isUserCustomKey,
@@ -210,7 +211,7 @@ export function readRefusal(
 	if (parsed.repeatedHeadings?.length) return repeatedHeadingMessage(label, parsed.repeatedHeadings, verdict, outcome);
 	if (parsed.twinTexts?.length) {
 		const one = parsed.twinTexts.length === 1;
-		const message = `${label} ${verdict}: ${parsed.twinTexts.join(", ")} ${one ? "is" : "are each"} both a property of the note and a ### section, with different text. Keep one of the two, then try again.`;
+		const message = `${label} ${verdict}: ${parsed.twinTexts.join(", ")} ${one ? "is" : "are each"} both a property of the note and a ### section, with different text. Run Save element on the note to choose which to keep.`;
 		return outcome ? `${message} ${outcome}` : message;
 	}
 	return null;
@@ -233,6 +234,31 @@ export function noteFence(
 		line: content.slice(0, content.length - body.length).split("\n").length - 1 + fence.line,
 		heading: fence.swallows.trim(),
 	};
+}
+
+/**
+ * `content` holding the doubled `x_` key `key` once: `keep` "section" takes the property's lines out of the front matter,
+ * "property" takes its `###` section out of the body, text and all. Every other byte stays. Null when the one cannot be
+ * taken out cleanly (front matter whose lines cannot be told apart by key). The caller reads the result back before it
+ * writes it, and copies the note first.
+ */
+export function withOneCopy(content: string, key: string, keep: "section" | "property"): string | null {
+	if (keep === "property") {
+		const body = stripFrontmatter(content);
+		const spans = bodySpans(body);
+		const left = spans.filter((s) => s.heading === null || `x_${headingToFieldKey(s.heading)}` !== key);
+		if (left.length === spans.length) return null;
+		return content.slice(0, content.length - body.length) + left.map((s) => body.slice(s.start, s.end)).join("");
+	}
+	const close = frontmatterClose(content);
+	if (!close) return null;
+	const rest = content.slice(close.end);
+	const closing = /^\r?\n[^\n]*/.exec(rest)?.[0];
+	if (!closing) return null;
+	// A Windows closing line ends in `\r`, which the line editor's own read-back does not take: held aside and put back.
+	const cr = closing.endsWith("\r") ? "\r" : "";
+	const edited = editFrontmatterLines(content.slice(0, close.end) + closing.slice(0, closing.length - cr.length), [key], {}, {});
+	return edited === null ? null : edited + cr + rest.slice(closing.length);
 }
 
 /** Map a vault path to (worldName, category). Returns null if not an element. */
