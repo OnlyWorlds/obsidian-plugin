@@ -15,6 +15,7 @@ import {
 	typeFromFolderPath,
 	owMentionsToWikilinks,
 	isUuid,
+	textTooDeep,
 	type ElementRef,
 } from "../vault/folder-format";
 
@@ -108,7 +109,12 @@ export class ImportFolderCommand {
 		}
 		let worldMeta: Record<string, unknown>;
 		try {
-			worldMeta = JSON.parse(await this.app.vault.read(worldFile));
+			const text = await this.app.vault.read(worldFile);
+			if (textTooDeep(text)) {
+				new Notice("world.json nests more than 200 levels deep, so nothing was imported.", 8000);
+				return;
+			}
+			worldMeta = JSON.parse(text);
 		} catch (e) {
 			new Notice(`world.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
 			return;
@@ -168,7 +174,12 @@ export class ImportFolderCommand {
 		};
 		for (const file of elementFiles) {
 			try {
-				const json = JSON.parse(await this.app.vault.read(file)) as Record<string, unknown>;
+				const text = await this.app.vault.read(file);
+				if (textTooDeep(text)) {
+					failed.push({ path: file.path, reason: "nested more than 200 levels deep, so not read" });
+					continue;
+				}
+				const json = JSON.parse(text) as Record<string, unknown>;
 				// Fallback type from the file's place: elements/<type>/file, or a
 				// flat elements/<type>_<slug>.json. A declared
 				// `type` in the body wins (spec §4).
